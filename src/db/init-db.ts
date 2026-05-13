@@ -1,0 +1,53 @@
+import Database from 'better-sqlite3';
+
+export function initDb(db: Database.Database): void {
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS channels (
+      channel_id    TEXT PRIMARY KEY,
+      display_name  TEXT,
+      avatar_url    TEXT,
+      added_at      INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS signals (
+      video_id          TEXT PRIMARY KEY,
+      channel_id        TEXT REFERENCES channels(channel_id),
+      title             TEXT,
+      published_at      TEXT,
+      transcription     TEXT NOT NULL,
+      summary           TEXT,
+      overall_sentiment  INTEGER,
+      sentiment_label   TEXT,
+      created_at        INTEGER NOT NULL,
+      processed_at      INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS entity_mentions (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_video_id TEXT REFERENCES signals(video_id),
+      entity_name     TEXT,
+      entity_type     TEXT,
+      sentiment       TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS poll_runs (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      triggered_at     INTEGER NOT NULL,
+      status           TEXT NOT NULL,
+      new_signal_count INTEGER DEFAULT 0,
+      completed_at     INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS poll_run_progress (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      poll_run_id   INTEGER REFERENCES poll_runs(id),
+      channel_id    TEXT,
+      status        TEXT NOT NULL,
+      signals_found INTEGER DEFAULT 0,
+      updated_at    INTEGER NOT NULL
+    );
+  `);
+}
