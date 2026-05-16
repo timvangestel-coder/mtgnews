@@ -1,6 +1,8 @@
-import { parseArgs } from 'node:util';
 import { db } from './index';
 import { addChannel, listChannels, removeChannel } from './db/watchlist';
+import { pollChannel } from './poll';
+import { enqueuePollRun } from './poll-scheduler';
+import { workerProcessRun } from './poll-worker';
 
 function main() {
   const args = process.argv.slice(2);
@@ -10,9 +12,47 @@ function main() {
     case 'watchlist':
       handleWatchlist(subcommand, channelId);
       break;
+    case 'poll':
+      handlePoll(subcommand, channelId);
+      break;
     default:
-      console.error('Usage: tsx src/cli.ts watchlist <add|remove|list> [channel_id]');
+      console.error('Usage: tsx src/cli.ts <watchlist|poll> ...');
       process.exit(1);
+  }
+}
+
+async function handlePoll(subcommand: string | undefined, channelId: string | undefined) {
+  // no args -> multi-channel poll via queue+worker
+  if (!subcommand) {
+    try {
+      const runId = enqueuePollRun(db);
+      console.log(`Enqueued poll run ${runId}`);
+      await workerProcessRun(db, runId);
+      const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
+      console.log(`Poll run ${runId} complete: ${run.status}, ${run.new_signal_count} new signals`);
+    } catch (err) {
+      console.error(`Poll failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (subcommand !== '--channel' || !channelId) {
+    console.error('Usage: tsx src/cli.ts poll [--channel <channel_id>]');
+    process.exit(1);
+  }
+
+  try {
+    const result = await pollChannel(db, channelId);
+    console.log(`Poll complete for ${channelId}:`);
+    console.log(`  New signals: ${result.newSignals}`);
+    console.log(`  Skipped (duplicate): ${result.skippedDuplicates}`);
+    if (result.skippedNoCaptions.length > 0) {
+      console.log(`  Skipped (no captions): ${result.skippedNoCaptions.join(', ')}`);
+    }
+  } catch (err) {
+    console.error(`Poll failed: ${(err as Error).message}`);
+    process.exit(1);
   }
 }
 

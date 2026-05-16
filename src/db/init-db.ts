@@ -9,6 +9,7 @@ export function initDb(db: Database.Database): void {
       channel_id    TEXT PRIMARY KEY,
       display_name  TEXT,
       avatar_url    TEXT,
+      active        INTEGER DEFAULT 1,
       added_at      INTEGER NOT NULL
     );
 
@@ -50,4 +51,11 @@ export function initDb(db: Database.Database): void {
       updated_at    INTEGER NOT NULL
     );
   `);
+
+  // Migration: add missing columns for existing databases
+  const channelRows = db.pragma('table_info(channels)') as Array<{ name: string }>;
+  const channelCols = channelRows.map((r) => r.name);
+  if (!channelCols.includes('active')) {
+    db.exec('ALTER TABLE channels ADD COLUMN active INTEGER DEFAULT 1');
+  }
 }

@@ -5,23 +5,28 @@
   "description": "MTG News & Sentiment Scanner",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run && playwright test",
+    "test:watch": "vitest",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
-    "express": "^4.21.0",
     "ejs": "^3.1.10",
+    "express": "^4.21.0",
     "express-ejs-layouts": "^2.5.1",
     "node-cron": "^3.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/ejs": "^3.1.5",
     "@types/express": "^5.0.0",
     "@types/express-ejs-layouts": "^2.5.4",
     "@types/node": "^22.0.0",
     "@types/node-cron": "^3.0.11",
+    "@types/supertest": "^7.2.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

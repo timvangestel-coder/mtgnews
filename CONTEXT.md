@@ -15,6 +15,7 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 | **Sentiment** | An AI-generated sentiment assessment of a Signal. Two levels: **Overall** (single label for the entire Signal) and **Per-Entity** (sentiment labels for each MTG entity mentioned — cards, sets, players). |
 | **Entity** | An MTG-relevant concept mentioned in a Signal: a card name, set name, player name, format, etc. Extracted and scored by the LLM during sentiment analysis. |
 | **Poll** | A single execution of the scheduled ingestion cycle: fetch RSS feeds for all Channels, identify new videos, extract transcriptions, run LLM analysis, persist results. Runs once daily. |
+| **E2E Test** | End-to-end browser test using Playwright. Spins up the Express server against an in-memory SQLite DB seeded with fixture data. Tests client-side behavior (Alpine.js toggles, HTMX swaps, transcription expand/collapse) that supertest unit tests cannot verify. |
 
 ## Decisions
 
@@ -54,6 +55,14 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 - `yt-dlp` via Node.js child_process or wrapper
 - RSS parsing via standard XML parser
 - HTTP client for LM Studio OpenAI-compatible API
+- Vitest + supertest for backend unit/integration tests
+- Playwright for E2E browser tests (local only, in-memory SQLite fixture per suite)
+
+### E2E Testing Strategy
+- **Playwright** for browser-level tests: verifies Alpine.js toggle pills, HTMX fragment swaps, transcription expand/collapse, timestamp anchor scrolling
+- **In-memory SQLite fixture** spun up in test lifecycle hooks -> each suite gets fresh seeded DB + server on random port -> no shared state, no flaky tests
+- **Scope** (priority order): 1) Signal Viewer, 2) Signal Detail, 3) Admin Panel, 4) Run History
+- **Local only** for now; CI integration possible later
 
 ### Navigation Structure (Three Top-Level Pages)
 

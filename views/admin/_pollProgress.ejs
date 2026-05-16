@@ -1,0 +1,39 @@
+<div id="progress-widget" class="mb-6 p-4 bg-gray-50 rounded"
+  hx-get="/admin/poll/progress"
+  hx-trigger="every 3s"
+  hx-swap="outerHTML">
+  <% if (run && run.status === 'running') { %>
+    <h3 class="font-semibold mb-2">
+      Run #<%= run.id %> —
+      <span class="text-amber-600">running...</span>
+    </h3>
+    <div class="space-y-1">
+      <% progress.forEach(function(p) { %>
+        <div class="text-sm flex justify-between">
+          <span><%= p.display_name || p.channel_id %></span>
+          <span class="<%= p.status === 'done' ? 'text-green-600' : p.status === 'failed' ? 'text-red-600' : 'text-amber-600' %>">
+            <%= p.status %><%= p.signals_found > 0 ? ' (' + p.signals_found + ')' : '' %>
+          </span>
+        </div>
+      <% }); %>
+    </div>
+  <% } else if (run) { %>
+    <h3 class="font-semibold mb-2">
+      Run #<%= run.id %> —
+      <span class="<%= run.status === 'done' ? 'text-green-600' : 'text-red-600' %>"><%= run.status %></span>
+      <span class="text-gray-500 text-sm ml-2">(<%= run.new_signal_count %> new signals)</span>
+    </h3>
+    <div class="space-y-1">
+      <% progress.forEach(function(p) { %>
+        <div class="text-sm flex justify-between">
+          <span><%= p.display_name || p.channel_id %></span>
+          <span class="<%= p.status === 'done' ? 'text-green-600' : p.status === 'failed' ? 'text-red-600' : 'text-amber-600' %>">
+            <%= p.status %><%= p.signals_found > 0 ? ' (' + p.signals_found + ')' : '' %>
+          </span>
+        </div>
+      <% }); %>
+    </div>
+  <% } else { %>
+    <p class="text-gray-500">No poll runs yet.</p>
+  <% } %>
+</div>

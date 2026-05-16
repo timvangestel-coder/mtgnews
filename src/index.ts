@@ -14,5 +14,11 @@ initDb(db);
 
 console.log(`MTG News initialized. Database: ${DB_PATH}`);
 
+// Start HTTP server when run directly (e.g. npm run dev)
+if (require.main === module) {
+  const { createServer } = require('./server');
+  createServer();
+}
+
 export { db };
 export type { DatabaseType };

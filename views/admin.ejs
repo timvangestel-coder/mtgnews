@@ -1,0 +1,104 @@
+<h2 class="text-2xl font-bold mb-4">Admin Panel</h2>
+
+<!-- Run Poll Now -->
+<div class="mb-6">
+  <form action="/admin/poll/trigger" method="post">
+    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">
+      Run Poll Now
+    </button>
+  </form>
+</div>
+
+<!-- Live Progress Widget -->
+<div id="progress-widget" class="mb-6 p-4 bg-gray-50 rounded"
+  hx-get="/admin/poll/progress"
+  hx-trigger="every 3s"
+  hx-swap="outerHTML">
+  <% if (currentRun) { %>
+    <h3 class="font-semibold mb-2">
+      Run #<%= currentRun.id %> —
+      <% if (currentRun.status === 'running') { %>
+        <span class="text-amber-600">running...</span>
+      <% } else { %>
+        <span class="<%= currentRun.status === 'done' ? 'text-green-600' : 'text-red-600' %>"><%= currentRun.status %></span>
+      <% } %>
+    </h3>
+    <div class="space-y-1">
+      <% currentProgress.forEach(function(p) { %>
+        <div class="text-sm flex justify-between">
+          <span><%= p.display_name || p.channel_id %></span>
+          <span class="<%= p.status === 'done' ? 'text-green-600' : p.status === 'failed' ? 'text-red-600' : 'text-amber-600' %>">
+            <%= p.status %><%= p.signals_found > 0 ? ' (' + p.signals_found + ')' : '' %>
+          </span>
+        </div>
+      <% }); %>
+    </div>
+  <% } else { %>
+    <p class="text-gray-500">No active poll run.</p>
+  <% } %>
+</div>
+
+<!-- Add Channel -->
+<div class="mb-6">
+  <h3 class="text-xl font-semibold mb-2">Add Channel</h3>
+  <form action="/admin/channels/add" method="post" class="flex gap-2">
+    <input type="text" name="channel_id" placeholder="YouTube Channel ID (e.g. UCxxxx)"
+      class="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+    <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Add</button>
+  </form>
+</div>
+
+<!-- WatchList -->
+<div>
+  <h3 class="text-xl font-semibold mb-2">WatchList</h3>
+
+  <% if (channels && channels.length > 0) { %>
+    <div class="space-y-3">
+      <% channels.forEach(function(ch) { %>
+        <div class="flex items-center gap-4 p-3 bg-gray-50 rounded">
+          <!-- Avatar -->
+          <% if (ch.avatar_url) { %>
+            <img src="<%= ch.avatar_url %>" alt="" class="w-10 h-10 rounded-full" />
+          <% } else { %>
+            <div class="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center text-xs text-gray-600">
+              <%= (ch.display_name || ch.channel_id).charAt(0) %>
+            </div>
+          <% } %>
+
+          <!-- Info -->
+          <div class="flex-1">
+            <p class="font-medium"><%= ch.display_name || ch.channel_id %></p>
+            <p class="text-xs text-gray-500">
+              ID: <%= ch.channel_id %>
+              <% if (ch.last_poll_date) { %>
+                &middot; Last poll: <%= new Date(ch.last_poll_date).toLocaleString() %>
+              <% } else { %>
+                &middot; Never polled
+              <% } %>
+            </p>
+          </div>
+
+          <!-- Active Toggle -->
+          <form action="/admin/channels/toggle" method="post" class="flex items-center gap-2">
+            <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
+            <input type="hidden" name="active" value="<%= !ch.active %>" />
+            <label class="inline-flex items-center cursor-pointer">
+              <input type="checkbox" <%= ch.active ? 'checked' : '' %> class="sr-only peer" onchange="this.form.submit()" />
+              <div class="w-9 h-5 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+            <span class="text-xs text-gray-500"><%= ch.active ? 'Active' : 'Inactive' %></span>
+          </form>
+
+          <!-- Remove -->
+          <form action="/admin/channels/remove" method="post">
+            <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
+            <button type="submit" class="text-sm text-red-600 hover:text-red-800"
+              onclick="return confirm('Remove <%= ch.display_name || ch.channel_id %>?')">Remove</button>
+          </form>
+        </div>
+      <% }); %>
+    </div>
+  <% } else { %>
+    <p class="text-gray-500">No channels in WatchList. Add one above.</p>
+  <% } %>
+</div>
