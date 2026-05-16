@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb } from './db/init-db';
-import { parseRssFeed, discoverCandidates, RssCandidate } from './rss-discovery';
+import { parseRssFeed, discoverCandidates, resolveChannelId, RssCandidate } from './rss-discovery';
 
 function createTestDb() {
   const db = new Database(':memory:');
@@ -55,6 +55,56 @@ describe('rss-discovery', () => {
 
     it('throws for malformed XML', () => {
       expect(() => parseRssFeed('not xml at all <><>')).toThrow();
+    });
+  });
+
+  describe('resolveChannelId', () => {
+    it('returns raw UC ID as-is', async () => {
+      const result = await resolveChannelId('UCaBcDeFgHiJkLmNoPqRsTuVw');
+      expect(result).toBe('UCaBcDeFgHiJkLmNoPqRsTuVw');
+    });
+
+    it('extracts UC ID from /channel/UC... URL', async () => {
+      const result = await resolveChannelId(
+        'https://www.youtube.com/channel/UCaBcDeFgHiJkLmNoPqRsTuVw'
+      );
+      expect(result).toBe('UCaBcDeFgHiJkLmNoPqRsTuVw');
+    });
+
+    it('resolves @handle by fetching page HTML', async () => {
+      const mockHtml = `
+        <script>var ytInitialData = {
+          "header": {
+            "c4TabbedHeaderRenderer": {
+              "channelId": "UCTp-iVOtTrKau0skmfZlo5Q"
+            }
+          }
+        };</script>
+      `;
+
+      const result = await resolveChannelId('https://www.youtube.com/@SomeChannel', {
+        fetchPage: (url) => Promise.resolve(mockHtml),
+      });
+      expect(result).toBe('UCTp-iVOtTrKau0skmfZlo5Q');
+    });
+
+    it('resolves bare @handle', async () => {
+      const mockHtml = `
+        "browseId":"UCabcDEF1234567890abcd"
+      `;
+
+      const result = await resolveChannelId('@BareHandle', {
+        fetchPage: (url) => Promise.resolve(mockHtml),
+      });
+      expect(result).toBe('UCabcDEF1234567890abcd');
+    });
+
+    it('throws on missing browseId in page HTML', async () => {
+      await expect(
+        resolveChannelId('@NoIdChannel', {
+          fetchPage: (url) => Promise.resolve('<html><body>No channel data</body></html>'),
+        })
+      ).rejects.toThrow();
     });
   });
 
@@ -123,6 +173,62 @@ describe('rss-discovery', () => {
       });
 
       expect(candidates).toEqual([]);
+    });
+
+    it('filters out candidates older than lookback_days', async () => {
+      db.prepare('INSERT INTO channels (channel_id, added_at) VALUES (?, ?)').run('UC123', Date.now());
+
+      // Build XML with entries at different dates relative to "now"
+      const now = Date.now();
+      const recent = new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
+      const old = new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(); // 10 days ago
+
+      const xmlWithDates = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+  <entry>
+    <id>yt:video:recent_vid</id>
+    <link href="https://www.youtube.com/watch?v=recent_vid"/>
+    <title>Recent Video</title>
+    <published>${recent}</published>
+  </entry>
+  <entry>
+    <id>yt:video:old_vid</id>
+    <link href="https://www.youtube.com/watch?v=old_vid"/>
+    <title>Old Video</title>
+    <published>${old}</published>
+  </entry>
+</feed>`;
+
+      const candidates = await discoverCandidates(db, ['UC123'], {
+        fetchRss: () => Promise.resolve(xmlWithDates),
+        lookbackDays: 2,
+      });
+
+      // Only recent_vid (1 day old) should pass; old_vid (10 days) should be filtered
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0].video_id).toBe('recent_vid');
+    });
+
+    it('includes all candidates when lookbackDays is very large', async () => {
+      db.prepare('INSERT INTO channels (channel_id, added_at) VALUES (?, ?)').run('UC123', Date.now());
+
+      const candidates = await discoverCandidates(db, ['UC123'], {
+        fetchRss: () => Promise.resolve(SAMPLE_XML),
+        lookbackDays: 365,
+      });
+
+      expect(candidates).toHaveLength(2);
+    });
+
+    it('excludes all candidates when lookbackDays is 0', async () => {
+      db.prepare('INSERT INTO channels (channel_id, added_at) VALUES (?, ?)').run('UC123', Date.now());
+
+      const candidates = await discoverCandidates(db, ['UC123'], {
+        fetchRss: () => Promise.resolve(SAMPLE_XML),
+        lookbackDays: 0,
+      });
+
+      expect(candidates).toHaveLength(0);
     });
   });
 });

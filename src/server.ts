@@ -166,10 +166,20 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
 
   // admin: add channel
   app.post('/admin/channels/add', async (req, res) => {
-    const channelId = req.body.channel_id as string;
-    if (!channelId) {
+    const rawInput = req.body.channel_id as string;
+    if (!rawInput) {
       res.status(400).send('channel_id required');
       return;
+    }
+
+    // resolve handle/URL to UC ID
+    let channelId: string;
+    try {
+      const { resolveChannelId } = await import('./rss-discovery');
+      channelId = await resolveChannelId(rawInput);
+    } catch {
+      // if resolution fails, use input as-is (may already be UC ID)
+      channelId = rawInput;
     }
 
     // try to fetch channel info from RSS
@@ -214,7 +224,9 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
 
   // admin: trigger poll
   app.post('/admin/poll/trigger', (req, res) => {
-    const runId = enqueuePollRun(useDb);
+    const raw = req.body.lookback_days;
+    const lookbackDays = raw ? parseInt(raw as string, 10) : 2;
+    const runId = enqueuePollRun(useDb, lookbackDays);
     // run in background (non-blocking)
     import('./poll-worker').then(({ workerProcessRun }) => {
       workerProcessRun(useDb, runId).catch(console.error);

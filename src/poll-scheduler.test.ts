@@ -40,4 +40,18 @@ describe('poll-scheduler', () => {
 
     expect(id1).not.toBe(id2);
   });
+
+  it('stores lookback_days when provided', () => {
+    const runId = enqueuePollRun(db, 7);
+
+    const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
+    expect(run.lookback_days).toBe(7);
+  });
+
+  it('defaults lookback_days to 2 when not provided', () => {
+    const runId = enqueuePollRun(db);
+
+    const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
+    expect(run.lookback_days).toBe(2);
+  });
 });

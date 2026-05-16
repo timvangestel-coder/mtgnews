@@ -6,6 +6,7 @@ export interface PollRunRow {
   status: string;
   new_signal_count: number;
   completed_at: number | null;
+  lookback_days: number;
   channels_total: number;
   channels_done: number;
   channels_failed: number;
@@ -31,7 +32,7 @@ export function queryPollRuns(db: Database.Database, query: PollRunsQuery = {}):
   const total = db.prepare('SELECT COUNT(*) as c FROM poll_runs').get() as { c: number };
 
   const items = db.prepare(
-    `SELECT pr.id, pr.triggered_at, pr.status, pr.new_signal_count, pr.completed_at,
+    `SELECT pr.id, pr.triggered_at, pr.status, pr.new_signal_count, pr.completed_at, pr.lookback_days,
       (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id) as channels_total,
       (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'done') as channels_done,
       (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'failed') as channels_failed
@@ -45,7 +46,7 @@ export function queryPollRuns(db: Database.Database, query: PollRunsQuery = {}):
 
 export function getPollRunById(db: Database.Database, id: number): PollRunRow | null {
   const row = db.prepare(
-    `SELECT pr.id, pr.triggered_at, pr.status, pr.new_signal_count, pr.completed_at,
+    `SELECT pr.id, pr.triggered_at, pr.status, pr.new_signal_count, pr.completed_at, pr.lookback_days,
       (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id) as channels_total,
       (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'done') as channels_done,
       (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'failed') as channels_failed

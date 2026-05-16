@@ -12,6 +12,7 @@ export interface PollResult {
 export interface PollOptions {
   fetchRss?: (channelId: string) => Promise<string>;
   extractCaptions?: (videoId: string) => Promise<TranscriptionSegment[]>;
+  lookbackDays?: number;
 }
 
 export async function pollChannel(
@@ -28,6 +29,7 @@ export async function pollChannel(
   // step 1: discover new video candidates via RSS (duplicates already filtered)
   const candidates = await discoverCandidates(db, [channelId], {
     fetchRss: options.fetchRss,
+    lookbackDays: options.lookbackDays,
   } as DiscoveryOptions);
 
   // count duplicates: parse RSS raw to see total entries vs candidates

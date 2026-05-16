@@ -13,7 +13,7 @@ export function startScheduledPolling(database: Database.Database): void {
   _db = database;
   _disposable = cron.schedule('0 0 * * *', () => {
     if (_db) {
-      enqueuePollRun(_db);
+      enqueuePollRun(_db, 2);
     }
   });
 }

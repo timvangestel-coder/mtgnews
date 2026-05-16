@@ -11,31 +11,34 @@ function createTestDb() {
   return db;
 }
 
-const XML1 = `<?xml version="1.0" encoding="UTF-8"?>
+function makeXml(videoId: string, title: string, daysAgo: number) {
+  const published = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
   <entry>
-    <id>yt:video:v1</id>
-    <link href="https://www.youtube.com/watch?v=v1"/>
-    <title>Ch1 Video</title>
-    <published>2026-05-10T12:00:00Z</published>
+    <id>yt:video:${videoId}</id>
+    <link href="https://www.youtube.com/watch?v=${videoId}"/>
+    <title>${title}</title>
+    <published>${published}</published>
   </entry>
 </feed>`;
+}
 
-const XML2 = `<?xml version="1.0" encoding="UTF-8"?>
+function makeXmlMulti(entries: Array<{ videoId: string; title: string; daysAgo: number }>) {
+  const entryXml = entries.map(e => {
+    const published = new Date(Date.now() - e.daysAgo * 24 * 60 * 60 * 1000).toISOString();
+    return `  <entry>
+    <id>yt:video:${e.videoId}</id>
+    <link href="https://www.youtube.com/watch?v=${e.videoId}"/>
+    <title>${e.title}</title>
+    <published>${published}</published>
+  </entry>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
-  <entry>
-    <id>yt:video:v2</id>
-    <link href="https://www.youtube.com/watch?v=v2"/>
-    <title>Ch2 Video</title>
-    <published>2026-05-11T12:00:00Z</published>
-  </entry>
-  <entry>
-    <id>yt:video:v3</id>
-    <link href="https://www.youtube.com/watch?v=v3"/>
-    <title>Ch2 Video 2</title>
-    <published>2026-05-12T12:00:00Z</published>
-  </entry>
+${entryXml}
 </feed>`;
+}
 
 describe('poll integration: full multi-channel cycle', () => {
   let db: Database.Database;
@@ -61,8 +64,11 @@ describe('poll integration: full multi-channel cycle', () => {
     // worker processes
     await workerProcessRun(db, runId, {
       fetchRss: (channelId: string) => {
-        if (channelId === 'UC_A') return Promise.resolve(XML1);
-        if (channelId === 'UC_B') return Promise.resolve(XML2);
+        if (channelId === 'UC_A') return Promise.resolve(makeXml('v1', 'Ch1 Video', 1));
+        if (channelId === 'UC_B') return Promise.resolve(makeXmlMulti([
+          { videoId: 'v2', title: 'Ch2 Video', daysAgo: 1 },
+          { videoId: 'v3', title: 'Ch2 Video 2', daysAgo: 1 },
+        ]));
         return Promise.resolve('');
       },
       extractCaptions: () => Promise.resolve([{ text: 'seg', start: 0, end: 5 }]),
@@ -105,7 +111,10 @@ describe('poll integration: full multi-channel cycle', () => {
     await workerProcessRun(db, runId, {
       fetchRss: (channelId: string) => {
         if (channelId === 'UC_A') throw new Error('network error');
-        return Promise.resolve(XML2);
+        return Promise.resolve(makeXmlMulti([
+          { videoId: 'v2', title: 'Ch2 Video', daysAgo: 1 },
+          { videoId: 'v3', title: 'Ch2 Video 2', daysAgo: 1 },
+        ]));
       },
       extractCaptions: () => Promise.resolve([{ text: 'seg', start: 0, end: 5 }]),
     });

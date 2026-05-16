@@ -28,12 +28,12 @@ describe('poll-runs DB queries', () => {
       addChannel(db, 'UC2', 'Channel 2');
 
       // run 1 (older)
-      db.prepare("INSERT INTO poll_runs (triggered_at, status, new_signal_count, completed_at) VALUES (?, ?, ?, ?)").run(1000, 'done', 3, 2000);
+      db.prepare("INSERT INTO poll_runs (triggered_at, status, new_signal_count, completed_at, lookback_days) VALUES (?, ?, ?, ?, ?)").run(1000, 'done', 3, 2000, 3);
       db.prepare("INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)").run(1, 'UC1', 'done', 2, 1500);
       db.prepare("INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)").run(1, 'UC2', 'done', 1, 1600);
 
       // run 2 (newer)
-      db.prepare("INSERT INTO poll_runs (triggered_at, status, new_signal_count, completed_at) VALUES (?, ?, ?, ?)").run(3000, 'done', 1, 4000);
+      db.prepare("INSERT INTO poll_runs (triggered_at, status, new_signal_count, completed_at, lookback_days) VALUES (?, ?, ?, ?, ?)").run(3000, 'done', 1, 4000, 5);
       db.prepare("INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)").run(2, 'UC1', 'done', 1, 3500);
       db.prepare("INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)").run(2, 'UC2', 'failed', 0, 3600);
 
@@ -44,8 +44,10 @@ describe('poll-runs DB queries', () => {
       expect(result.items[0].channels_done).toBe(1);
       expect(result.items[0].channels_failed).toBe(1);
       expect(result.items[0].channels_total).toBe(2);
+      expect(result.items[0].lookback_days).toBe(5);
       expect(result.items[1].channels_done).toBe(2);
       expect(result.items[1].channels_failed).toBe(0);
+      expect(result.items[1].lookback_days).toBe(3);
     });
 
     it('respects pagination limit and offset', () => {
@@ -70,13 +72,14 @@ describe('poll-runs DB queries', () => {
       expect(getPollRunById(db, 999)).toBeNull();
     });
 
-    it('returns run with channel stats', () => {
+    it('returns run with channel stats and lookback_days', () => {
       const run = getPollRunById(db, 1);
       expect(run).not.toBeNull();
       expect(run!.id).toBe(1);
       expect(run!.status).toBe('done');
       expect(run!.new_signal_count).toBe(3);
       expect(run!.channels_done).toBe(2);
+      expect(run!.lookback_days).toBe(3);
     });
   });
 

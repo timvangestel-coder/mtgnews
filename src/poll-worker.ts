@@ -12,6 +12,12 @@ export async function workerProcessRun(
   runId: number,
   options: WorkerOptions = {}
 ): Promise<void> {
+  // read lookback_days from poll_runs row (defaults to 2 via DB column default)
+  const runRow = db.prepare(
+    'SELECT lookback_days FROM poll_runs WHERE id = ?'
+  ).get(runId) as { lookback_days: number | null } | undefined;
+  const lookbackDays = runRow?.lookback_days ?? 2;
+
   const channels = listActiveChannels(db);
   let totalNewSignals = 0;
 
@@ -20,6 +26,7 @@ export async function workerProcessRun(
       const result = await pollChannel(db, channel.channel_id, {
         fetchRss: options.fetchRss,
         extractCaptions: options.extractCaptions,
+        lookbackDays,
       } as PollOptions);
 
       totalNewSignals += result.newSignals;

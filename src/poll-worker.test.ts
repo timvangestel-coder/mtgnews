@@ -11,25 +11,18 @@ function createTestDb() {
   return db;
 }
 
-const XML_UC1 = `<?xml version="1.0" encoding="UTF-8"?>
+function makeXml(videoId: string, title: string, daysAgo: number) {
+  const published = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
   <entry>
-    <id>yt:video:vid_uc1</id>
-    <link href="https://www.youtube.com/watch?v=vid_uc1"/>
-    <title>UC1 Video</title>
-    <published>2026-05-10T12:00:00Z</published>
+    <id>yt:video:${videoId}</id>
+    <link href="https://www.youtube.com/watch?v=${videoId}"/>
+    <title>${title}</title>
+    <published>${published}</published>
   </entry>
 </feed>`;
-
-const XML_UC2 = `<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
-  <entry>
-    <id>yt:video:vid_uc2</id>
-    <link href="https://www.youtube.com/watch?v=vid_uc2"/>
-    <title>UC2 Video</title>
-    <published>2026-05-11T08:00:00Z</published>
-  </entry>
-</feed>`;
+}
 
 describe('poll-worker', () => {
   let db: Database.Database;
@@ -49,8 +42,8 @@ describe('poll-worker', () => {
 
     await workerProcessRun(db, runId, {
       fetchRss: (channelId: string) => {
-        if (channelId === 'UC1') return Promise.resolve(XML_UC1);
-        return Promise.resolve(XML_UC2);
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_uc1', 'UC1 Video', 1));
+        return Promise.resolve(makeXml('vid_uc2', 'UC2 Video', 1));
       },
       extractCaptions: () => Promise.resolve([{ text: 'hello', start: 0, end: 2 }]),
     } as WorkerOptions);
@@ -66,8 +59,8 @@ describe('poll-worker', () => {
 
     await workerProcessRun(db, runId, {
       fetchRss: (channelId: string) => {
-        if (channelId === 'UC1') return Promise.resolve(XML_UC1);
-        return Promise.resolve(XML_UC2);
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_uc1', 'UC1 Video', 1));
+        return Promise.resolve(makeXml('vid_uc2', 'UC2 Video', 1));
       },
       extractCaptions: () => Promise.resolve([{ text: 'x', start: 0, end: 1 }]),
     } as WorkerOptions);
@@ -90,7 +83,7 @@ describe('poll-worker', () => {
     await workerProcessRun(db, runId, {
       fetchRss: (channelId: string) => {
         if (channelId === 'UC1') throw new Error('RSS fetch failed');
-        return Promise.resolve(XML_UC2);
+        return Promise.resolve(makeXml('vid_uc2', 'UC2 Video', 1));
       },
       extractCaptions: () => Promise.resolve([{ text: 'x', start: 0, end: 1 }]),
     } as WorkerOptions);

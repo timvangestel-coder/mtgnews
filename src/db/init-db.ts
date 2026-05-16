@@ -58,4 +58,11 @@ export function initDb(db: Database.Database): void {
   if (!channelCols.includes('active')) {
     db.exec('ALTER TABLE channels ADD COLUMN active INTEGER DEFAULT 1');
   }
+
+  // Migration: add lookback_days to poll_runs
+  const pollRunRows = db.pragma('table_info(poll_runs)') as Array<{ name: string }>;
+  const pollRunCols = pollRunRows.map((r) => r.name);
+  if (!pollRunCols.includes('lookback_days')) {
+    db.exec('ALTER TABLE poll_runs ADD COLUMN lookback_days INTEGER DEFAULT 2');
+  }
 }

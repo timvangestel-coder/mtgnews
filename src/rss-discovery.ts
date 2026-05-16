@@ -14,6 +14,7 @@ export interface ChannelInfo {
 }
 
 const RSS_URL = 'https://www.youtube.com/feeds/videos.xml?channel_id=';
+const UC_ID_PATTERN = 'UC[A-Za-z0-9_-]{20,24}';
 
 export function parseRssFeed(xml: string): RssCandidate[] {
   if (!/<feed[^>]*>/.test(xml)) {
@@ -79,8 +80,68 @@ function fetchRssSync(channelId: string): Promise<string> {
   return fetchUrl(RSS_URL + channelId);
 }
 
+export interface ResolveChannelOptions {
+  fetchPage?: (url: string) => Promise<string>;
+}
+
+/**
+ * Resolve any YouTube channel identifier to a UC... browse ID.
+ * - Raw UC ID: returned as-is
+ * - /channel/UC... URL: extracted via regex
+ * - @handle or full URL: fetches page HTML and extracts browseId/channelId
+ */
+export async function resolveChannelId(
+  input: string,
+  options: ResolveChannelOptions = {}
+): Promise<string> {
+  // Case 1: raw UC ID
+  const rawUcMatch = input.trim().match(new RegExp(`^${UC_ID_PATTERN}$`));
+  if (rawUcMatch) {
+    return rawUcMatch[0];
+  }
+
+  // Case 2: /channel/UC... URL
+  const channelUrlMatch = new RegExp(`\\/channel\\/(${UC_ID_PATTERN})`).exec(input);
+  if (channelUrlMatch) {
+    return channelUrlMatch[1];
+  }
+
+  // Case 3: handle or URL — fetch page HTML and extract browseId
+  const fetchFn = options.fetchPage || fetchPageHtml;
+
+  // Build URL to fetch
+  let fetchUrl: string;
+  if (input.startsWith('http')) {
+    fetchUrl = input;
+  } else if (input.startsWith('@')) {
+    fetchUrl = `https://www.youtube.com/${input}`;
+  } else {
+    fetchUrl = `https://www.youtube.com/@${input}`;
+  }
+
+  const html = await fetchFn(fetchUrl);
+
+  // Try multiple patterns to extract UC ID from page HTML
+  const browseIdMatch = new RegExp(`"browseId":"(${UC_ID_PATTERN})"`).exec(html);
+  if (browseIdMatch) {
+    return browseIdMatch[1];
+  }
+
+  const channelIdMatch = new RegExp(`"channelId"\\s*:\\s*"(${UC_ID_PATTERN})"`).exec(html);
+  if (channelIdMatch) {
+    return channelIdMatch[1];
+  }
+
+  throw new Error(`Could not resolve channel ID from: ${input}`);
+}
+
+function fetchPageHtml(url: string): Promise<string> {
+  return fetchUrl(url);
+}
+
 export interface DiscoveryOptions {
   fetchRss?: (channelId: string) => Promise<string>;
+  lookbackDays?: number;
 }
 
 export async function discoverCandidates(
@@ -98,6 +159,11 @@ export async function discoverCandidates(
 
   const candidates: RssCandidate[] = [];
 
+  // compute cutoff timestamp for lookback filtering
+  const cutoffMs = options.lookbackDays != null
+    ? Date.now() - options.lookbackDays * 24 * 60 * 60 * 1000
+    : null;
+
   for (const channelId of channelIds) {
     try {
       const xml = await fetchFn(channelId);
@@ -105,9 +171,17 @@ export async function discoverCandidates(
 
       for (const entry of entries) {
         entry.channel_id = channelId;
-        if (!processedIds.has(entry.video_id)) {
-          candidates.push(entry);
+
+        // skip if already processed
+        if (processedIds.has(entry.video_id)) continue;
+
+        // skip if older than lookback window
+        if (cutoffMs != null) {
+          const publishedMs = new Date(entry.published_at).getTime();
+          if (publishedMs < cutoffMs) continue;
         }
+
+        candidates.push(entry);
       }
     } catch {
       // log & skip - graceful handling
