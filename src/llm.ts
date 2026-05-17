@@ -108,22 +108,75 @@ function clampScore(score: number): number {
   return Math.max(1, Math.min(5, Math.round(score)));
 }
 
-async function callLlm(endpoint: string, model: string, prompt: string): Promise<string> {
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+const MAX_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 1000;
+const FETCH_TIMEOUT_MS = 300_000; // 5 minutes
 
-  if (!response.ok) {
-    throw new Error(`LLM request failed: ${response.status} ${response.statusText}`);
+async function callLlmWithRetry(
+  endpoint: string,
+  model: string,
+  prompt: string,
+  callName: string,
+  videoId: string
+): Promise<string> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`LLM ${callName} HTTP ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error(`LLM ${callName} returned unexpected response structure`);
+      }
+
+      return data.choices[0].message.content;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // If aborted (timeout), do not retry
+      if (lastError.name === 'AbortError') {
+        throw new Error(`LLM ${callName} timed out after ${FETCH_TIMEOUT_MS / 1000}s for ${videoId}`);
+      }
+
+      // Only retry on transient network errors
+      const isTransient =
+        lastError.name === 'TypeError' ||
+        lastError.message.includes('fetch failed') ||
+        lastError.message.includes('ECONNRESET') ||
+        lastError.message.includes('ECONNREFUSED');
+
+      if (!isTransient || attempt >= MAX_RETRIES) {
+        break;
+      }
+
+      const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      console.warn(
+        `LLM ${callName} attempt ${attempt} failed for ${videoId}, retrying in ${delay}ms: ${lastError.message}`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
 
-  const data = await response.json();
-  return data.choices[0].message.content;
+  throw new Error(`LLM ${callName} failed after ${MAX_RETRIES + 1} attempt(s) for ${videoId}: ${lastError?.message}`);
 }
 
 export async function analyzeSignal(
@@ -141,19 +194,19 @@ export async function analyzeSignal(
     const transcriptionText = extractTranscriptionText(signal.transcription as string);
 
     // 1. Summary
-    const summaryContent = await callLlm(config.endpoint, config.model, buildSummaryPrompt(transcriptionText));
+    const summaryContent = await callLlmWithRetry(config.endpoint, config.model, buildSummaryPrompt(transcriptionText), 'summary', videoId);
     const summary: SummaryResponse = JSON.parse(summaryContent);
 
     const summaryDisplay = [summary.summary, ...summary.takeaways.map((t: any) => `${t.timestamp} ${t.text}`)].join('\n');
 
     // 2. Overall Sentiment
-    const sentimentContent = await callLlm(config.endpoint, config.model, buildSentimentPrompt(transcriptionText));
+    const sentimentContent = await callLlmWithRetry(config.endpoint, config.model, buildSentimentPrompt(transcriptionText), 'sentiment', videoId);
     const sentiment: SentimentResponse = JSON.parse(sentimentContent);
 
     const clampedScore = clampScore(sentiment.score);
 
     // 3. Per-Entity Sentiment
-    const entitiesContent = await callLlm(config.endpoint, config.model, buildEntityPrompt(transcriptionText));
+    const entitiesContent = await callLlmWithRetry(config.endpoint, config.model, buildEntityPrompt(transcriptionText), 'entities', videoId);
     const entities: EntityResponse[] = JSON.parse(entitiesContent);
 
     // Persist results

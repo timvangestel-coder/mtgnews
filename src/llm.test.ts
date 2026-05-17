@@ -275,5 +275,76 @@ describe('llm', () => {
       const signal = db.prepare('SELECT overall_sentiment FROM signals WHERE video_id = ?').get('v8');
       expect(signal.overall_sentiment).toBe(5); // clamped to max
     });
+
+    it('retries on transient network error (fetch failed) and succeeds on second attempt', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-retry', 'transcription text');
+
+      // First summary call fails with TypeError (transient network error)
+      mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'));
+      // Second summary call succeeds
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [] }) } }] }) as any });
+      // Sentiment call succeeds
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ score: 3, label: 'Neutral' }) } }] }) as any });
+      // Entities call succeeds
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify([]) } }] }) as any });
+
+      const result = await analyzeSignal(db, 'v-retry', config);
+
+      expect(result.success).toBe(true);
+      // 4 calls total: 1 failed summary + 1 retried summary + 1 sentiment + 1 entities
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+
+      const signal = db.prepare('SELECT summary FROM signals WHERE video_id = ?').get('v-retry');
+      expect(signal.summary).toContain('s');
+    });
+
+    it('exhausts retries and returns failure when all attempts fail', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-exhaust', 'transcription text');
+
+      // All calls fail with transient error
+      mockFetch.mockRejectedValue(new TypeError('fetch failed'));
+
+      const result = await analyzeSignal(db, 'v-exhaust', config);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('summary');
+      expect(result.error).toContain('fetch failed');
+      // 2 calls for summary (1 initial + 1 retry, MAX_RETRIES=2 means loop runs attempts 1 and 2)
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry on non-transient errors (malformed JSON)', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-no-retry', 'transcription text');
+
+      // LLM returns valid HTTP but content that causes JSON parse to fail downstream
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: 'not json' } }] }) as any });
+
+      const result = await analyzeSignal(db, 'v-no-retry', config);
+
+      expect(result.success).toBe(false);
+      // Only 1 call (no retry for non-transient JSON parse error)
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns descriptive error with call name when LLM response has unexpected structure', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-struct', 'transcription text');
+
+      // Empty choices array
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [] }) as any });
+
+      const result = await analyzeSignal(db, 'v-struct', config);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('summary');
+      expect(result.error).toContain('unexpected response structure');
+    });
   });
 });

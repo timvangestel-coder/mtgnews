@@ -129,6 +129,54 @@ mtg news today
       await expect(extractCaptions('bad-video')).rejects.toThrow('yt-dlp exited with code 1');
     });
 
+    it('merges overlapping paint-on segments from YouTube auto-captions', async () => {
+      // Real-world YouTube auto-caption pattern: overlapping segments where
+      // each segment is a superset of the previous one (paint-on effect)
+      const overlappingVtt = `WEBVTT
+
+00:00:04.150 --> 00:00:05.000
+Folks,
+
+00:00:04.160 --> 00:00:06.000
+Folks, welcome
+
+00:00:05.670 --> 00:00:08.140
+welcome back. My name is Rudy. You're
+
+00:00:05.680 --> 00:00:10.000
+welcome back. My name is Rudy. You're watching
+`;
+
+      mockSpawn.mockImplementation(() => {
+        const stream = {
+          stdout: {
+            on: () => stream,
+          },
+          stderr: {
+            on: () => stream,
+          },
+          on: (event: string, cb: (data: Buffer | number) => void) => {
+            if (event === 'close') cb(0);
+            return stream;
+          },
+        };
+        return stream as any;
+      });
+
+      mockReaddirSync.mockReturnValue(['mtgnews_sub_overlap123.en.vtt']);
+      mockReadFileSync.mockReturnValue(overlappingVtt);
+      mockUnlinkSync.mockReturnValue();
+
+      const segments = await extractCaptions('overlap123');
+
+      // 4 overlapping segments merge into 2, then "welcome" trimmed from segment 2
+      expect(segments).toHaveLength(2);
+      expect(segments[0].text).toBe('Folks, welcome');
+      expect(segments[0].start).toBe(4150);
+      expect(segments[1].text).toBe('back. My name is Rudy. You\'re watching');
+      expect(segments[1].start).toBe(5670);
+    });
+
     it('strips YouTube VTT markup tags from text', async () => {
       const vttWithMarkup = `WEBVTT
 
