@@ -9,6 +9,7 @@ import { querySignals } from './query';
 import { listChannels, addChannel, removeChannel, toggleChannelActive, getChannelLastPollDate } from './db/watchlist';
 import { getSignalById } from './signal-detail';
 import { injectTimestampAnchors, formatTranscriptionHtml } from './signal-detail';
+import { analyzeSignal, getLlmConfig } from './llm';
 import { queryPollRuns, getPollRunById, queryPollRunProgress } from './db/poll-runs';
 import { enqueuePollRun } from './poll-scheduler';
 import { fetchChannelInfo } from './rss-discovery';
@@ -103,7 +104,20 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
       channel,
       summaryHtml,
       transcriptionHtml,
+      error: req.query.error as string | undefined,
     });
+  });
+
+  // signal: summarize
+  app.post('/signals/:id/summarize', async (req, res) => {
+    const videoId = req.params.id;
+    const config = getLlmConfig();
+    const result = await analyzeSignal(useDb, videoId, config);
+    if (!result.success) {
+      res.redirect(`/signals/${videoId}?error=${encodeURIComponent(result.error || 'Summarization failed')}`);
+    } else {
+      res.redirect(`/signals/${videoId}`);
+    }
   });
 
   // polls / run history

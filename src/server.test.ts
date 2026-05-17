@@ -11,10 +11,23 @@ import { querySignals } from './query';
 import { getSignalById, injectTimestampAnchors, formatTranscriptionHtml } from './signal-detail';
 import { queryPollRuns, getPollRunById, queryPollRunProgress } from './db/poll-runs';
 import { enqueuePollRun } from './poll-scheduler';
+import { analyzeSignal, LlmConfig, getLlmConfig } from './llm';
 
 // Isolated in-memory DB for server tests
 let db: Database.Database;
 let app: { server: Server; close: () => Promise<void> };
+
+// Mock global fetch for LLM calls
+const mockFetch = vi.fn();
+const originalFetch = global.fetch;
+
+beforeAll(() => {
+  vi.stubGlobal('fetch', mockFetch);
+});
+
+afterAll(() => {
+  vi.stubGlobal('fetch', originalFetch);
+});
 
 function createTestServer(testDb: Database.Database) {
   const expressApp: Express = express();
@@ -69,6 +82,7 @@ function createTestServer(testDb: Database.Database) {
       channel,
       summaryHtml,
       transcriptionHtml,
+      error: req.query.error as string | undefined,
     });
   });
 
@@ -149,6 +163,18 @@ function createTestServer(testDb: Database.Database) {
   expressApp.post('/admin/poll/trigger', (_req, res) => {
     enqueuePollRun(testDb);
     res.redirect('/admin');
+  });
+
+  // signal: summarize
+  expressApp.post('/signals/:id/summarize', async (_req, res) => {
+    const videoId = _req.params.id;
+    const config = getLlmConfig();
+    const result = await analyzeSignal(testDb, videoId, config);
+    if (!result.success) {
+      res.redirect(`/signals/${videoId}?error=${encodeURIComponent(result.error || 'Summarization failed')}`);
+    } else {
+      res.redirect(`/signals/${videoId}`);
+    }
   });
 
   expressApp.get('/admin/poll/progress', (_req, res) => {
@@ -297,6 +323,79 @@ describe('Express server', () => {
     expect(resp.text).toContain('Signals');
   });
 
+  // -- Signal Summarize (Issue #25) --
+  describe('Signal Summarize', () => {
+    it('POST /signals/:id/summarize calls analyzeSignal and redirects on success', async () => {
+      const vid = `sum-${Date.now()}`;
+      addChannel(db, 'UCsum1', 'Sum Channel');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(vid, 'UCsum1', 'Summarize Me', '2026-05-01T10:00:00Z', '[]', Date.now());
+
+      const summaryJson = { summary: 'MTG video', takeaways: [{ text: 'Good content', timestamp: 'T:0' }] };
+      const sentimentJson = { score: 4, label: 'Positive' };
+      const entitiesJson = [];
+
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(summaryJson) } }] }) as any });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(sentimentJson) } }] }) as any });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(entitiesJson) } }] }) as any });
+
+      const resp = await request(app.server)
+        .post(`/signals/${vid}/summarize`)
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe(`/signals/${vid}`);
+
+      // verify signal was processed
+      const signal = db.prepare('SELECT summary, processed_at FROM signals WHERE video_id = ?').get(vid);
+      expect(signal.summary).toContain('MTG video');
+      expect(signal.processed_at).toBeDefined();
+    });
+
+    it('POST /signals/:id/summarize redirects with error on LLM failure', async () => {
+      const vid = `sumerr-${Date.now()}`;
+      addChannel(db, 'UCsumerr', 'SumErr Channel');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(vid, 'UCsumerr', 'Will Fail', '2026-05-01T10:00:00Z', '[]', Date.now());
+
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 } as any);
+
+      const resp = await request(app.server)
+        .post(`/signals/${vid}/summarize`)
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toContain(`/signals/${vid}`);
+      expect(resp.header.location).toContain('error=');
+
+      // signal NOT processed
+      const signal = db.prepare('SELECT summary, processed_at FROM signals WHERE video_id = ?').get(vid);
+      expect(signal.summary).toBeNull();
+      expect(signal.processed_at).toBeNull();
+    });
+
+    it('POST /signals/:id/summarize returns 404 for nonexistent signal', async () => {
+      mockFetch.mockReset();
+
+      const resp = await request(app.server)
+        .post('/signals/nonexistent-abc123/summarize')
+        .type('form')
+        .send({});
+
+      // analyzeSignal returns success:false -> redirect with error
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toContain('error=');
+    });
+  });
+
   // -- Signal Detail (Issue #12) --
   describe('Signal Detail', () => {
     it('GET /signals/:id displays header with title, channel badge, and published date', async () => {
@@ -382,6 +481,49 @@ describe('Express server', () => {
     it('returns 404 for nonexistent signal id', async () => {
       const resp = await request(app.server).get('/signals/nonexistent-signal');
       expect(resp.status).toBe(404);
+    });
+
+    it('shows Summarize button when processed_at is NULL', async () => {
+      const vid = `sumbtn-${Date.now()}`;
+      addChannel(db, 'UCbtn1', 'Button Channel');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(vid, 'UCbtn1', 'Unprocessed Signal', '2026-05-01T10:00:00Z', '[]', Date.now());
+
+      const resp = await request(app.server).get(`/signals/${vid}`);
+      expect(resp.status).toBe(200);
+      expect(resp.text).toContain('Summarize');
+      expect(resp.text).toContain(`action="/signals/${vid}/summarize"`);
+    });
+
+    it('hides Summarize button when processed_at is set', async () => {
+      const vid = `sumbtn2-${Date.now()}`;
+      addChannel(db, 'UCbtn2', 'Processed Channel');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, processed_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(vid, 'UCbtn2', 'Processed Signal', '2026-05-01T10:00:00Z', '[]', 'Already summarized', Date.now(), Date.now());
+
+      const resp = await request(app.server).get(`/signals/${vid}`);
+      expect(resp.status).toBe(200);
+      expect(resp.text).not.toContain(`action="/signals/${vid}/summarize"`);
+    });
+
+    it('shows error message when redirected with error param', async () => {
+      const resp = await request(app.server).get('/signals/some-id?error=test+failure');
+      // Page may 404 if signal doesn't exist, but error flash should render if page loads
+      // Test with a real signal
+      const vid = `sumerr2-${Date.now()}`;
+      addChannel(db, 'UCbtnerr', 'Error Channel');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(vid, 'UCbtnerr', 'Error Signal', '2026-05-01T10:00:00Z', '[]', Date.now());
+
+      const resp2 = await request(app.server).get(`/signals/${vid}?error=test+failure`);
+      expect(resp2.status).toBe(200);
+      expect(resp2.text).toContain('test failure');
     });
   });
 
