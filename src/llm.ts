@@ -5,6 +5,16 @@ export interface LlmConfig {
   model: string;
 }
 
+const DEFAULT_ENDPOINT = 'http://127.0.0.1:1234/v1/chat/completions';
+const DEFAULT_MODEL = 'qwen/qwen3.6-27b';
+
+export function getLlmConfig(): LlmConfig {
+  return {
+    endpoint: process.env.LLM_ENDPOINT || DEFAULT_ENDPOINT,
+    model: process.env.LLM_MODEL || DEFAULT_MODEL,
+  };
+}
+
 export interface AnalysisResult {
   success: boolean;
   error?: string;

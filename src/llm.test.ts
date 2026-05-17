@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDb } from './db/init-db';
-import { analyzeSignal, LlmConfig } from './llm';
+import { analyzeSignal, LlmConfig, getLlmConfig } from './llm';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -53,6 +53,42 @@ function mockLlmError(options?: { times?: number }) {
 }
 
 describe('llm', () => {
+  describe('getLlmConfig', () => {
+    it('reads LLM_ENDPOINT and LLM_MODEL from process.env', () => {
+      const originalEndpoint = process.env.LLM_ENDPOINT;
+      const originalModel = process.env.LLM_MODEL;
+
+      process.env.LLM_ENDPOINT = 'http://custom:9999/v1/chat/completions';
+      process.env.LLM_MODEL = 'custom/model';
+
+      const config = getLlmConfig();
+
+      expect(config.endpoint).toBe('http://custom:9999/v1/chat/completions');
+      expect(config.model).toBe('custom/model');
+
+      // Restore
+      process.env.LLM_ENDPOINT = originalEndpoint;
+      process.env.LLM_MODEL = originalModel;
+    });
+
+    it('returns defaults when env vars are unset', () => {
+      const originalEndpoint = process.env.LLM_ENDPOINT;
+      const originalModel = process.env.LLM_MODEL;
+
+      delete process.env.LLM_ENDPOINT;
+      delete process.env.LLM_MODEL;
+
+      const config = getLlmConfig();
+
+      expect(config.endpoint).toBe('http://127.0.0.1:1234/v1/chat/completions');
+      expect(config.model).toBe('qwen/qwen3.6-27b');
+
+      // Restore
+      if (originalEndpoint !== undefined) process.env.LLM_ENDPOINT = originalEndpoint;
+      if (originalModel !== undefined) process.env.LLM_MODEL = originalModel;
+    });
+  });
+
   const config: LlmConfig = {
     endpoint: 'http://127.0.0.1:1234/v1/chat/completions',
     model: 'qwen/qwen3.6-27b',

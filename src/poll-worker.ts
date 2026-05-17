@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { listActiveChannels } from './db/watchlist';
 import { pollChannel, PollOptions } from './poll';
+import { analyzeSignal, getLlmConfig } from './llm';
 
 export interface WorkerOptions {
   fetchRss?: (channelId: string) => Promise<string>;
@@ -21,6 +22,8 @@ export async function workerProcessRun(
   const channels = listActiveChannels(db);
   let totalNewSignals = 0;
 
+  const llmConfig = getLlmConfig();
+
   for (const channel of channels) {
     try {
       const result = await pollChannel(db, channel.channel_id, {
@@ -30,6 +33,22 @@ export async function workerProcessRun(
       } as PollOptions);
 
       totalNewSignals += result.newSignals;
+
+      // Issue #24: auto-summarize new signals (processed_at IS NULL)
+      if (result.newSignals > 0) {
+        const newSignals = db.prepare(
+          'SELECT video_id FROM signals WHERE channel_id = ? AND processed_at IS NULL'
+        ).all(channel.channel_id) as { video_id: string }[];
+
+        for (const signal of newSignals) {
+          try {
+            await analyzeSignal(db, signal.video_id, llmConfig);
+          } catch (err) {
+            console.error(`analyzeSignal failed for ${signal.video_id}: ${(err as Error).message}`);
+            // skip, continue
+          }
+        }
+      }
 
       db.prepare(
         'INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)'

@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
 import { enqueuePollRun } from './poll-scheduler';
 import { workerProcessRun } from './poll-worker';
+import * as llm from './llm';
 
 function createTestDb() {
   const db = new Database(':memory:');
@@ -47,6 +48,16 @@ describe('poll integration: full multi-channel cycle', () => {
     db = createTestDb();
     addChannel(db, 'UC_A', 'Channel A');
     addChannel(db, 'UC_B', 'Channel B');
+    vi.spyOn(llm, 'analyzeSignal').mockImplementation(
+      (database, videoId) => {
+        database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);
+        return Promise.resolve({ success: true });
+      }
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   afterAll(() => {

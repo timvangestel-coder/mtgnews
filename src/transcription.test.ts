@@ -1,29 +1,61 @@
-import { afterAll, describe, expect, it, vi } from 'vitest';
-import { spawn } from 'child_process';
+import { describe, expect, it, vi, beforeEach, afterAll } from 'vitest';
 import { extractCaptions, TranscriptionSegment } from './transcription';
 
-// Mock child_process.spawn
+// Use vi.hoisted() so mocks are available in hoisted vi.mock factories
+const { mockSpawn, mockReaddirSync, mockReadFileSync, mockUnlinkSync, mockTmpdir, mockJoin } = vi.hoisted(() => {
+  return {
+    mockSpawn: vi.fn(),
+    mockReaddirSync: vi.fn(),
+    mockReadFileSync: vi.fn(),
+    mockUnlinkSync: vi.fn(),
+    mockTmpdir: vi.fn(() => '/tmp'),
+    mockJoin: (...args: string[]) => args.join('/'),
+  };
+});
+
+// Mock modules (hoisted, must use vi.hoisted() mocks above)
 vi.mock('child_process', () => ({
-  spawn: vi.fn(),
+  spawn: mockSpawn,
+}));
+
+vi.mock('fs', () => ({
+  readdirSync: mockReaddirSync,
+  readFileSync: mockReadFileSync,
+  unlinkSync: mockUnlinkSync,
+}));
+
+vi.mock('os', () => ({
+  tmpdir: mockTmpdir,
+}));
+
+vi.mock('path', () => ({
+  join: mockJoin,
 }));
 
 describe('transcription', () => {
   describe('extractCaptions', () => {
-    it('parses caption segments from yt-dlp JSON output', async () => {
-      vi.mocked(spawn).mockImplementation(() => {
+    const sampleVtt = `WEBVTT
+
+00:00:00.000 --> 00:00:02.500
+hello world
+
+00:00:02.500 --> 00:00:05.000
+mtg news today
+`;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    afterAll(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('parses caption segments from VTT subtitle file', async () => {
+      mockSpawn.mockImplementation(() => {
         const stream = {
           stdout: {
-            on: (event: string, cb: (data: Buffer) => void) => {
-              if (event === 'data') {
-                cb(
-                  Buffer.from(
-                    JSON.stringify({ text: 'hello world', start: 0.0, end: 2.5 }) + '\n' +
-                    JSON.stringify({ text: 'mtg news today', start: 2.5, end: 5.0 }) + '\n'
-                  )
-                );
-              }
-              return stream;
-            },
+            on: () => stream,
           },
           stderr: {
             on: () => stream,
@@ -35,21 +67,28 @@ describe('transcription', () => {
         };
         return stream as any;
       });
+
+      // Mock fs: yt-dlp wrote a VTT file to temp dir
+      mockReaddirSync.mockReturnValue(['mtgnews_sub_dQw4w9WgXcQ.en.vtt']);
+      mockReadFileSync.mockReturnValue(sampleVtt);
+      mockUnlinkSync.mockReturnValue();
 
       const segments = await extractCaptions('dQw4w9WgXcQ');
 
       expect(segments).toHaveLength(2);
-      expect(segments[0]).toEqual({ text: 'hello world', start: 0.0, end: 2.5 });
-      expect(segments[1]).toEqual({ text: 'mtg news today', start: 2.5, end: 5.0 });
+      expect(segments[0].text).toBe('hello world');
+      expect(segments[0].start).toBe(0);
+      expect(segments[0].end).toBe(2500);
+      expect(segments[1].text).toBe('mtg news today');
+      expect(segments[1].start).toBe(2500);
+      expect(segments[1].end).toBe(5000);
     });
 
-    it('returns empty array when no captions available', async () => {
-      vi.mocked(spawn).mockImplementation(() => {
+    it('rejects when no subtitle file found', async () => {
+      mockSpawn.mockImplementation(() => {
         const stream = {
           stdout: {
-            on: (event: string, cb: (data: Buffer) => void) => {
-              return stream;
-            },
+            on: () => stream,
           },
           stderr: {
             on: () => stream,
@@ -62,12 +101,15 @@ describe('transcription', () => {
         return stream as any;
       });
 
-      const segments = await extractCaptions('no-caps-video');
-      expect(segments).toEqual([]);
+      // Mock fs: no subtitle file found
+      mockReaddirSync.mockReturnValue([]);
+      mockReadFileSync.mockReturnValue('');
+
+      await expect(extractCaptions('no-caps-video')).rejects.toThrow('No vtt subtitle file found');
     });
 
     it('rejects when yt-dlp exits with error code', async () => {
-      vi.mocked(spawn).mockImplementation(() => {
+      mockSpawn.mockImplementation(() => {
         const stream = {
           stdout: {
             on: () => stream,
@@ -84,7 +126,41 @@ describe('transcription', () => {
         return stream as any;
       });
 
-      await expect(extractCaptions('bad-video')).rejects.toThrow();
+      await expect(extractCaptions('bad-video')).rejects.toThrow('yt-dlp exited with code 1');
+    });
+
+    it('strips YouTube VTT markup tags from text', async () => {
+      const vttWithMarkup = `WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+welcome<c> back</c><00:00:01.500> to the show
+`;
+
+      mockSpawn.mockImplementation(() => {
+        const stream = {
+          stdout: {
+            on: () => stream,
+          },
+          stderr: {
+            on: () => stream,
+          },
+          on: (event: string, cb: (data: Buffer | number) => void) => {
+            if (event === 'close') cb(0);
+            return stream;
+          },
+        };
+        return stream as any;
+      });
+
+      mockReaddirSync.mockReturnValue(['mtgnews_sub_test123.en.vtt']);
+      mockReadFileSync.mockReturnValue(vttWithMarkup);
+      mockUnlinkSync.mockReturnValue();
+
+      const segments = await extractCaptions('test123');
+
+      // <c> back</c> is a YouTube styling tag, not text content — it gets stripped
+      expect(segments).toHaveLength(1);
+      expect(segments[0].text).toBe('welcome to the show');
     });
   });
 });

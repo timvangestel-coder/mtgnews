@@ -4,6 +4,7 @@ import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
 import { enqueuePollRun } from './poll-scheduler';
 import { workerProcessRun, WorkerOptions } from './poll-worker';
+import * as llm from './llm';
 
 function createTestDb() {
   const db = new Database(':memory:');
@@ -26,11 +27,23 @@ function makeXml(videoId: string, title: string, daysAgo: number) {
 
 describe('poll-worker', () => {
   let db: Database.Database;
+  let mockAnalyze: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     db = createTestDb();
     addChannel(db, 'UC1', 'Channel 1');
     addChannel(db, 'UC2', 'Channel 2');
+    // Default: analyzeSignal sets processed_at (simulates success)
+    mockAnalyze = vi.spyOn(llm, 'analyzeSignal').mockImplementation(
+      (database, videoId) => {
+        database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);
+        return Promise.resolve({ success: true });
+      }
+    );
+  });
+
+  afterEach(() => {
+    mockAnalyze.mockRestore();
   });
 
   afterAll(() => {
@@ -109,5 +122,63 @@ describe('poll-worker', () => {
     const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
     expect(run.status).toBe('done');
     expect(run.new_signal_count).toBe(0);
+  });
+
+  // Issue #24: Auto-summarize new signals
+  it('summarizes new signals via analyzeSignal after pollChannel', async () => {
+    const runId = enqueuePollRun(db);
+
+    await workerProcessRun(db, runId, {
+      fetchRss: (channelId: string) => {
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_sum1', 'Sum Video', 1));
+        return Promise.resolve(makeXml('vid_sum2', 'Sum Video 2', 1));
+      },
+      extractCaptions: () => Promise.resolve([{ text: 'mtg talk', start: 0, end: 5 }]),
+    } as WorkerOptions);
+
+    // 2 signals created -> 2 analyzeSignal calls
+    expect(mockAnalyze).toHaveBeenCalledTimes(2);
+    expect(mockAnalyze.mock.calls[0][1]).toBe('vid_sum1');
+    expect(mockAnalyze.mock.calls[1][1]).toBe('vid_sum2');
+
+    // signals now processed
+    const unprocessed = db.prepare('SELECT COUNT(*) as c FROM signals WHERE processed_at IS NULL').get();
+    expect((unprocessed as any).c).toBe(0);
+  });
+
+  it('skips signal on analyzeSignal failure, continues poll run', async () => {
+    // Override default mock: first succeeds (sets processed_at), second throws
+    mockAnalyze.mockImplementation((database, videoId) => {
+      if (videoId === 'vid_err1') {
+        database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);
+        return Promise.resolve({ success: true });
+      }
+      return Promise.reject(new Error('LLM timeout'));
+    });
+
+    const runId = enqueuePollRun(db);
+
+    await workerProcessRun(db, runId, {
+      fetchRss: (channelId: string) => {
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_err1', 'Err Video', 1));
+        return Promise.resolve(makeXml('vid_err2', 'Err Video 2', 1));
+      },
+      extractCaptions: () => Promise.resolve([{ text: 'mtg talk', start: 0, end: 5 }]),
+    } as WorkerOptions);
+
+    // Both signals created, both analyzed attempted
+    expect(mockAnalyze).toHaveBeenCalledTimes(2);
+
+    // Run still done
+    const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
+    expect(run.status).toBe('done');
+    expect(run.new_signal_count).toBe(2);
+
+    // Failed signal remains unprocessed (processed_at IS NULL)
+    const unprocessed = db.prepare(
+      'SELECT video_id FROM signals WHERE processed_at IS NULL'
+    ).all() as { video_id: string }[];
+    expect(unprocessed).toHaveLength(1);
+    expect(unprocessed[0].video_id).toBe('vid_err2');
   });
 });
