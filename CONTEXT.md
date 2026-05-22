@@ -40,7 +40,11 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 - **Scheduled polling** also creates `PollRun` entries — triggers once daily via `node-cron` or equivalent, runs the same worker path as manual trigger (single source of truth).
 
 ### Data Model — Transcription Storage
-- Captions from yt-dlp include per-segment timing. Store transcription as a **JSON blob in a SQLite TEXT column** (`TEXT NOT NULL`) containing an array of `{text: string, start: number, end: number}` objects. One JSON blob per Signal — sufficient given no ad-hoc segment-level queries are needed. Timestamp anchor links are generated server-side using `start` offsets to produce `[T:ss]` references in summaries that link to `<span id="t-ss">` anchors in the displayed transcription.
+- Captions from yt-dlp include per-segment timing. Store transcription as a **JSON blob in a SQLite TEXT column** (`TEXT NOT NULL`) containing an array of `{time: number, text: string}` objects. The `time` field is the group start timestamp in milliseconds, rounded to the nearest second. One JSON blob per Signal.
+- **YouTube caption deduplication:** YouTube auto-captions produce overlapping "paint-on" segments (contiguous pairs where text is a superset) plus word-level overlap at segment boundaries. `mergeOverlappingSegments()` performs two-phase cleanup: (1) merge contiguous superset segments, (2) trim overlapping leading words at segment boundaries.
+- **Transcription grouping:** After merging, raw segments are grouped into ~10-second windows. Segments within the same 10-second window are concatenated into a single group with one `time` value (the rounded start of the first segment in the group). Grouping happens at ingestion time; the grouped result is stored in the DB, raw segments are discarded.
+- **Timestamp display:** Transcription is rendered with `[MM:SS]` format, one timestamp per group. Anchor IDs use the group's `time` value in milliseconds (e.g., `id="t-45000"`).
+- **LLM summary timestamps:** The LLM receives the grouped transcription with `[T:ss]` timestamp references (one per ~10-second group). Since the LLM sees the same grouped data stored in the DB, its `[T:ss]` references map directly to stored group timestamps. `injectTimestampAnchors()` converts these to `[MM:SS]` display labels and millisecond anchor IDs (e.g., `[T:45]` → `[00:45]` linking to `#t-45000`).
 
 ### Schedule
 - **Once daily** polling interval (triggered by cron-like scheduler, same code path as manual poll trigger).
@@ -60,17 +64,18 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 - Playwright for E2E browser tests (local only, in-memory SQLite fixture per suite)
 
 ### E2E Testing Strategy
-- **Playwright** for browser-level tests: verifies Alpine.js toggle pills, HTMX fragment swaps, transcription expand/collapse, timestamp anchor scrolling
+- **Playwright** for browser-level tests: verifies Alpine.js toggle pills, HTMX fragment swaps, Signal Detail three-state layout transitions, bidirectional timestamp scrolling
 - **In-memory SQLite fixture** spun up in test lifecycle hooks -> each suite gets fresh seeded DB + server on random port -> no shared state, no flaky tests
 - **Scope** (priority order): 1) Signal Viewer, 2) Signal Detail, 3) Admin Panel, 4) Run History
 - **Local only** for now; CI integration possible later
+- **DOM-Only Assertions:** E2E tests must verify behavior through observable DOM state (visibility, CSS classes, text content, scroll position) — never through framework component state (`Alpine.$data()`, HTMX internals, etc). Use page object modules (e.g., `tests/e2e/fixtures/signal-detail-page.ts`) that expose behavior-level methods (`setViewState`, `clickSummaryPill`, `getPaneHeights`) rather than raw locator access.
 
 ### Navigation Structure (Three Top-Level Pages)
 
 | Page | Route Pattern | Purpose |
 |---|---|---|
 | **Signal Viewer** | `/signals` | Paginated signal list + channel filter bar (see below). Clicking a row navigates to that Signal's detail page. |
-| **Signal Detail** | `/signals/:id` | Full view of one Signal: key takeaways summary section, then expandable full transcription section with timestamp anchors. Timestamp links in the summary (`[T:ss]`) are standard HTML `<a href="#t-{ss}">` anchors that scroll to corresponding sections in the transcription below on the same page — similar to Wikipedia's internal section links. |
+| **Signal Detail** | `/signals/:id` | Full view of one Signal with a three-state layout (SummaryOnly → TranscriptOnly → Split 30/70). Timestamp links rendered as pill badges. Bidirectional navigation between Summary and Transcription panes. See detailed spec below. |
 | **Run History** | `/polls` | Paginated table of all ingestion runs, styled like the signal list (date/time/status/new signals columns). Clicking a run row navigates to detail showing per-channel results. |
 | **Admin Panel** | `/admin` | WatchList channel management + poll trigger button + quick status widget. |
 
@@ -88,15 +93,26 @@ All four pages share one `layout.ejs` with persistent sidebar nav. Navigation be
 
 #### Signal Detail View (full page at `/signals/:id`)
 
-**Layout:** Single column, centered within the main content area (max-width ~800px). No table — this is a detail reading view.
+**Layout:** Single column, centered within the main content area (max-width ~800px). Three-state view system managed by Alpine.js (`viewState: 'summary' | 'transcript' | 'split'`).
 
 1. **Header bar:** Signal title (or "No title"), channel pill badge, published date/time.
-2. **Key Takeaways section:** Bullet list of AI-generated key takeaways from the summary. Each takeaway may contain inline `[T:ss]` timestamp links embedded within the text.
-3. **Full Transcription section:** Expandable/collapsible (initially collapsed). Renders each transcription segment as a paragraph prefixed with its own `[T:ss]` label. Timestamp anchor markers (`<span id="t-{ss}"></span>`) are placed before each transcript paragraph so summary links can jump to them.
+2. **Key Takeaways section:** Bullet list of AI-generated key takeaways. Inline timestamp links rendered as **pill badges** (`bg-indigo-100 text-indigo-700 rounded`). Clicking enters Split mode.
+3. **Full Transcription section:** Renders transcription segments grouped by ~10-second windows. Segment timestamps are also clickable pill badges enabling bidirectional navigation.
 
-**Timestamp linking mechanism:** The summarization prompt instructs the LLM to produce **section-level summaries with `[T:ss]` timestamp references** matching transcription segment `start` seconds (integer). On the detail page, these render as standard HTML anchor tags `<a href="#t-{ss}">[T:XX]</a>` within summary/takeaway text. Clicking one triggers browser scroll to `<span id="t-{ss}" class="anchor"></span>` in the transcription section below — same-page intra-document navigation like Wikipedia article TOC links.
+**Three-state layout:**
+| State | Summary height | Transcript height | Trigger |
+|---|---|---|---|
+| `summary` (default) | 100% visible | hidden | Page load, or "Back to Summary" button |
+| `transcript` | hidden | 100% visible | "Show Full Transcription" button |
+| `split` | ~30% of container | ~70% of container | Any timestamp link click |
 
-**Timestamp link interaction:** When clicked, the target transcript paragraph briefly highlights (via HTMX or Alpine event) to signal the jump target, then fades back to normal.
+All transitions animate over 1s via CSS. Both sections always rendered in DOM (no `x-show` collapse).
+
+**Timestamp linking mechanism:** `injectTimestampAnchors()` converts LLM's `[T:ss]` to pill-styled `<a href="#t-{ms}">[MM:SS]</a>`. Clicking any timestamp (summary or transcript) enters Split mode, then scrolls the opposite pane to the matching anchor. If exact match missing, uses closest-by-time fallback. Target highlights `bg-yellow-100` for 1.5s.
+
+**Bidirectional linking:** Summary timestamp → scroll Transcript pane. Transcript timestamp → scroll Summary pane. Both directions resolve to `#t-{ms}` anchors.
+
+**Split mode visual design:** Flow layout with sticky headers. Summary pane uses `bg-white` with sticky "Key Takeaways" header. Transcript pane uses `bg-gray-50` with sticky "Transcription" header. No divider line — separation via background shade difference.
 
 #### Run History Page (`/polls`)
 

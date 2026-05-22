@@ -1,4 +1,124 @@
-<div class="max-w-3xl mx-auto" x-data="{ expanded: false, highlighted: null }">
+<div class="max-w-3xl mx-auto" x-data="{
+  viewState: 'summary',
+  highlighted: null,
+
+  setViewState(state) {
+    this.viewState = state;
+  },
+
+  handleSummaryPillClick(ms) {
+    this.viewState = 'split';
+    var self = this;
+    setTimeout(function() {
+      self.scrollToTranscript(ms);
+    }, 1050);
+  },
+
+  handleTranscriptPillClick(ms) {
+    if (this.viewState !== 'split') {
+      this.viewState = 'split';
+      var self = this;
+      setTimeout(function() {
+        self.scrollToSummary(ms);
+      }, 1050);
+    } else {
+      this.scrollToSummary(ms);
+    }
+  },
+
+  scrollToTranscript(ms) {
+    var target = document.getElementById('t-' + ms);
+    if (!target) {
+      var segments = document.querySelectorAll('.transcript-segment[id^=\"t-\"]');
+      var closest = null;
+      var closestDiff = Infinity;
+      segments.forEach(function(seg) {
+        var segMs = parseInt(seg.id.replace('t-', ''), 10);
+        var diff = Math.abs(segMs - ms);
+        if (diff < closestDiff) {
+          closestDiff = diff;
+          closest = seg;
+        }
+      });
+      target = closest;
+    }
+    if (!target) return;
+    var container = document.getElementById('transcript-pane');
+    if (container) {
+      container.scrollTop = target.offsetTop + container.scrollTop - container.offsetTop;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    this.highlightTarget(target);
+  },
+
+  scrollToSummary(ms) {
+    var pills = document.querySelectorAll('a[data-timestamp]');
+    var target = null;
+    pills.forEach(function(a) {
+      if (parseInt(a.getAttribute('data-timestamp'), 10) === ms) {
+        target = a;
+      }
+    });
+    if (!target) {
+      var closest = null;
+      var closestDiff = Infinity;
+      pills.forEach(function(a) {
+        var pillMs = parseInt(a.getAttribute('data-timestamp'), 10);
+        var diff = Math.abs(pillMs - ms);
+        if (diff < closestDiff) {
+          closestDiff = diff;
+          closest = a;
+        }
+      });
+      target = closest;
+    }
+    if (!target) return;
+    var container = document.getElementById('summary-pane');
+    if (container) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    this.highlightTarget(target);
+  },
+
+  highlightTarget(el) {
+    var self = this;
+    if (this.highlighted && this.highlighted !== el) {
+      this.highlighted.classList.remove('bg-yellow-100');
+    }
+    this.highlighted = el;
+    el.classList.add('bg-yellow-100');
+    setTimeout(function() {
+      if (el) el.classList.remove('bg-yellow-100');
+    }, 1500);
+  }
+
+  // -- init: bind timestamp pill clicks --
+  ,
+  init() {
+    var self = this;
+    this.$nextTick(() => {
+      document.querySelectorAll('#summary-pane a[data-timestamp]').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          var ms = parseInt(this.getAttribute('data-timestamp'), 10);
+          self.handleSummaryPillClick(ms);
+        });
+      });
+
+      document.querySelectorAll('#transcript-pane a[data-timestamp]').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          var ms = parseInt(this.getAttribute('data-timestamp'), 10);
+          self.handleTranscriptPillClick(ms);
+        });
+      });
+    });
+  }
+}">
 
   <!-- Error flash message -->
   <% if (error) { %>
@@ -31,64 +151,81 @@
     </form>
   <% } %>
 
-  <!-- Key Takeaways -->
-  <% if (summaryHtml) { %>
-    <div class="mb-6">
-      <h3 class="text-lg font-semibold mb-3">Key Takeaways</h3>
-      <div class="prose prose-sm max-w-none text-gray-800">
-        <%- summaryHtml %>
-      </div>
-    </div>
-  <% } %>
+  <!-- Toggle bar -->
+  <div class="flex gap-2 mb-4">
+    <button
+      @click="viewState = 'summary'"
+      :class="viewState === 'summary' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+      class="px-4 py-2 rounded font-medium text-sm transition-colors"
+    >
+      Summary
+    </button>
+    <button
+      @click="viewState = 'transcript'"
+      :class="viewState === 'transcript' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+      class="px-4 py-2 rounded font-medium text-sm transition-colors"
+    >
+      Transcript
+    </button>
+    <button
+      @click="viewState = 'split'"
+      :class="viewState === 'split' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
+      class="px-4 py-2 rounded font-medium text-sm transition-colors"
+    >
+      Split
+    </button>
+  </div>
 
-  <!-- Full Transcription -->
-  <% if (transcriptionHtml) { %>
-    <div class="border-t pt-4">
-      <button
-        @click="expanded = !expanded"
-        class="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900"
-      >
-        <span x-text="expanded ? 'Hide Transcription' : 'Show Full Transcription'"></span>
-        <span x-text="expanded ? '\u25B2' : '\u25BC'"></span>
-      </button>
+  <!-- Three-state container -->
+  <div class="flex flex-col rounded border overflow-hidden" style="height: 70vh;">
 
-      <div
-        x-show="expanded"
-        x-transition
-        class="mt-3 space-y-1 text-sm text-gray-700"
-      >
-        <%- transcriptionHtml %>
-      </div>
+    <!-- Summary pane -->
+    <div
+      id="summary-pane"
+      class="overflow-y-auto transition-all duration-1000 ease-in-out"
+      :class="{
+        'flex-[1_1_auto]': viewState === 'summary',
+        'flex-[0_0_30%]': viewState === 'split',
+        'hidden': viewState === 'transcript'
+      }"
+    >
+      <% if (summaryHtml) { %>
+        <div class="p-4" :class="viewState === 'split' ? 'bg-white' : ''">
+          <h3 class="text-lg font-semibold mb-3"
+            :class="viewState === 'split' ? 'sticky top-0 bg-white z-10 pb-2' : ''"
+          >
+            Key Takeaways
+          </h3>
+          <div class="prose prose-sm max-w-none text-gray-800">
+            <%- summaryHtml %>
+          </div>
+        </div>
+      <% } %>
     </div>
-  <% } %>
+
+    <!-- Transcript pane -->
+    <div
+      id="transcript-pane"
+      class="overflow-y-auto transition-all duration-1000 ease-in-out"
+      :class="{
+        'flex-[1_1_auto]': viewState === 'transcript',
+        'flex-[0_0_70%]': viewState === 'split',
+        'hidden': viewState === 'summary'
+      }"
+    >
+      <% if (transcriptionHtml) { %>
+        <div class="p-4" :class="viewState === 'split' ? 'bg-gray-50' : ''">
+          <h3 class="text-lg font-semibold mb-3"
+            :class="viewState === 'split' ? 'sticky top-0 bg-gray-50 z-10 pb-2' : ''"
+          >
+            Transcription
+          </h3>
+          <div class="space-y-1 text-sm text-gray-700">
+            <%- transcriptionHtml %>
+          </div>
+        </div>
+      <% } %>
+    </div>
+
+  </div>
 </div>
-
-<script>
-  document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('a[href^="#t-"]').forEach(function(link) {
-      link.addEventListener('click', function(e) {
-        e.preventDefault();
-        var targetId = this.getAttribute('href').slice(1);
-        var target = document.getElementById(targetId);
-        if (!target) return;
-
-        var el = target;
-        while (el) {
-          if (el.getAttribute('x-show')) {
-            if (typeof Alpine !== 'undefined') {
-              var data = Alpine.$data(el);
-              if (data && typeof data.expanded === 'boolean') data.expanded = true;
-            }
-          }
-          el = el.parentElement;
-        }
-
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        target.classList.add('bg-yellow-100', 'transition-colors', 'duration-500');
-        setTimeout(function() {
-          target.classList.remove('bg-yellow-100');
-        }, 1500);
-      });
-    });
-  });
-</script>
