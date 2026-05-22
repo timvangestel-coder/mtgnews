@@ -55,7 +55,7 @@
   },
 
   scrollToSummary(ms) {
-    var pills = document.querySelectorAll('a[data-timestamp]');
+    var pills = document.querySelectorAll('#summary-pane a[data-timestamp]');
     var target = null;
     pills.forEach(function(a) {
       if (parseInt(a.getAttribute('data-timestamp'), 10) === ms) {

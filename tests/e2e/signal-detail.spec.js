@@ -85,22 +85,55 @@ test.describe('Signal Detail', () => {
     await sd.expectSegmentText(45000, 'Today we discuss MTG news.');
   });
 
-  test('transcript timestamp pill click scrolls summary to matching pill', async ({ page, baseUrl }) => {
+  test('transcript timestamp pill click scrolls summary to matching pill', async ({ page, baseUrl, db }) => {
+    // Seed signal with enough summary pills to force scrolling in split mode (30% height)
+    const longSummary = 'Point one [T:0]. Point two [T:10]. Point three [T:20]. Point four [T:30]. Point five [T:40]. Point six [T:50]. Point seven [T:60]. Point eight [T:70]. Point nine [T:80]. Point ten [T:90]. Point eleven [T:100]. Point twelve [T:110]. Point thirteen [T:120]. Point fourteen [T:130]. Point fifteen [T:140]. Target point [T:150].';
+    const longTranscript = JSON.stringify([
+      { time: 0, text: 'Segment zero.' },
+      { time: 10000, text: 'Segment ten.' },
+      { time: 20000, text: 'Segment twenty.' },
+      { time: 30000, text: 'Segment thirty.' },
+      { time: 40000, text: 'Segment forty.' },
+      { time: 50000, text: 'Segment fifty.' },
+      { time: 60000, text: 'Segment sixty.' },
+      { time: 70000, text: 'Segment seventy.' },
+      { time: 80000, text: 'Segment eighty.' },
+      { time: 90000, text: 'Segment ninety.' },
+      { time: 100000, text: 'Segment hundred.' },
+      { time: 110000, text: 'Segment hundred ten.' },
+      { time: 120000, text: 'Segment hundred twenty.' },
+      { time: 130000, text: 'Segment hundred thirty.' },
+      { time: 140000, text: 'Segment hundred forty.' },
+      { time: 150000, text: 'Target segment.' }
+    ]);
+
+    db.prepare(
+      `INSERT OR REPLACE INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, sentiment_label, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run('vid_long', 'UC_test_channel_1', 'Long Signal', '2026-05-10T12:00:00Z', longTranscript, longSummary, 4, 'positive', Date.now());
+
     const sd = createSignalDetailPage(page);
-    await sd.goto('vid_detail', baseUrl);
+    await sd.goto('vid_long', baseUrl);
 
     // Go to split mode first
     await sd.setViewState('split');
 
-    // Click transcript pill for T:0
-    await sd.clickTranscriptPill(0);
+    // Click transcript pill for T:150 (last pill - forces scroll to bottom of summary)
+    await sd.clickTranscriptPill(150000);
 
     // DOM-only: still split mode
     await sd.expectSplitMode();
 
     // Summary pill visible
-    const summaryPill = page.locator('#summary-pane a[data-timestamp="0"]');
+    const summaryPill = page.locator('#summary-pane a[data-timestamp="150000"]');
     await expect(summaryPill).toBeVisible();
+
+    // CRITICAL: summary pane must have scrolled (scrollTop > 0) to prove the scroll happened
+    const summaryScrollTop = await page.evaluate(() => {
+      const el = document.getElementById('summary-pane');
+      return el ? el.scrollTop : -1;
+    });
+    expect(summaryScrollTop).toBeGreaterThan(0);
   });
 
   test('closest-match fallback when exact timestamp has no match', async ({ page, baseUrl, db }) => {
