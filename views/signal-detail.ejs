@@ -29,7 +29,8 @@
   scrollToTranscript(ms) {
     var target = document.getElementById('t-' + ms);
     if (!target) {
-      var segments = document.querySelectorAll('.transcript-segment[id^=\"t-\"]');
+      var segments = document.querySelectorAll('[id]');
+      segments = Array.prototype.filter.call(segments, function(s) { return s.id && s.id.indexOf('t-') === 0; });
       var closest = null;
       var closestDiff = Infinity;
       segments.forEach(function(seg) {
@@ -75,11 +76,20 @@
       target = closest;
     }
     if (!target) return;
+    var self = this;
+    var transcriptPane = document.getElementById('transcript-pane');
+    var savedScrollTop = transcriptPane ? transcriptPane.scrollTop : 0;
     var container = document.getElementById('summary-pane');
     if (container) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } else {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    // Bug 1 fix: counter-scroll transcript pane back to prevent browser auto-align
+    if (transcriptPane) {
+      requestAnimationFrame(function() {
+        transcriptPane.scrollTop = savedScrollTop;
+      });
     }
     this.highlightTarget(target);
   },
@@ -94,13 +104,13 @@
     setTimeout(function() {
       if (el) el.classList.remove('bg-yellow-100');
     }, 1500);
-  }
+  },
 
-  // -- init: bind timestamp pill clicks --
-  ,
   init() {
     var self = this;
     this.$nextTick(() => {
+      window.__alpineReady = true;
+
       document.querySelectorAll('#summary-pane a[data-timestamp]').forEach(function(link) {
         link.addEventListener('click', function(e) {
           e.preventDefault();
@@ -177,20 +187,22 @@
   </div>
 
   <!-- Three-state container -->
-  <div class="flex flex-col rounded border overflow-hidden" style="height: 70vh;">
+  <!-- Bug 3 fix: calc(100vh - 160px) fills viewport minus header + toggle bar -->
+  <div class="flex flex-col rounded border overflow-hidden" style="height: calc(100vh - 160px); min-height: 400px;">
 
     <!-- Summary pane -->
+    <!-- Bug 2 fix: replace hidden with flex-[0_0_0] + overflow-hidden for animatable transitions -->
     <div
       id="summary-pane"
       class="overflow-y-auto transition-all duration-1000 ease-in-out"
       :class="{
         'flex-[1_1_auto]': viewState === 'summary',
         'flex-[0_0_30%]': viewState === 'split',
-        'hidden': viewState === 'transcript'
+        'flex-[0_0_0] overflow-hidden min-h-0': viewState === 'transcript'
       }"
     >
       <% if (summaryHtml) { %>
-        <div class="p-4" :class="viewState === 'split' ? 'bg-white' : ''">
+        <div class="p-4" :class="viewState === 'split' ? 'bg-white border-b border-gray-300' : ''">
           <h3 class="text-lg font-semibold mb-3"
             :class="viewState === 'split' ? 'sticky top-0 bg-white z-10 pb-2' : ''"
           >
@@ -210,7 +222,7 @@
       :class="{
         'flex-[1_1_auto]': viewState === 'transcript',
         'flex-[0_0_70%]': viewState === 'split',
-        'hidden': viewState === 'summary'
+        'flex-[0_0_0] overflow-hidden min-h-0': viewState === 'summary'
       }"
     >
       <% if (transcriptionHtml) { %>

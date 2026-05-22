@@ -13,14 +13,17 @@ class SignalDetailPage {
 
   async goto(videoId, baseUrl) {
     await this.page.goto(`${baseUrl}/signals/${videoId}`);
-    // Wait for Alpine CDN (defer) to load
+    
+    // Wait for Alpine CDN to load
     await this.page.waitForFunction(() => typeof window.Alpine !== 'undefined', { timeout: 15_000 });
-    // Ensure Alpine started (CDN defer may miss DOMContentLoaded)
+    
+    // Explicitly start Alpine - CDN sync load means DOMContentLoaded already fired in headless Chromium
     await this.page.evaluate(() => {
       try { window.Alpine.start(); } catch(e) { /* already started */ }
     });
-    // Allow Alpine to process all bindings
-    await this.page.waitForTimeout(1500);
+    
+    // Wait for Alpine component init() to signal ready
+    await this.page.waitForFunction(() => window.__alpineReady === true, { timeout: 10_000 });
   }
 
   // -- view state via DOM only --
@@ -52,9 +55,10 @@ class SignalDetailPage {
     expect(box?.height).toBeGreaterThan(30);
   }
 
-  /** Summary pane hidden via Tailwind `hidden` class applied by Alpine :class. */
+  /** Summary pane collapsed via flex-[0_0_0] + overflow-hidden (no longer uses `hidden` class). */
   async expectSummaryHidden() {
-    await expect(this.summaryPane).toHaveClass(/hidden/);
+    const box = await this.summaryPane.boundingBox();
+    expect(box?.height).toBe(0);
   }
 
   async expectTranscriptVisible() {
@@ -63,9 +67,10 @@ class SignalDetailPage {
     expect(box?.height).toBeGreaterThan(50);
   }
 
-  /** Transcript pane hidden via Tailwind `hidden` class applied by Alpine :class. */
+  /** Transcript pane collapsed via flex-[0_0_0] + overflow-hidden (no longer uses `hidden` class). */
   async expectTranscriptHidden() {
-    await expect(this.transcriptPane).toHaveClass(/hidden/);
+    const box = await this.transcriptPane.boundingBox();
+    expect(box?.height).toBe(0);
   }
 
   async expectSplitMode() {
