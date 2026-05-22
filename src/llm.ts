@@ -20,73 +20,45 @@ export interface AnalysisResult {
   error?: string;
 }
 
-interface SummaryResponse {
+interface MergedAnalysisResponse {
   summary: string;
   takeaways: Array<{ text: string; timestamp: string }>;
+  overall_sentiment: { score: number; label: string };
+  entities: Array<{ entity_name: string; entity_type: string; sentiment: string }>;
 }
 
-interface SentimentResponse {
-  score: number;
-  label: string;
-}
-
-interface EntityResponse {
-  entity_name: string;
-  entity_type: string;
-  sentiment: string;
-}
-
-function buildSummaryPrompt(transcriptionText: string): string {
-  return `You are an MTG (Magic: The Gathering) content analyst. Analyze the following video transcription and produce a structured JSON response.
+function buildMergedPrompt(transcriptionText: string): string {
+  return `You are an MTG (Magic: The Gathering) content analyst. Analyze the following video transcription and produce a structured JSON response containing summary, key takeaways, overall sentiment, and entity mentions.
 
 Return ONLY valid JSON with this structure:
 {
   "summary": "A concise 2-3 sentence summary of the MTG-relevant content",
   "takeaways": [
     { "text": "Key takeaway description", "timestamp": "T:ss" }
+  ],
+  "overall_sentiment": {
+    "score": 3,
+    "label": "Neutral"
+  },
+  "entities": [
+    { "entity_name": "Kaldra", "entity_type": "set", "sentiment": "Positive" }
   ]
 }
 
 Rules:
-- Each takeaway must include a [T:ss] timestamp reference where ss is the start seconds as an integer
+- Each takeaway must include a timestamp in "T:ss" format where ss is the start seconds as an integer
 - Focus only on MTG-relevant topics (cards, sets, formats, players, meta, rules)
 - Keep takeaways concise and actionable
 
-Transcription:
-${transcriptionText}`;
-}
-
-function buildSentimentPrompt(transcriptionText: string): string {
-  return `You are an MTG (Magic: The Gathering) sentiment analyst. Analyze the overall sentiment of the following video transcription.
-
-Return ONLY valid JSON with this structure:
-{
-  "score": 3,
-  "label": "Neutral"
-}
-
-Score scale (integer 1-5):
+Sentiment score scale (integer 1-5):
 1 = Very Negative
 2 = Negative
 3 = Neutral
 4 = Positive
 5 = Very Positive
 
-Transcription:
-${transcriptionText}`;
-}
-
-function buildEntityPrompt(transcriptionText: string): string {
-  return `You are an MTG (Magic: The Gathering) entity sentiment analyst. Extract all MTG-relevant entities mentioned in the transcription and assign a sentiment label to each.
-
-Return ONLY valid JSON as an array:
-[
-  { "entity_name": "Kaldra", "entity_type": "set", "sentiment": "Positive" },
-  { "entity_name": "Dredge", "entity_type": "archetype", "sentiment": "Negative" }
-]
-
 Entity types: card, set, player, format, archetype, company, event, rules, other
-Sentiment labels: Positive, Negative, Neutral
+Sentiment labels for entities: Positive, Negative, Neutral
 
 Transcription:
 ${transcriptionText}`;
@@ -96,7 +68,12 @@ function extractTranscriptionText(transcription: string): string {
   try {
     const segments = JSON.parse(transcription);
     if (Array.isArray(segments)) {
-      return segments.map((s: any) => `[T:${Math.floor(s.start)}] ${s.text}`).join(' ');
+      // New grouped shape: [{time: number (ms), text: string}]
+      if (segments[0]?.time !== undefined) {
+        return segments.map((s: any) => `[T:${Math.floor(s.time / 1000)}] ${s.text}`).join(' ');
+      }
+      // Legacy raw segment shape: [{start: number, text: string}]
+      return segments.map((s: any) => `[T:${Math.floor(s.start / 1000)}] ${s.text}`).join(' ');
     }
   } catch {
     // plain text transcription
@@ -193,28 +170,21 @@ export async function analyzeSignal(
 
     const transcriptionText = extractTranscriptionText(signal.transcription as string);
 
-    // 1. Summary
-    const summaryContent = await callLlmWithRetry(config.endpoint, config.model, buildSummaryPrompt(transcriptionText), 'summary', videoId);
-    const summary: SummaryResponse = JSON.parse(summaryContent);
+    // Single merged LLM call (issue #38)
+    const analysisContent = await callLlmWithRetry(config.endpoint, config.model, buildMergedPrompt(transcriptionText), 'analysis', videoId);
+    const analysis: MergedAnalysisResponse = JSON.parse(analysisContent);
 
-    const summaryDisplay = [summary.summary, ...summary.takeaways.map((t: any) => `${t.timestamp} ${t.text}`)].join('\n');
+    const summaryDisplay = [analysis.summary, ...analysis.takeaways.map((t) => `${t.timestamp} ${t.text}`)].join('\n');
 
-    // 2. Overall Sentiment
-    const sentimentContent = await callLlmWithRetry(config.endpoint, config.model, buildSentimentPrompt(transcriptionText), 'sentiment', videoId);
-    const sentiment: SentimentResponse = JSON.parse(sentimentContent);
-
-    const clampedScore = clampScore(sentiment.score);
-
-    // 3. Per-Entity Sentiment
-    const entitiesContent = await callLlmWithRetry(config.endpoint, config.model, buildEntityPrompt(transcriptionText), 'entities', videoId);
-    const entities: EntityResponse[] = JSON.parse(entitiesContent);
+    const clampedScore = clampScore(analysis.overall_sentiment.score);
+    const entities = analysis.entities;
 
     // Persist results
     const updateSignal = db.prepare(`
       UPDATE signals SET summary = ?, overall_sentiment = ?, sentiment_label = ?, processed_at = ?
       WHERE video_id = ?
     `);
-    updateSignal.run(summaryDisplay, clampedScore, sentiment.label, Date.now(), videoId);
+    updateSignal.run(summaryDisplay, clampedScore, analysis.overall_sentiment.label, Date.now(), videoId);
 
     // Delete old entity mentions, insert new
     db.prepare('DELETE FROM entity_mentions WHERE signal_video_id = ?').run(videoId);

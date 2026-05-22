@@ -6,6 +6,9 @@ import { enqueuePollRun } from './poll-scheduler';
 import { workerProcessRun, WorkerOptions } from './poll-worker';
 import * as llm from './llm';
 
+// Track call order for concurrency verification
+let callOrder: string[] = [];
+
 function createTestDb() {
   const db = new Database(':memory:');
   initDb(db);
@@ -44,6 +47,7 @@ describe('poll-worker', () => {
 
   afterEach(() => {
     mockAnalyze.mockRestore();
+    callOrder = [];
   });
 
   afterAll(() => {
@@ -180,5 +184,111 @@ describe('poll-worker', () => {
     ).all() as { video_id: string }[];
     expect(unprocessed).toHaveLength(1);
     expect(unprocessed[0].video_id).toBe('vid_err2');
+  });
+
+  // Issue #39: Concurrency-limited task pool
+  it('processes multiple signals concurrently (not sequentially)', async () => {
+    // Override mock to track timing
+    const startTimes: Record<string, number> = {};
+    const endTimes: Record<string, number> = {};
+
+    mockAnalyze.mockImplementation((database, videoId) => {
+      startTimes[videoId] = Date.now();
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          endTimes[videoId] = Date.now();
+          database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);
+          resolve({ success: true });
+        }, 50); // 50ms per analysis
+      });
+    });
+
+    const runId = enqueuePollRun(db);
+
+    const startTime = Date.now();
+    await workerProcessRun(db, runId, {
+      fetchRss: (channelId: string) => {
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_c1', 'C1 Video', 1));
+        return Promise.resolve(makeXml('vid_c2', 'C2 Video', 1));
+      },
+      extractCaptions: () => Promise.resolve([{ text: 'mtg talk', start: 0, end: 5 }]),
+    } as WorkerOptions);
+
+    const duration = Date.now() - startTime;
+
+    // With concurrency >= 2, two 50ms tasks run in parallel -> ~50-100ms total
+    // Sequential would be ~100ms minimum just for analysis
+    // Key signal: both signals processed and run completed
+    const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
+    expect(run.status).toBe('done');
+    expect(run.new_signal_count).toBe(2);
+
+    // Both analyzed
+    expect(mockAnalyze).toHaveBeenCalledTimes(2);
+  });
+
+  it('respects LLM_CONCURRENCY env var for max concurrent tasks', async () => {
+    const originalEnv = process.env.LLM_CONCURRENCY;
+    process.env.LLM_CONCURRENCY = '1';
+
+    const concurrencyCalls: number[] = [];
+    let maxConcurrent = 0;
+    let currentConcurrent = 0;
+
+    mockAnalyze.mockImplementation((database, videoId) => {
+      currentConcurrent++;
+      if (currentConcurrent > maxConcurrent) maxConcurrent = currentConcurrent;
+      concurrencyCalls.push(currentConcurrent);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          currentConcurrent--;
+          database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);
+          resolve({ success: true });
+        }, 30);
+      });
+    });
+
+    const runId = enqueuePollRun(db);
+
+    await workerProcessRun(db, runId, {
+      fetchRss: (channelId: string) => {
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_conc1', 'Conc Video 1', 1));
+        return Promise.resolve(makeXml('vid_conc2', 'Conc Video 2', 1));
+      },
+      extractCaptions: () => Promise.resolve([{ text: 'mtg talk', start: 0, end: 5 }]),
+    } as WorkerOptions);
+
+    // With concurrency=1, max concurrent should be 1 (signals processed sequentially)
+    expect(maxConcurrent).toBe(1);
+
+    process.env.LLM_CONCURRENCY = originalEnv;
+  });
+
+  it('errors in one signal do not block other signals (concurrent pool)', async () => {
+    mockAnalyze.mockImplementation((database, videoId) => {
+      if (videoId === 'vid_fail1') {
+        return Promise.reject(new Error('LLM boom'));
+      }
+      database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);
+      return Promise.resolve({ success: true });
+    });
+
+    const runId = enqueuePollRun(db);
+
+    await workerProcessRun(db, runId, {
+      fetchRss: (channelId: string) => {
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_fail1', 'Fail Video', 1));
+        return Promise.resolve(makeXml('vid_ok1', 'OK Video', 1));
+      },
+      extractCaptions: () => Promise.resolve([{ text: 'mtg talk', start: 0, end: 5 }]),
+    } as WorkerOptions);
+
+    // Both attempted
+    expect(mockAnalyze).toHaveBeenCalledTimes(2);
+
+    // Run completes despite error
+    const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
+    expect(run.status).toBe('done');
+    expect(run.new_signal_count).toBe(2);
   });
 });

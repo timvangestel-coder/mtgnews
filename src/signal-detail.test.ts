@@ -41,7 +41,7 @@ describe('signal-detail', () => {
         `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(vid, 'UC1', 'Test Signal', '2026-05-01T10:00:00Z',
-        JSON.stringify([{ text: 'hello world', start: 0, end: 2.5 }]),
+        JSON.stringify([{ time: 0, text: 'hello world' }]),
         'AI summary here', 4, Date.now());
 
       const signal = getSignalById(db, vid);
@@ -73,13 +73,33 @@ describe('signal-detail', () => {
 
   // -- injectTimestampAnchors --
   describe('injectTimestampAnchors', () => {
-    it('converts [T:ss] to anchor links', () => {
+    it('converts [T:ss] to [MM:SS] anchor links with millisecond IDs', () => {
       const input = 'Key point [T:45] and another [T:120] done';
       const result = injectTimestampAnchors(input);
-      expect(result).toContain('href="#t-45"');
-      expect(result).toContain('[T:45]');
-      expect(result).toContain('href="#t-120"');
-      expect(result).toContain('[T:120]');
+      // LLM seconds converted to millisecond anchor IDs
+      expect(result).toContain('href="#t-45000"');
+      expect(result).toContain('[00:45]');
+      expect(result).toContain('href="#t-120000"');
+      expect(result).toContain('[02:00]');
+    });
+
+    it('produces pill badge classes on timestamp anchors', () => {
+      const input = 'Key point [T:45] here';
+      const result = injectTimestampAnchors(input);
+      expect(result).toContain('bg-indigo-100');
+      expect(result).toContain('text-indigo-700');
+      expect(result).toContain('px-2');
+      expect(result).toContain('py-0.5');
+      expect(result).toContain('rounded');
+    });
+
+    it('anchor href uses #t-{ms} format', () => {
+      const input = 'Point [T:45] and [T:90]';
+      const result = injectTimestampAnchors(input);
+      // 45 seconds = 45000ms
+      expect(result).toContain('href="#t-45000"');
+      // 90 seconds = 90000ms
+      expect(result).toContain('href="#t-90000"');
     });
 
     it('leaves text without timestamps unchanged', () => {
@@ -92,24 +112,53 @@ describe('signal-detail', () => {
       const result = injectTimestampAnchors(input);
       expect(result).not.toContain('<b>');
       expect(result).toContain('\u0026lt;b\u0026gt;');
+      expect(result).toContain('[00:10]');
     });
   });
 
   // -- formatTranscriptionHtml --
   describe('formatTranscriptionHtml', () => {
-    it('renders transcription segments with t-ss anchors and [T:ss] labels', () => {
-      const segments = JSON.stringify([
-        { text: 'hello world', start: 0, end: 2.5 },
-        { text: 'mtg news', start: 45, end: 48 },
+    it('renders grouped transcription with [MM:SS] timestamps', () => {
+      const grouped = JSON.stringify([
+        { time: 0, text: 'hello world mtg news' },
+        { time: 45000, text: 'today folks' },
       ]);
 
-      const html = formatTranscriptionHtml(segments);
+      const html = formatTranscriptionHtml(grouped);
       expect(html).toContain('id="t-0"');
-      expect(html).toContain('[T:0]');
-      expect(html).toContain('hello world');
-      expect(html).toContain('id="t-45"');
-      expect(html).toContain('[T:45]');
-      expect(html).toContain('mtg news');
+      expect(html).toContain('[00:00]');
+      expect(html).toContain('hello world mtg news');
+      expect(html).toContain('id="t-45000"');
+      expect(html).toContain('[00:45]');
+      expect(html).toContain('today folks');
+    });
+
+    it('renders segment timestamps as clickable pill badges', () => {
+      const grouped = JSON.stringify([
+        { time: 45000, text: 'today folks' },
+      ]);
+
+      const html = formatTranscriptionHtml(grouped);
+      // Timestamp should be a clickable pill link
+      expect(html).toContain('bg-indigo-100');
+      expect(html).toContain('text-indigo-700');
+      expect(html).toContain('px-2');
+      expect(html).toContain('rounded');
+      // Should be a link with data-timestamp attribute for bidirectional linking
+      expect(html).toContain('data-timestamp="45000"');
+    });
+
+    it('renders rounded millisecond timestamps correctly', () => {
+      const grouped = JSON.stringify([
+        { time: 4000, text: 'first segment' },
+        { time: 15000, text: 'second segment' },
+      ]);
+
+      const html = formatTranscriptionHtml(grouped);
+      expect(html).toContain('id="t-4000"');
+      expect(html).toContain('[00:04]');
+      expect(html).toContain('id="t-15000"');
+      expect(html).toContain('[00:15]');
     });
 
     it('returns empty string for empty transcription', () => {
@@ -117,13 +166,26 @@ describe('signal-detail', () => {
       expect(formatTranscriptionHtml('')).toBe('');
     });
 
-    it('escapes html in segment text', () => {
-      const segments = JSON.stringify([
-        { text: '<script>alert(1)</script>', start: 10, end: 15 },
+    it('escapes html in group text', () => {
+      const grouped = JSON.stringify([
+        { time: 10000, text: '<script>alert(1)</script>' },
       ]);
-      const html = formatTranscriptionHtml(segments);
+      const html = formatTranscriptionHtml(grouped);
       expect(html).not.toContain('<script>');
       expect(html).toContain('\u0026lt;script\u0026gt;');
+    });
+
+    it('renders multiple groups as separate paragraphs', () => {
+      const grouped = JSON.stringify([
+        { time: 60000, text: 'first part second part third part' },
+        { time: 70000, text: 'fourth part' },
+      ]);
+
+      const html = formatTranscriptionHtml(grouped);
+      expect(html).toContain('[01:00]');
+      expect(html).toContain('[01:10]');
+      const paragraphCount = (html.match(/<p /g) || []).length;
+      expect(paragraphCount).toBe(2);
     });
   });
 });

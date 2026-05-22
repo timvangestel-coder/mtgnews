@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { listChannels } from './db/watchlist';
 import { discoverCandidates, RssCandidate, DiscoveryOptions } from './rss-discovery';
-import { TranscriptionSegment, TranscriptionOptions } from './transcription';
+import { TranscriptionSegment, TranscriptionOptions, groupSegments } from './transcription';
 
 export interface PollResult {
   newSignals: number;
@@ -80,13 +80,14 @@ export async function pollChannel(
       continue;
     }
 
-    // step 4: persist signal
+    // step 4: group segments and persist signal
+    const grouped = groupSegments(segments);
     insertSignal.run(
       candidate.video_id,
       candidate.channel_id,
       candidate.title,
       candidate.published_at,
-      JSON.stringify(segments),
+      JSON.stringify(grouped),
       Date.now()
     );
     newSignals++;

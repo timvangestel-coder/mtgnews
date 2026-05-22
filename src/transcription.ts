@@ -114,6 +114,30 @@ function trimLeadingWordOverlap(previous: string, current: string): string {
 }
 
 /**
+ * Group transcription segments into ~10-second windows.
+ * Transforms raw segments into grouped `{time, text}` where `time` is milliseconds
+ * rounded to the nearest second. Pure function, no side effects.
+ */
+export function groupSegments(segments: TranscriptionSegment[]): Array<{ time: number; text: string }> {
+  if (segments.length === 0) return [];
+
+  const groups: Array<{ time: number; texts: string[] }> = [];
+  let current: { time: number; texts: string[] } | null = null;
+  const INTERVAL_MS = 10_000;
+
+  for (const seg of segments) {
+    if (!current || seg.start - current.time >= INTERVAL_MS) {
+      current = { time: Math.round(seg.start / 1000) * 1000, texts: [seg.text] };
+      groups.push(current);
+    } else {
+      current.texts.push(seg.text);
+    }
+  }
+
+  return groups.map((g) => ({ time: g.time, text: g.texts.join(' ') }));
+}
+
+/**
  * Parse a WebVTT subtitle string into TranscriptionSegment[].
  * VTT timestamp format: HH:MM:SS.mmm or MM:SS.mmm
  */

@@ -12,6 +12,7 @@ import { getSignalById, injectTimestampAnchors, formatTranscriptionHtml } from '
 import { queryPollRuns, getPollRunById, queryPollRunProgress } from './db/poll-runs';
 import { enqueuePollRun } from './poll-scheduler';
 import { analyzeSignal, LlmConfig, getLlmConfig } from './llm';
+import { abortPollRun } from './abort';
 
 // Isolated in-memory DB for server tests
 let db: Database.Database;
@@ -192,6 +193,18 @@ function createTestServer(testDb: Database.Database) {
     res.render('admin/_pollProgress', { run, progress, layout: false });
   });
 
+  // admin: abort poll (issue #40)
+  expressApp.post('/admin/poll/abort/:id', (_req, res) => {
+    const runId = parseInt(_req.params.id, 10);
+    try {
+      abortPollRun(testDb, runId);
+    } catch (err) {
+      res.redirect(`/admin?error=${encodeURIComponent((err as Error).message)}`);
+      return;
+    }
+    res.redirect('/admin');
+  });
+
   const server = expressApp.listen(listenPort);
 
   return {
@@ -333,14 +346,10 @@ describe('Express server', () => {
          VALUES (?, ?, ?, ?, ?, ?)`
       ).run(vid, 'UCsum1', 'Summarize Me', '2026-05-01T10:00:00Z', '[]', Date.now());
 
-      const summaryJson = { summary: 'MTG video', takeaways: [{ text: 'Good content', timestamp: 'T:0' }] };
-      const sentimentJson = { score: 4, label: 'Positive' };
-      const entitiesJson = [];
+      const mergedJson = { summary: 'MTG video', takeaways: [{ text: 'Good content', timestamp: 'T:0' }], overall_sentiment: { score: 4, label: 'Positive' }, entities: [] };
 
       mockFetch.mockReset();
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(summaryJson) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(sentimentJson) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(entitiesJson) } }] }) as any });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(mergedJson) } }] }) as any });
 
       const resp = await request(app.server)
         .post(`/signals/${vid}/summarize`)
@@ -404,9 +413,9 @@ describe('Express server', () => {
       db.prepare(
         `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(vid, 'UC1', 'My Signal Title', '2026-05-01T10:00:00Z',
-        JSON.stringify([{ text: 'hello world', start: 0, end: 2.5 }]),
-        'Summary with [T:0] timestamp', 4, Date.now());
+       ).run(vid, 'UC1', 'My Signal Title', '2026-05-01T10:00:00Z',
+         JSON.stringify([{ time: 0, text: 'hello world' }]),
+         'Summary with [T:0] timestamp', 4, Date.now());
 
       const resp = await request(app.server).get(`/signals/${vid}`);
       expect(resp.status).toBe(200);
@@ -414,7 +423,7 @@ describe('Express server', () => {
       expect(resp.text).toContain('Channel 1');
     });
 
-    it('renders key takeaways with [T:ss] timestamp anchor links', async () => {
+    it('renders key takeaways with [MM:SS] timestamp anchor links', async () => {
       const vid = `sd-${Date.now()}-2`;
       addChannel(db, 'UC1', 'Channel 1');
       db.prepare(
@@ -425,43 +434,53 @@ describe('Express server', () => {
 
       const resp = await request(app.server).get(`/signals/${vid}`);
       expect(resp.status).toBe(200);
-      expect(resp.text).toContain('href="#t-45"');
-      expect(resp.text).toContain('[T:45]');
-      expect(resp.text).toContain('href="#t-120"');
+      // LLM [T:ss] converted to [MM:SS] display with millisecond anchor IDs
+      expect(resp.text).toContain('href="#t-45000"');
+      expect(resp.text).toContain('[00:45]');
+      expect(resp.text).toContain('href="#t-120000"');
+      expect(resp.text).toContain('[02:00]');
     });
 
-    it('renders transcription section with t-ss anchors and [T:ss] labels', async () => {
+    it('renders transcription section with MM:SS timestamps and grouped segments', async () => {
       const vid = `sd-${Date.now()}-3`;
       addChannel(db, 'UC1', 'Channel 1');
       db.prepare(
         `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(vid, 'UC1', 'Test', '2026-05-01T10:00:00Z',
-        JSON.stringify([{ text: 'hello world', start: 0, end: 2.5 }, { text: 'mtg news', start: 45, end: 48 }]),
-        'summary', 4, Date.now());
+       ).run(vid, 'UC1', 'Test', '2026-05-01T10:00:00Z',
+         JSON.stringify([{ time: 0, text: 'hello world' }, { time: 45000, text: 'mtg news' }]),
+         'summary', 4, Date.now());
 
       const resp = await request(app.server).get(`/signals/${vid}`);
       expect(resp.status).toBe(200);
       expect(resp.text).toContain('id="t-0"');
-      expect(resp.text).toContain('[T:0]');
+      expect(resp.text).toContain('[00:00]');
       expect(resp.text).toContain('hello world');
-      expect(resp.text).toContain('id="t-45"');
+      expect(resp.text).toContain('id="t-45000"');
+      expect(resp.text).toContain('[00:45]');
       expect(resp.text).toContain('mtg news');
     });
 
-    it('transcription section has collapse button', async () => {
+    it('has three-state toggle bar with Summary, Transcript, and Split buttons', async () => {
       const vid = `sd-${Date.now()}-4`;
       addChannel(db, 'UC1', 'Channel 1');
       db.prepare(
         `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(vid, 'UC1', 'Test', '2026-05-01T10:00:00Z',
-        JSON.stringify([{ text: 'seg', start: 0, end: 1 }]),
+        JSON.stringify([{ time: 0, text: 'seg' }]),
         'summary', 4, Date.now());
 
       const resp = await request(app.server).get(`/signals/${vid}`);
       expect(resp.status).toBe(200);
-      expect(resp.text).toContain('Show Full Transcription');
+      // Three-state toggle buttons replace old collapse button
+      expect(resp.text).toContain('viewState');
+      expect(resp.text).toContain("viewState = 'summary'");
+      expect(resp.text).toContain("viewState = 'transcript'");
+      expect(resp.text).toContain("viewState = 'split'");
+      // Both panes present in DOM
+      expect(resp.text).toContain('id="summary-pane"');
+      expect(resp.text).toContain('id="transcript-pane"');
     });
 
     it('html-escapes summary text to prevent XSS', async () => {
@@ -581,6 +600,142 @@ describe('Express server', () => {
     it('GET /polls/:id-detail returns 404 for nonexistent run', async () => {
       const resp = await request(app.server).get('/polls/9999-detail');
       expect(resp.status).toBe(404);
+    });
+  });
+
+  // -- Abort Run (Issue #40) --
+  describe('Abort Run', () => {
+    it('POST /admin/poll/abort/:id transitions run to done-forced when processed signals exist', async () => {
+      addChannel(db, 'UCabort1', 'Abort Ch 1');
+      // triggeredAt = now ensures only signals inserted AFTER this point fall in the window
+      const triggeredAt = Date.now();
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', ?)"
+      ).run(triggeredAt, 2);
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+      // One processed signal in this run window (created_at > triggeredAt)
+      db.prepare(
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(`v-abort-proc`, 'UCabort1', 'Processed', '2026-05-01T00:00:00Z', '[]', 'summary', 4, triggeredAt + 1, Date.now());
+
+      // One unprocessed signal in this run window
+      db.prepare(
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(`v-abort-unproc`, 'UCabort1', 'Unprocessed', '2026-05-01T01:00:00Z', '[]', triggeredAt + 2);
+
+      const resp = await request(app.server)
+        .post(`/admin/poll/abort/${runId}`)
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/admin');
+
+      // Run should be done-forced with count=1 (only processed signal kept)
+      const run = db.prepare('SELECT status, new_signal_count, abort_time FROM poll_runs WHERE id = ?').get(runId);
+      expect(run.status).toBe('done-forced');
+      expect(run.new_signal_count).toBe(1);
+      expect(run.abort_time).toBeDefined();
+
+      // Unprocessed signal should be deleted
+      const unprocCount = (db.prepare("SELECT COUNT(*) as c FROM signals WHERE video_id = ?").get(`v-abort-unproc`) as { c: number }).c;
+      expect(unprocCount).toBe(0);
+
+      // Processed signal should remain
+      const procRow = db.prepare("SELECT summary FROM signals WHERE video_id = ?").get(`v-abort-proc`);
+      expect(procRow.summary).toBe('summary');
+    });
+
+    it('POST /admin/poll/abort/:id deletes run entirely when zero processed signals', async () => {
+      addChannel(db, 'UCabort2', 'Abort Ch 2');
+      const triggeredAt = Date.now();
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', ?)"
+      ).run(triggeredAt, 1);
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+      // Only unprocessed signals in this run window
+      db.prepare(
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(`v-abort-zero`, 'UCabort2', 'Only Unproc', '2026-05-01T00:00:00Z', '[]', triggeredAt + 1);
+
+      const resp = await request(app.server)
+        .post(`/admin/poll/abort/${runId}`)
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/admin');
+
+      // Run should be deleted entirely (zero processed signals in window)
+      const run = db.prepare('SELECT id, status FROM poll_runs WHERE id = ?').get(runId);
+      expect(run).toBeUndefined();
+
+      // Signal also deleted
+      const sigCount = (db.prepare("SELECT COUNT(*) as c FROM signals WHERE video_id = ?").get(`v-abort-zero`) as { c: number }).c;
+      expect(sigCount).toBe(0);
+    });
+
+    it('POST /admin/poll/abort/:id only deletes signals within [triggered_at, abort_time] window', async () => {
+      addChannel(db, 'UCabort3', 'Abort Ch 3');
+      const triggeredAt = Date.now() - 20000;
+
+      // Run #A (will be aborted)
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', ?)"
+      ).run(triggeredAt, 1);
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+      // Signal inside this run window - unprocessed
+      db.prepare(
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(`v-in-window`, 'UCabort3', 'In Window', '2026-05-01T00:00:00Z', '[]', triggeredAt + 1000);
+
+      // Signal outside this run window (created before) - unprocessed
+      db.prepare(
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(`v-out-window`, 'UCabort3', 'Out Window', '2026-05-01T01:00:00Z', '[]', triggeredAt - 5000);
+
+      const resp = await request(app.server)
+        .post(`/admin/poll/abort/${runId}`)
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(302);
+
+      // Signal in window deleted, signal out of window preserved
+      const inCount = (db.prepare("SELECT COUNT(*) as c FROM signals WHERE video_id = ?").get(`v-in-window`) as { c: number }).c;
+      expect(inCount).toBe(0);
+
+      const outCount = (db.prepare("SELECT COUNT(*) as c FROM signals WHERE video_id = ?").get(`v-out-window`) as { c: number }).c;
+      expect(outCount).toBe(1);
+    });
+
+    it('POST /admin/poll/abort/:id throws for nonexistent run', async () => {
+      const resp = await request(app.server)
+        .post('/admin/poll/abort/99999')
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toContain('error=');
+    });
+
+    it('POST /admin/poll/abort/:id throws for already aborted run', async () => {
+      const triggeredAt = Date.now() - 10000;
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count, abort_time) VALUES (?, 'done-forced', ?, ?)"
+      ).run(triggeredAt, 0, Date.now());
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+      const resp = await request(app.server)
+        .post(`/admin/poll/abort/${runId}`)
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toContain('error=');
     });
   });
 

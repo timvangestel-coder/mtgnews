@@ -40,24 +40,29 @@ describe('poll', () => {
     db.close();
   });
 
-  it('runs full poll cycle: discover -> transcribe -> persist', async () => {
+  it('runs full poll cycle: discover -> transcribe -> group -> persist', async () => {
     const result = await pollChannel(db, 'UCtest', {
       fetchRss: () => Promise.resolve(SAMPLE_XML),
       extractCaptions: () =>
         Promise.resolve([
-          { text: 'hello', start: 0, end: 2 },
+          { text: 'hello', start: 0, end: 2000 },
+          { text: 'world', start: 2000, end: 4000 },
         ]),
     });
 
     expect(result.newSignals).toBe(2);
 
-    // verify signals persisted
-    const signals = db.prepare('SELECT video_id, channel_id, title FROM signals').all();
+    // verify signals persisted with grouped transcription shape
+    const signals = db.prepare('SELECT video_id, transcription FROM signals').all();
     expect(signals).toHaveLength(2);
 
+    // transcription should be grouped [{time, text}] not raw segments
     const vid1 = signals.find((s: any) => s.video_id === 'vid1');
-    expect(vid1!.channel_id).toBe('UCtest');
-    expect(vid1!.title).toBe('MTG Set Review');
+    const trans1 = JSON.parse(vid1!.transcription);
+    expect(trans1).toHaveLength(1);
+    expect(trans1[0]).toHaveProperty('time');
+    expect(trans1[0]).toHaveProperty('text');
+    expect(trans1[0].text).toBe('hello world');
   });
 
   it('skips duplicate video_ids already in signals', async () => {

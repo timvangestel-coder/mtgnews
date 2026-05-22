@@ -39,7 +39,9 @@ export function initDb(db: Database.Database): void {
       triggered_at     INTEGER NOT NULL,
       status           TEXT NOT NULL,
       new_signal_count INTEGER DEFAULT 0,
-      completed_at     INTEGER
+      completed_at     INTEGER,
+      lookback_days    INTEGER DEFAULT 2,
+      abort_time       INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS poll_run_progress (
@@ -64,5 +66,10 @@ export function initDb(db: Database.Database): void {
   const pollRunCols = pollRunRows.map((r) => r.name);
   if (!pollRunCols.includes('lookback_days')) {
     db.exec('ALTER TABLE poll_runs ADD COLUMN lookback_days INTEGER DEFAULT 2');
+  }
+
+  // Migration: add abort_time to poll_runs (issue #40)
+  if (!pollRunCols.includes('abort_time')) {
+    db.exec('ALTER TABLE poll_runs ADD COLUMN abort_time INTEGER');
   }
 }

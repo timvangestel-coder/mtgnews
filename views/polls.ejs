@@ -20,6 +20,8 @@
           <td class="px-4 py-2 whitespace-nowrap text-sm">
             <% if (run.status === 'done') { %>
               <span class="px-2 py-1 text-xs font-semibold text-white bg-green-600 rounded">done</span>
+            <% } else if (run.status === 'done-forced') { %>
+              <span class="px-2 py-1 text-xs font-semibold text-amber-800 bg-amber-100 rounded">done-forced</span>
             <% } else if (run.status === 'failed') { %>
               <span class="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded">failed</span>
             <% } else { %>

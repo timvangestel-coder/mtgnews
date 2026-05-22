@@ -12,6 +12,7 @@
     "cleardb": "tsx scripts/clear-data.ts"
   },
   "dependencies": {
+    "alpinejs": "^3.15.12",
     "better-sqlite3": "^11.0.0",
     "dotenv": "^17.4.2",
     "ejs": "^3.1.10",

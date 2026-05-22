@@ -17,6 +17,8 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 | **Entity** | An MTG-relevant concept mentioned in a Signal: a card name, set name, player name, format, etc. Extracted and scored by the LLM during sentiment analysis. |
 | **Poll** | A single execution of the scheduled ingestion cycle: fetch RSS feeds for all Channels, identify new videos, extract transcriptions, run LLM analysis, persist results. Runs once daily. |
 | **E2E Test** | End-to-end browser test using Playwright. Spins up the Express server against an in-memory SQLite DB seeded with fixture data. Tests client-side behavior (Alpine.js toggles, HTMX swaps, transcription expand/collapse) that supertest unit tests cannot verify. |
+| **Run Abort** | A user-initiated cancellation of an active PollRun. Records `abort_time` timestamp on the poll_runs row. Deletes unsummarized signals created within `[triggered_at, abort_time]`. Transitions run status to `done-forced` (amber badge) if processed signals exist, or deletes the run entirely if zero signals were summarized. Uses both a DB flag (`status='aborting'`) and an in-memory AbortController for immediate cancellation of in-flight LLM calls. |
+| **Stale Run** | A PollRun stuck at `status='running'` with no `completed_at`, caused by server shutdown mid-execution. Auto-cleaned on startup: transitioned to `done-forced` with unsummarized signals deleted. |
 
 ## Decisions
 
@@ -28,7 +30,7 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 ### Processing
 - **Local LLM** via LM Studio at `http://127.0.0.1:1234/v1/chat/completions` (OpenAI-compatible endpoint).
 - **Model:** `qwen/qwen3.6-27b`.
-- Each Signal produces: Summary + Overall Sentiment + Per-Entity Sentiment.
+- Each Signal produces: Summary + Overall Sentiment + Per-Entity Sentiment, generated via a **single merged LLM call** returning one JSON response containing all three outputs. Transcription is sent once per signal, not thrice.
 
 ### Persistence
 - **SQLite** for all data: WatchList (channel IDs), processed Signals (video IDs, transcriptions, summaries, sentiment), and Entity mentions.
@@ -36,7 +38,7 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 - **Schema initialization** uses simple `CREATE TABLE IF NOT EXISTS` in a single module called at app startup — no migration runner framework. Greenfield project with stable schema.
 
 ### Polling & Background Worker Model
-- **Queue-based async polling via SQLite job table.** Trigger enqueues a `PollRun` row → background worker (separate file/module, runs in-process but on its own loop) picks up the job → processes channels one at a time → updates progress in a `poll_run_progress` table. UI polls for status via HTMX `<meta refresh>` or periodic `hx-get`.
+- **Queue-based async polling via SQLite job table.** Trigger enqueues a `PollRun` row → background worker (separate file/module, runs in-process but on its own loop) picks up the job → processes channels and signals using a **global concurrency-limited task pool** (RSS fetch, caption extraction, and LLM analysis all share the same pool). Concurrency limit controlled by `LLM_CONCURRENCY` env var (default 3). Progress tracked in `poll_run_progress` table. UI polls for status via HTMX `<meta refresh>` or periodic `hx-get`.
 - **Scheduled polling** also creates `PollRun` entries — triggers once daily via `node-cron` or equivalent, runs the same worker path as manual trigger (single source of truth).
 
 ### Data Model — Transcription Storage

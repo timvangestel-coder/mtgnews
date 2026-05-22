@@ -8,6 +8,27 @@ export interface WorkerOptions {
   extractCaptions?: (videoId: string) => Promise<Array<{ text: string; start: number; end: number }>>;
 }
 
+/** Simple concurrency-limited task pool (issue #39) */
+async function runWithConcurrencyLimit<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<void>
+): Promise<void> {
+  const results: Promise<void>[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const p = fn(items[i], i).catch((err) => {
+      console.error(`Task pool item ${i} failed: ${(err as Error).message}`);
+    });
+    results.push(p);
+
+    if ((i + 1) % concurrency === 0 || i === items.length - 1) {
+      await Promise.all(results);
+      results.length = 0;
+    }
+  }
+}
+
 export async function workerProcessRun(
   db: Database.Database,
   runId: number,
@@ -19,11 +40,24 @@ export async function workerProcessRun(
   ).get(runId) as { lookback_days: number | null } | undefined;
   const lookbackDays = runRow?.lookback_days ?? 2;
 
+  // Issue #39: read concurrency limit from env
+  const concurrency = parseInt(process.env.LLM_CONCURRENCY || '3', 10);
+
   const channels = listActiveChannels(db);
   let totalNewSignals = 0;
 
   const llmConfig = getLlmConfig();
 
+  // Issue #39: collect all work items, process through concurrency pool
+  interface WorkItem {
+    type: 'poll' | 'analyze';
+    channelId: string;
+    videoId?: string;
+  }
+
+  const workItems: WorkItem[] = [];
+
+  // Phase 1: poll all channels sequentially (RSS fetch order matters for progress tracking)
   for (const channel of channels) {
     try {
       const result = await pollChannel(db, channel.channel_id, {
@@ -34,19 +68,14 @@ export async function workerProcessRun(
 
       totalNewSignals += result.newSignals;
 
-      // Issue #24: auto-summarize new signals (processed_at IS NULL)
+      // Collect analyze tasks for new signals
       if (result.newSignals > 0) {
         const newSignals = db.prepare(
           'SELECT video_id FROM signals WHERE channel_id = ? AND processed_at IS NULL'
         ).all(channel.channel_id) as { video_id: string }[];
 
         for (const signal of newSignals) {
-          try {
-            await analyzeSignal(db, signal.video_id, llmConfig);
-          } catch (err) {
-            console.error(`analyzeSignal failed for ${signal.video_id}: ${(err as Error).message}`);
-            // skip, continue
-          }
+          workItems.push({ type: 'analyze', channelId: channel.channel_id, videoId: signal.video_id });
         }
       }
 
@@ -57,9 +86,19 @@ export async function workerProcessRun(
       db.prepare(
         'INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)'
       ).run(runId, channel.channel_id, 'failed', 0, Date.now());
-      // continue to next channel
     }
   }
+
+  // Phase 2: run analysis tasks through concurrency pool
+  await runWithConcurrencyLimit(workItems, concurrency, async (item) => {
+    if (item.type === 'analyze' && item.videoId) {
+      try {
+        await analyzeSignal(db, item.videoId, llmConfig);
+      } catch (err) {
+        console.error(`analyzeSignal failed for ${item.videoId}: ${(err as Error).message}`);
+      }
+    }
+  });
 
   db.prepare(
     'UPDATE poll_runs SET status = ?, new_signal_count = ?, completed_at = ? WHERE id = ?'

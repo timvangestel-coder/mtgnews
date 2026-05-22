@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterAll } from 'vitest';
-import { extractCaptions, TranscriptionSegment } from './transcription';
+import { extractCaptions, TranscriptionSegment, groupSegments } from './transcription';
 
 // Use vi.hoisted() so mocks are available in hoisted vi.mock factories
 const { mockSpawn, mockReaddirSync, mockReadFileSync, mockUnlinkSync, mockTmpdir, mockJoin } = vi.hoisted(() => {
@@ -33,6 +33,53 @@ vi.mock('path', () => ({
 }));
 
 describe('transcription', () => {
+  describe('groupSegments', () => {
+    it('groups segments within 10s windows, concatenating text with spaces', () => {
+      const segments: TranscriptionSegment[] = [
+        { text: 'hello world', start: 0, end: 5000 },
+        { text: 'mtg news', start: 5000, end: 8000 },
+        { text: 'today folks', start: 45000, end: 48000 },
+      ];
+
+      const result = groupSegments(segments);
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toEqual({ time: 0, text: 'hello world mtg news' });
+      expect(result[1]).toEqual({ time: 45000, text: 'today folks' });
+    });
+
+    it('returns single segment as-is', () => {
+      const segments: TranscriptionSegment[] = [
+        { text: 'only one', start: 1000, end: 3000 },
+      ];
+
+      const result = groupSegments(segments);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({ time: 1000, text: 'only one' });
+    });
+
+    it('returns empty array for empty input', () => {
+      const result = groupSegments([]);
+      expect(result).toEqual([]);
+    });
+
+    it('rounds non-round timestamps to nearest second (milliseconds)', () => {
+      const segments: TranscriptionSegment[] = [
+        { text: 'first', start: 4150, end: 5000 },
+        { text: 'second', start: 14523, end: 16000 },
+      ];
+
+      const result = groupSegments(segments);
+
+      expect(result).toHaveLength(2);
+      expect(result[0].time).toBe(4000);
+      expect(result[0].text).toBe('first');
+      expect(result[1].time).toBe(15000);
+      expect(result[1].text).toBe('second');
+    });
+  });
+
   describe('extractCaptions', () => {
     const sampleVtt = `WEBVTT
 

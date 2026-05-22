@@ -13,6 +13,7 @@ import { analyzeSignal, getLlmConfig } from './llm';
 import { queryPollRuns, getPollRunById, queryPollRunProgress } from './db/poll-runs';
 import { enqueuePollRun } from './poll-scheduler';
 import { fetchChannelInfo } from './rss-discovery';
+import { abortPollRun } from './abort';
 
 export interface ServerOptions {
   port?: number;
@@ -245,6 +246,18 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
     import('./poll-worker').then(({ workerProcessRun }) => {
       workerProcessRun(useDb, runId).catch(console.error);
     });
+    res.redirect('/admin');
+  });
+
+  // admin: abort poll (issue #40)
+  app.post('/admin/poll/abort/:id', (req, res) => {
+    const runId = parseInt(req.params.id, 10);
+    try {
+      abortPollRun(useDb, runId);
+    } catch (err) {
+      res.redirect(`/admin?error=${encodeURIComponent((err as Error).message)}`);
+      return;
+    }
     res.redirect('/admin');
   });
 

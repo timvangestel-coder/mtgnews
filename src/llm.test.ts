@@ -95,34 +95,73 @@ describe('llm', () => {
   };
 
   describe('analyzeSignal', () => {
-    it('tracer bullet: produces summary and persists to signals', async () => {
+    it('makes exactly one LLM call with merged prompt (issue #38)', async () => {
       const db = createTestDb();
       insertChannel(db, 'UCtest');
       insertSignal(db, 'v1', 'this is a test video about mtg');
 
-      const summaryJson = {
+      const mergedJson = {
         summary: 'Video discusses MTG topics',
         takeaways: [
           { text: 'Intro about MTG', timestamp: 'T:0' },
           { text: 'Card review segment', timestamp: 'T:10' },
         ],
+        overall_sentiment: { score: 4, label: 'Positive' },
+        entities: [
+          { entity_name: 'Kaldra', entity_type: 'set', sentiment: 'Positive' },
+        ],
       };
 
-      const sentimentJson = { score: 4, label: 'Positive' };
-
-      const entitiesJson = [
-        { entity_name: 'Kaldra', entity_type: 'set', sentiment: 'Positive' },
-      ];
-
-      // 3 sequential fetch calls: summary, sentiment, entities
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(summaryJson) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(sentimentJson) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(entitiesJson) } }] }) as any });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(mergedJson) } }] }) as any });
 
       const result = await analyzeSignal(db, 'v1', config);
 
       expect(result.success).toBe(true);
-      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // verify merged prompt contains all analysis instructions
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      const prompt = callBody.messages[0].content;
+      expect(prompt).toContain('summary');
+      expect(prompt).toContain('takeaways');
+      expect(prompt).toContain('sentiment');
+      expect(prompt).toContain('entity');
+
+      // verify db persisted all fields
+      const signal = db.prepare('SELECT summary, overall_sentiment, sentiment_label FROM signals WHERE video_id = ?').get('v1');
+      expect(signal.summary).toContain('Video discusses MTG topics');
+      expect(signal.overall_sentiment).toBe(4);
+      expect(signal.sentiment_label).toBe('Positive');
+
+      const mentions = db.prepare('SELECT entity_name FROM entity_mentions WHERE signal_video_id = ?').all('v1');
+      expect(mentions).toHaveLength(1);
+      expect(mentions[0].entity_name).toBe('Kaldra');
+    });
+
+    it('tracer bullet: produces summary and persists to signals', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v1', 'this is a test video about mtg');
+
+      const mergedJson = {
+        summary: 'Video discusses MTG topics',
+        takeaways: [
+          { text: 'Intro about MTG', timestamp: 'T:0' },
+          { text: 'Card review segment', timestamp: 'T:10' },
+        ],
+        overall_sentiment: { score: 4, label: 'Positive' },
+        entities: [
+          { entity_name: 'Kaldra', entity_type: 'set', sentiment: 'Positive' },
+        ],
+      };
+
+      // Single merged fetch call
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(mergedJson) } }] }) as any });
+
+      const result = await analyzeSignal(db, 'v1', config);
+
+      expect(result.success).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
 
       // verify db persisted
       const signal = db.prepare('SELECT summary, overall_sentiment, sentiment_label FROM signals WHERE video_id = ?').get('v1');
@@ -135,35 +174,37 @@ describe('llm', () => {
       expect(mentions[0].entity_name).toBe('Kaldra');
     });
 
-    it('summary includes T:ss timestamp references from transcription segments', async () => {
+    it('summary includes T:ss timestamp references from grouped transcription', async () => {
       const db = createTestDb();
       insertChannel(db, 'UCtest');
+      // New grouped shape: [{time: ms, text: string}]
       const transcription = JSON.stringify([
-        { text: 'hello world', start: 0, end: 2.5 },
-        { text: 'mtg news today', start: 2.5, end: 5.0 },
-        { text: 'kaldra is great', start: 10, end: 15 },
+        { time: 0, text: 'hello world mtg news today' },
+        { time: 10000, text: 'kaldra is great' },
       ]);
       insertSignal(db, 'v2', transcription);
 
-      const summaryJson = {
+      const mergedJson = {
         summary: 'MTG news video',
         takeaways: [
           { text: 'Opening greeting', timestamp: 'T:0' },
           { text: 'Kaldra praise', timestamp: 'T:10' },
         ],
+        overall_sentiment: { score: 3, label: 'Neutral' },
+        entities: [],
       };
 
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(summaryJson) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ score: 3, label: 'Neutral' }) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify([]) } }] }) as any });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(mergedJson) } }] }) as any });
 
       await analyzeSignal(db, 'v2', config);
 
-      // verify fetch was called with transcription text in the prompt
+      // verify fetch was called with transcription text using [T:ss] from grouped time field
       const summaryCall = mockFetch.mock.calls[0][1] as any;
       const body = JSON.parse(summaryCall.body);
-      expect(body.messages[0].content).toContain('hello world');
-      expect(body.messages[0].content).toContain('mtg news today');
+      expect(body.messages[0].content).toContain('[T:0]');
+      expect(body.messages[0].content).toContain('hello world mtg news today');
+      expect(body.messages[0].content).toContain('[T:10]');
+      expect(body.messages[0].content).toContain('kaldra is great');
     });
 
     it('overall sentiment returns 1-5 integer score and label', async () => {
@@ -171,10 +212,8 @@ describe('llm', () => {
       insertChannel(db, 'UCtest');
       insertSignal(db, 'v3', 'some transcription text');
 
-      // Test score = 5
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [] }) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ score: 5, label: 'Very Positive' }) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify([]) } }] }) as any });
+      // Test score = 5 via merged response
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 5, label: 'Very Positive' }, entities: [] }) } }] }) as any });
 
       await analyzeSignal(db, 'v3', config);
 
@@ -194,9 +233,7 @@ describe('llm', () => {
         { entity_name: 'Modern', entity_type: 'format', sentiment: 'Neutral' },
       ];
 
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [] }) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ score: 3, label: 'Neutral' }) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(entitiesJson) } }] }) as any });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: entitiesJson }) } }] }) as any });
 
       await analyzeSignal(db, 'v4', config);
 
@@ -245,9 +282,7 @@ describe('llm', () => {
       insertChannel(db, 'UCtest');
       insertSignal(db, 'v7', 'text');
 
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [] }) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ score: 3, label: 'Neutral' }) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify([]) } }] }) as any });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] }) } }] }) as any });
 
       await analyzeSignal(db, 'v7', config);
 
@@ -265,10 +300,8 @@ describe('llm', () => {
       insertChannel(db, 'UCtest');
       insertSignal(db, 'v8', 'text');
 
-      // LLM returns score out of range
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [] }) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ score: 10, label: 'Positive' }) } }] }) as any });
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify([]) } }] }) as any });
+      // LLM returns score out of range -> clamped
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 10, label: 'Positive' }, entities: [] }) } }] }) as any });
 
       await analyzeSignal(db, 'v8', config);
 
@@ -281,20 +314,16 @@ describe('llm', () => {
       insertChannel(db, 'UCtest');
       insertSignal(db, 'v-retry', 'transcription text');
 
-      // First summary call fails with TypeError (transient network error)
+      // First call fails with TypeError (transient network error)
       mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'));
-      // Second summary call succeeds
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [] }) } }] }) as any });
-      // Sentiment call succeeds
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ score: 3, label: 'Neutral' }) } }] }) as any });
-      // Entities call succeeds
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify([]) } }] }) as any });
+      // Second call succeeds with merged response
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] }) } }] }) as any });
 
       const result = await analyzeSignal(db, 'v-retry', config);
 
       expect(result.success).toBe(true);
-      // 4 calls total: 1 failed summary + 1 retried summary + 1 sentiment + 1 entities
-      expect(mockFetch).toHaveBeenCalledTimes(4);
+      // 2 calls total: 1 failed + 1 retried (merged = single call)
+      expect(mockFetch).toHaveBeenCalledTimes(2);
 
       const signal = db.prepare('SELECT summary FROM signals WHERE video_id = ?').get('v-retry');
       expect(signal.summary).toContain('s');
@@ -311,9 +340,9 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-exhaust', config);
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('summary');
+      expect(result.error).toContain('analysis');
       expect(result.error).toContain('fetch failed');
-      // 2 calls for summary (1 initial + 1 retry, MAX_RETRIES=2 means loop runs attempts 1 and 2)
+      // 2 calls (1 initial + 1 retry, MAX_RETRIES=2 -> loop attempts 1 and 2)
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
@@ -343,7 +372,7 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-struct', config);
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('summary');
+      expect(result.error).toContain('analysis');
       expect(result.error).toContain('unexpected response structure');
     });
   });

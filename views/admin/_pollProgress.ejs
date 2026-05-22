@@ -3,9 +3,17 @@
   hx-trigger="every 3s"
   hx-swap="outerHTML">
   <% if (run && run.status === 'running') { %>
-    <h3 class="font-semibold mb-2">
-      Run #<%= run.id %> —
-      <span class="text-amber-600">running...</span>
+    <h3 class="font-semibold mb-2 flex items-center justify-between">
+      <span>
+        Run #<%= run.id %> —
+        <span class="text-amber-600">running...</span>
+      </span>
+      <form action="/admin/poll/abort/<%= run.id %>" method="post"
+            onsubmit="return confirm('Abort this run? Unsummarized signals will be deleted.');">
+        <button type="submit" class="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded">
+          Abort Run
+        </button>
+      </form>
     </h3>
     <div class="space-y-1">
       <% progress.forEach(function(p) { %>
@@ -20,7 +28,7 @@
   <% } else if (run) { %>
     <h3 class="font-semibold mb-2">
       Run #<%= run.id %> —
-      <span class="<%= run.status === 'done' ? 'text-green-600' : 'text-red-600' %>"><%= run.status %></span>
+      <span class="<%= run.status === 'done' ? 'text-green-600' : run.status === 'done-forced' ? 'text-amber-600' : 'text-red-600' %>"><%= run.status %></span>
       <span class="text-gray-500 text-sm ml-2">(<%= run.new_signal_count %> new signals)</span>
     </h3>
     <div class="space-y-1">
