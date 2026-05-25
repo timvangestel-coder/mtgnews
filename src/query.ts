@@ -22,6 +22,7 @@ export interface SignalRow {
   sentiment_label: string | null;
   created_at: number;
   processed_at: number | null;
+  relevance_status?: string;
 }
 
 export interface QueryResult {

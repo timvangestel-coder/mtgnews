@@ -61,6 +61,79 @@ describe('Schema initialization', () => {
     expect(columnMap.get('added_at')?.notnull).toBe(1);
   });
 
+  it('channels table has filter_criteria column with default (issue #44)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(channels)")
+      .all() as { name: string; type: string; dflt_value: string | null }[];
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type, dflt_value: c.dflt_value }])
+    );
+
+    expect(columnMap.has('filter_criteria')).toBe(true);
+    expect(columnMap.get('filter_criteria')?.type).toBe('TEXT');
+    expect(columnMap.get('filter_criteria')?.dflt_value).toContain('Magic: The Gathering');
+
+    // Verify default applies on insert
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
+    ).run();
+
+    const row = db
+      .prepare('SELECT filter_criteria FROM channels WHERE channel_id = ?')
+      .get('UC1') as { filter_criteria: string | null };
+
+    expect(row?.filter_criteria).toBeDefined();
+    expect(row?.filter_criteria).toContain('Magic: The Gathering');
+  });
+
+  it('signals table has relevance_status column (issue #44)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(signals)")
+      .all() as { name: string; type: string }[];
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type }])
+    );
+
+    expect(columnMap.has('relevance_status')).toBe(true);
+    expect(columnMap.get('relevance_status')?.type).toBe('TEXT');
+
+    // Verify nullable - insert without relevance_status
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
+    ).run();
+    db.prepare(
+      `INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES ('v1', 'UC1', 'Test', '[]', 1700000000)`
+    ).run();
+
+    const row = db
+      .prepare('SELECT relevance_status FROM signals WHERE video_id = ?')
+      .get('v1') as { relevance_status: string | null };
+
+    // Column exists, value is null (not set)
+    expect(row?.relevance_status).toBeNull();
+
+    // Verify can update to 'relevant' and 'irrelevant'
+    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('relevant', 'v1');
+    const relevantRow = db
+      .prepare('SELECT relevance_status FROM signals WHERE video_id = ?')
+      .get('v1') as { relevance_status: string | null };
+    expect(relevantRow?.relevance_status).toBe('relevant');
+
+    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v1');
+    const irrelevantRow = db
+      .prepare('SELECT relevance_status FROM signals WHERE video_id = ?')
+      .get('v1') as { relevance_status: string | null };
+    expect(irrelevantRow?.relevance_status).toBe('irrelevant');
+  });
+
   it('signals table has correct columns including created_at and processed_at', async () => {
     const db = createTestDb();
     await initSchema(db);

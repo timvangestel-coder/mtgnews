@@ -5,13 +5,14 @@ export function initDb(db: Database.Database): void {
   db.pragma('foreign_keys = ON');
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS channels (
-      channel_id    TEXT PRIMARY KEY,
-      display_name  TEXT,
-      avatar_url    TEXT,
-      active        INTEGER DEFAULT 1,
-      added_at      INTEGER NOT NULL
-    );
+     CREATE TABLE IF NOT EXISTS channels (
+       channel_id    TEXT PRIMARY KEY,
+       display_name  TEXT,
+       avatar_url    TEXT,
+       active        INTEGER DEFAULT 1,
+       added_at      INTEGER NOT NULL,
+       filter_criteria TEXT DEFAULT 'Content must be primarily about Magic: The Gathering (MTG), not other TCGs or unrelated topics.'
+     );
 
     CREATE TABLE IF NOT EXISTS signals (
       video_id          TEXT PRIMARY KEY,
@@ -23,8 +24,10 @@ export function initDb(db: Database.Database): void {
       overall_sentiment  INTEGER,
       sentiment_label   TEXT,
       created_at        INTEGER NOT NULL,
-      processed_at      INTEGER
-    );
+      processed_at      INTEGER,
+      poll_run_id       INTEGER REFERENCES poll_runs(id),
+      relevance_status  TEXT
+     );
 
     CREATE TABLE IF NOT EXISTS entity_mentions (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,5 +74,22 @@ export function initDb(db: Database.Database): void {
   // Migration: add abort_time to poll_runs (issue #40)
   if (!pollRunCols.includes('abort_time')) {
     db.exec('ALTER TABLE poll_runs ADD COLUMN abort_time INTEGER');
+  }
+
+  // Migration: add poll_run_id to signals (issue #43)
+  const signalRows = db.pragma('table_info(signals)') as Array<{ name: string }>;
+  const signalCols = signalRows.map((r) => r.name);
+  if (!signalCols.includes('poll_run_id')) {
+    db.exec('ALTER TABLE signals ADD COLUMN poll_run_id INTEGER REFERENCES poll_runs(id)');
+  }
+
+  // Migration: add filter_criteria to channels (issue #44)
+  if (!channelCols.includes('filter_criteria')) {
+    db.exec("ALTER TABLE channels ADD COLUMN filter_criteria TEXT DEFAULT 'Content must be primarily about Magic: The Gathering (MTG), not other TCGs or unrelated topics.'");
+  }
+
+  // Migration: add relevance_status to signals (issue #44)
+  if (!signalCols.includes('relevance_status')) {
+    db.exec('ALTER TABLE signals ADD COLUMN relevance_status TEXT');
   }
 }

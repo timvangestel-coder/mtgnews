@@ -94,14 +94,26 @@ async function callLlmWithRetry(
   model: string,
   prompt: string,
   callName: string,
-  videoId: string
+  videoId: string,
+  signal?: AbortSignal
 ): Promise<string> {
   let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      // Merge external abort signal with internal timeout
+      const internal = new AbortController();
+      const timeoutId = setTimeout(() => internal.abort(), FETCH_TIMEOUT_MS);
+
+      // Abort if either external or internal triggers
+      let mySignal = internal.signal;
+      if (signal) {
+        const combined = new AbortController();
+        const onExternal = () => combined.abort(new Error('Poll run aborted by user'));
+        signal.addEventListener('abort', onExternal, { once: true });
+        if (signal.aborted) { combined.abort(signal.reason); }
+        mySignal = combined.signal;
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -110,7 +122,7 @@ async function callLlmWithRetry(
           model,
           messages: [{ role: 'user', content: prompt }],
         }),
-        signal: controller.signal,
+        signal: mySignal,
       });
 
       clearTimeout(timeoutId);
@@ -159,19 +171,20 @@ async function callLlmWithRetry(
 export async function analyzeSignal(
   db: Database.Database,
   videoId: string,
-  config: LlmConfig
+  config: LlmConfig,
+  signal?: AbortSignal
 ): Promise<AnalysisResult> {
   try {
-    // Fetch signal from db
-    const signal = db.prepare('SELECT transcription FROM signals WHERE video_id = ?').get(videoId);
-    if (!signal) {
+    // Fetch signal row from db
+    const sigRow = db.prepare('SELECT transcription FROM signals WHERE video_id = ?').get(videoId);
+    if (!sigRow) {
       return { success: false, error: `Signal ${videoId} not found` };
     }
 
-    const transcriptionText = extractTranscriptionText(signal.transcription as string);
+    const transcriptionText = extractTranscriptionText((sigRow as any).transcription as string);
 
     // Single merged LLM call (issue #38)
-    const analysisContent = await callLlmWithRetry(config.endpoint, config.model, buildMergedPrompt(transcriptionText), 'analysis', videoId);
+    const analysisContent = await callLlmWithRetry(config.endpoint, config.model, buildMergedPrompt(transcriptionText), 'analysis', videoId, signal);
     const analysis: MergedAnalysisResponse = JSON.parse(analysisContent);
 
     const summaryDisplay = [analysis.summary, ...analysis.takeaways.map((t) => `${t.timestamp} ${t.text}`)].join('\n');

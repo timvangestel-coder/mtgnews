@@ -110,4 +110,44 @@ describe('poll', () => {
       })
     ).rejects.toThrow();
   });
+
+  // Issue #43: pollChannel accepts runId, persists it on signals
+  it('persists poll_run_id on signals when runId provided', async () => {
+    // Create a poll_run row so FK constraint passes
+    const result = db.prepare(
+      'INSERT INTO poll_runs (triggered_at, status, lookback_days) VALUES (?, ?, ?)'
+    ).run(Date.now(), 'running', 2);
+    const runId = Number(result.lastInsertRowid);
+
+    const pollResult = await pollChannel(db, 'UCtest', {
+      fetchRss: () => Promise.resolve(SAMPLE_XML),
+      extractCaptions: () =>
+        Promise.resolve([
+          { text: 'hello', start: 0, end: 2000 },
+          { text: 'world', start: 2000, end: 4000 },
+        ]),
+      runId,
+    });
+
+    expect(pollResult.newSignals).toBe(2);
+
+    const signals = db.prepare('SELECT video_id, poll_run_id FROM signals').all() as Array<{ video_id: string; poll_run_id: number | null }>;
+    expect(signals).toHaveLength(2);
+    for (const s of signals) {
+      expect(s.poll_run_id).toBe(runId);
+    }
+  });
+
+  it('signals have poll_run_id NULL when runId not provided', async () => {
+    await pollChannel(db, 'UCtest', {
+      fetchRss: () => Promise.resolve(SAMPLE_XML),
+      extractCaptions: () =>
+        Promise.resolve([{ text: 'x', start: 0, end: 1 }]),
+    });
+
+    const signals = db.prepare('SELECT poll_run_id FROM signals').all() as Array<{ poll_run_id: number | null }>;
+    for (const s of signals) {
+      expect(s.poll_run_id).toBeNull();
+    }
+  });
 });

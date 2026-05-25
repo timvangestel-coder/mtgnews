@@ -13,6 +13,7 @@ export interface PollOptions {
   fetchRss?: (channelId: string) => Promise<string>;
   extractCaptions?: (videoId: string) => Promise<TranscriptionSegment[]>;
   lookbackDays?: number;
+  runId?: number;
 }
 
 export async function pollChannel(
@@ -52,8 +53,9 @@ export async function pollChannel(
   let newSignals = 0;
   const skippedNoCaptions: string[] = [];
 
+  const runId = options.runId;
   const insertSignal = db.prepare(
-    'INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
 
   for (const candidate of candidates) {
@@ -88,7 +90,8 @@ export async function pollChannel(
       candidate.title,
       candidate.published_at,
       JSON.stringify(grouped),
-      Date.now()
+      Date.now(),
+      runId ?? null
     );
     newSignals++;
   }

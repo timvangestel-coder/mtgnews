@@ -11,7 +11,7 @@ import { getSignalById } from './signal-detail';
 import { injectTimestampAnchors, formatTranscriptionHtml } from './signal-detail';
 import { analyzeSignal, getLlmConfig } from './llm';
 import { queryPollRuns, getPollRunById, queryPollRunProgress } from './db/poll-runs';
-import { enqueuePollRun } from './poll-scheduler';
+import { enqueuePollRun, registerRun } from './poll-scheduler';
 import { fetchChannelInfo } from './rss-discovery';
 import { abortPollRun } from './abort';
 
@@ -242,9 +242,12 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
     const raw = req.body.lookback_days;
     const lookbackDays = raw ? parseInt(raw as string, 10) : 2;
     const runId = enqueuePollRun(useDb, lookbackDays);
+    // Create AbortController so abort endpoint can cancel this run
+    const controller = new AbortController();
     // run in background (non-blocking)
     import('./poll-worker').then(({ workerProcessRun }) => {
-      workerProcessRun(useDb, runId).catch(console.error);
+      const worker = workerProcessRun(useDb, runId, { signal: controller.signal }).catch(console.error);
+      registerRun(runId, controller, worker);
     });
     res.redirect('/admin');
   });
@@ -252,13 +255,14 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
   // admin: abort poll (issue #40)
   app.post('/admin/poll/abort/:id', (req, res) => {
     const runId = parseInt(req.params.id, 10);
+    const returnTo = req.query.return_to as string | undefined;
     try {
       abortPollRun(useDb, runId);
     } catch (err) {
-      res.redirect(`/admin?error=${encodeURIComponent((err as Error).message)}`);
+      res.redirect(`${returnTo || '/admin'}?error=${encodeURIComponent((err as Error).message)}`);
       return;
     }
-    res.redirect('/admin');
+    res.redirect(returnTo || '/admin');
   });
 
   // admin: get poll progress (HTMX endpoint)

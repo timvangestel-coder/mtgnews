@@ -6,6 +6,7 @@ export interface ChannelRow {
   avatar_url: string | null;
   active: number;
   added_at: number;
+  filter_criteria?: string;
 }
 
 export function addChannel(db: Database.Database, channelId: string, displayName?: string, avatarUrl?: string): void {

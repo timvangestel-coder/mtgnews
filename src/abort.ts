@@ -1,16 +1,24 @@
 import Database from 'better-sqlite3';
+import { getActiveRun } from './poll-scheduler';
 
 /**
  * Abort an active PollRun cooperatively.
  *
  * Logic:
- * 1. Record abort_time
- * 2. Delete unsummarized signals created within [triggered_at, abort_time]
- *    (signals with processed_at IS NULL)
- * 3. If processed signals exist -> set status = 'done-forced', update new_signal_count
- * 4. If zero processed signals -> delete the run row entirely
+ * 1. Fire AbortController -> cancels in-flight LLM HTTP requests + stops worker between tasks
+ * 2. Delete unsummarized signals by poll_run_id FK (no timestamp window race)
+ * 3. Clean entity_mentions for those signals
+ * 4. Always set status = 'done-forced' with correct new_signal_count (even if zero).
+ *    The run row is never deleted — the UI needs it to display abort status.
  */
 export function abortPollRun(db: Database.Database, runId: number): void {
+  // Step 1: cancel in-flight work via AbortController
+  const active = getActiveRun(runId);
+  if (active) {
+    console.log(`ABORT runId=${runId}: firing AbortController to cancel worker`);
+    active.controller.abort('Poll run aborted by user');
+  }
+
   // Fetch current run
   const run = db.prepare(`
     SELECT id, triggered_at, status FROM poll_runs WHERE id = ?
@@ -24,50 +32,39 @@ export function abortPollRun(db: Database.Database, runId: number): void {
     throw new Error(`PollRun #${runId} already aborted (done-forced)`);
   }
 
-  // Use a large upper bound to capture all signals created during this run.
-  // In production, abort_time = Date.now() would work since there's real time between poll start and abort.
-  // We find the max created_at of ALL signals >= triggered_at as the effective window end.
-  const maxCreatedAt = db.prepare(
-    'SELECT MAX(created_at) as mx FROM signals WHERE created_at >= ?'
-  ).get(run.triggered_at) as { mx: number | null };
-  const abortTime = Math.max(Date.now(), (maxCreatedAt?.mx ?? run.triggered_at) + 1);
-
+  const abortTime = Date.now();
   console.log(`ABORT runId=${runId} triggered_at=${run.triggered_at} abort_time=${abortTime}`);
-  console.log('signals before delete:', JSON.stringify(db.prepare('SELECT video_id, created_at, processed_at FROM signals').all()));
+  console.log('signals before delete:', JSON.stringify(db.prepare('SELECT video_id, created_at, processed_at, poll_run_id FROM signals').all()));
 
   // Use explicit transaction for atomicity and visibility
-  const txn = db.transaction((triggeredAt: number, at: number, rid: number) => {
-    console.log(`TXN: deleting signals in [${triggeredAt}, ${at}]`);
-    // Delete entity_mentions for signals that will be deleted
+  const txn = db.transaction((rid: number, at: number) => {
+    console.log(`TXN: deleting signals with poll_run_id=${rid}`);
+
+    // Delete entity_mentions for signals belonging to this run that are unsummarized
     db.prepare(`
       DELETE FROM entity_mentions WHERE signal_video_id IN (
         SELECT video_id FROM signals
-        WHERE created_at >= ? AND created_at <= ? AND processed_at IS NULL
+        WHERE poll_run_id = ? AND processed_at IS NULL
       )
-    `).run(triggeredAt, at);
+    `).run(rid);
 
-    // Delete unsummarized signals within [triggered_at, abort_time]
+    // Delete unsummarized signals by FK (no timestamp window -> no race)
     db.prepare(`
       DELETE FROM signals
-      WHERE created_at >= ? AND created_at <= ? AND processed_at IS NULL
-    `).run(triggeredAt, at);
+      WHERE poll_run_id = ? AND processed_at IS NULL
+    `).run(rid);
 
-    // Count remaining processed signals from this run window
+    // Count remaining processed signals from this run
     const row = db.prepare(`
       SELECT COUNT(*) as cnt FROM signals
-      WHERE created_at >= ? AND created_at <= ? AND processed_at IS NOT NULL
-    `).get(triggeredAt, at) as { cnt: number };
+      WHERE poll_run_id = ? AND processed_at IS NOT NULL
+    `).get(rid) as { cnt: number };
 
-    if (row.cnt > 0) {
-      // Keep run, mark done-forced with correct count
-      db.prepare(`
-        UPDATE poll_runs SET status = 'done-forced', new_signal_count = ?, abort_time = ? WHERE id = ?
-      `).run(row.cnt, at, rid);
-    } else {
-      // Zero processed -> delete entire run
-      db.prepare('DELETE FROM poll_runs WHERE id = ?').run(rid);
-    }
+    // Always keep the run row so the UI can display "done-forced" status.
+    db.prepare(`
+      UPDATE poll_runs SET status = 'done-forced', new_signal_count = ?, abort_time = ? WHERE id = ?
+    `).run(row.cnt, at, rid);
   });
 
-  txn(run.triggered_at, abortTime, runId);
+  txn(runId, abortTime);
 }

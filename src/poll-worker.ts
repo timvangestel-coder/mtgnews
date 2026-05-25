@@ -2,21 +2,30 @@ import Database from 'better-sqlite3';
 import { listActiveChannels } from './db/watchlist';
 import { pollChannel, PollOptions } from './poll';
 import { analyzeSignal, getLlmConfig } from './llm';
+import { unregisterRun } from './poll-scheduler';
 
 export interface WorkerOptions {
   fetchRss?: (channelId: string) => Promise<string>;
   extractCaptions?: (videoId: string) => Promise<Array<{ text: string; start: number; end: number }>>;
+  signal?: AbortSignal;
 }
 
-/** Simple concurrency-limited task pool (issue #39) */
+/** Simple concurrency-limited task pool (issue #39) — now abort-aware */
 async function runWithConcurrencyLimit<T>(
   items: T[],
   concurrency: number,
-  fn: (item: T, index: number) => Promise<void>
+  fn: (item: T, index: number) => Promise<void>,
+  signal?: AbortSignal
 ): Promise<void> {
   const results: Promise<void>[] = [];
 
   for (let i = 0; i < items.length; i++) {
+    // Check abort before dispatching batch
+    if (signal?.aborted) {
+      console.log(`Worker aborted before batch at item ${i}`);
+      break;
+    }
+
     const p = fn(items[i], i).catch((err) => {
       console.error(`Task pool item ${i} failed: ${(err as Error).message}`);
     });
@@ -34,6 +43,8 @@ export async function workerProcessRun(
   runId: number,
   options: WorkerOptions = {}
 ): Promise<void> {
+  const signal = options.signal;
+
   // read lookback_days from poll_runs row (defaults to 2 via DB column default)
   const runRow = db.prepare(
     'SELECT lookback_days FROM poll_runs WHERE id = ?'
@@ -59,11 +70,18 @@ export async function workerProcessRun(
 
   // Phase 1: poll all channels sequentially (RSS fetch order matters for progress tracking)
   for (const channel of channels) {
+    // Check abort between channels
+    if (signal?.aborted) {
+      console.log(`Worker aborted during channel polling at ${channel.channel_id}`);
+      break;
+    }
+
     try {
       const result = await pollChannel(db, channel.channel_id, {
         fetchRss: options.fetchRss,
         extractCaptions: options.extractCaptions,
         lookbackDays,
+        runId,
       } as PollOptions);
 
       totalNewSignals += result.newSignals;
@@ -93,14 +111,26 @@ export async function workerProcessRun(
   await runWithConcurrencyLimit(workItems, concurrency, async (item) => {
     if (item.type === 'analyze' && item.videoId) {
       try {
-        await analyzeSignal(db, item.videoId, llmConfig);
+        await analyzeSignal(db, item.videoId, llmConfig, signal);
       } catch (err) {
-        console.error(`analyzeSignal failed for ${item.videoId}: ${(err as Error).message}`);
+        const msg = (err as Error).message;
+        // Skip abort errors silently
+        if (msg.includes('AbortError') || msg.includes('aborted')) return;
+        console.error(`analyzeSignal failed for ${item.videoId}: ${msg}`);
       }
     }
-  });
+  }, signal);
+
+  // Check if aborted before marking done
+  if (signal?.aborted) {
+    console.log(`Worker runId=${runId} stopped due to abort`);
+    unregisterRun(runId);
+    return;
+  }
 
   db.prepare(
     'UPDATE poll_runs SET status = ?, new_signal_count = ?, completed_at = ? WHERE id = ?'
   ).run('done', totalNewSignals, Date.now(), runId);
+
+  unregisterRun(runId);
 }

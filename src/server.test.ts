@@ -196,13 +196,14 @@ function createTestServer(testDb: Database.Database) {
   // admin: abort poll (issue #40)
   expressApp.post('/admin/poll/abort/:id', (_req, res) => {
     const runId = parseInt(_req.params.id, 10);
+    const returnTo = _req.query.return_to as string | undefined;
     try {
       abortPollRun(testDb, runId);
     } catch (err) {
-      res.redirect(`/admin?error=${encodeURIComponent((err as Error).message)}`);
+      res.redirect(`${returnTo || '/admin'}?error=${encodeURIComponent((err as Error).message)}`);
       return;
     }
-    res.redirect('/admin');
+    res.redirect(returnTo || '/admin');
   });
 
   const server = expressApp.listen(listenPort);
@@ -588,6 +589,22 @@ describe('Express server', () => {
       expect(resp.text).toContain('/polls/1-detail');
     });
 
+    it('GET /polls shows Abort button only for running jobs', async () => {
+      // Run #2 is 'running' (from status badges test above)
+      const resp = await request(app.server).get('/polls');
+      expect(resp.status).toBe(200);
+      expect(resp.text).toContain('/admin/poll/abort/2');
+      expect(resp.text).toContain('Abort');
+    });
+
+    it('GET /polls does not show Abort button for non-running jobs', async () => {
+      const resp = await request(app.server).get('/polls');
+      expect(resp.status).toBe(200);
+      // done/failed runs do NOT have abort forms
+      expect(resp.text).not.toContain('/admin/poll/abort/1');
+      expect(resp.text).not.toContain('/admin/poll/abort/3');
+    });
+
     it('GET /polls/:id-detail shows run header and channel breakdown', async () => {
       const resp = await request(app.server).get('/polls/1-detail');
       expect(resp.status).toBe(200);
@@ -616,13 +633,13 @@ describe('Express server', () => {
 
       // One processed signal in this run window (created_at > triggeredAt)
       db.prepare(
-        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(`v-abort-proc`, 'UCabort1', 'Processed', '2026-05-01T00:00:00Z', '[]', 'summary', 4, triggeredAt + 1, Date.now());
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at, processed_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(`v-abort-proc`, 'UCabort1', 'Processed', '2026-05-01T00:00:00Z', '[]', 'summary', 4, triggeredAt + 1, Date.now(), runId);
 
       // One unprocessed signal in this run window
       db.prepare(
-        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-      ).run(`v-abort-unproc`, 'UCabort1', 'Unprocessed', '2026-05-01T01:00:00Z', '[]', triggeredAt + 2);
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(`v-abort-unproc`, 'UCabort1', 'Unprocessed', '2026-05-01T01:00:00Z', '[]', triggeredAt + 2, runId);
 
       const resp = await request(app.server)
         .post(`/admin/poll/abort/${runId}`)
@@ -647,7 +664,7 @@ describe('Express server', () => {
       expect(procRow.summary).toBe('summary');
     });
 
-    it('POST /admin/poll/abort/:id deletes run entirely when zero processed signals', async () => {
+    it('POST /admin/poll/abort/:id keeps run as done-forced when zero processed signals', async () => {
       addChannel(db, 'UCabort2', 'Abort Ch 2');
       const triggeredAt = Date.now();
       db.prepare(
@@ -657,8 +674,8 @@ describe('Express server', () => {
 
       // Only unprocessed signals in this run window
       db.prepare(
-        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-      ).run(`v-abort-zero`, 'UCabort2', 'Only Unproc', '2026-05-01T00:00:00Z', '[]', triggeredAt + 1);
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(`v-abort-zero`, 'UCabort2', 'Only Unproc', '2026-05-01T00:00:00Z', '[]', triggeredAt + 1, runId);
 
       const resp = await request(app.server)
         .post(`/admin/poll/abort/${runId}`)
@@ -668,11 +685,13 @@ describe('Express server', () => {
       expect(resp.status).toBe(302);
       expect(resp.header.location).toBe('/admin');
 
-      // Run should be deleted entirely (zero processed signals in window)
-      const run = db.prepare('SELECT id, status FROM poll_runs WHERE id = ?').get(runId);
-      expect(run).toBeUndefined();
+      // Run kept as done-forced (UI needs it to display abort status)
+      const run = db.prepare('SELECT id, status, new_signal_count FROM poll_runs WHERE id = ?').get(runId) as any;
+      expect(run).toBeDefined();
+      expect(run.status).toBe('done-forced');
+      expect(run.new_signal_count).toBe(0);
 
-      // Signal also deleted
+      // Signal deleted
       const sigCount = (db.prepare("SELECT COUNT(*) as c FROM signals WHERE video_id = ?").get(`v-abort-zero`) as { c: number }).c;
       expect(sigCount).toBe(0);
     });
@@ -687,12 +706,12 @@ describe('Express server', () => {
       ).run(triggeredAt, 1);
       const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
 
-      // Signal inside this run window - unprocessed
+      // Signal inside this run window - unprocessed (tied to this run via FK)
       db.prepare(
-        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-      ).run(`v-in-window`, 'UCabort3', 'In Window', '2026-05-01T00:00:00Z', '[]', triggeredAt + 1000);
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(`v-in-window`, 'UCabort3', 'In Window', '2026-05-01T00:00:00Z', '[]', triggeredAt + 1000, runId);
 
-      // Signal outside this run window (created before) - unprocessed
+      // Signal outside this run window (no poll_run_id -> orphan, never deleted by abort)
       db.prepare(
         "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)"
       ).run(`v-out-window`, 'UCabort3', 'Out Window', '2026-05-01T01:00:00Z', '[]', triggeredAt - 5000);
@@ -736,6 +755,40 @@ describe('Express server', () => {
 
       expect(resp.status).toBe(302);
       expect(resp.header.location).toContain('error=');
+    });
+
+    it('POST /admin/poll/abort/:id redirects to return_to param when provided', async () => {
+      addChannel(db, 'UCabortreturn', 'Abort Return Ch');
+      const triggeredAt = Date.now();
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', ?)"
+      ).run(triggeredAt, 0);
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+      const resp = await request(app.server)
+        .post(`/admin/poll/abort/${runId}?return_to=/polls`)
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/polls');
+    });
+
+    it('POST /admin/poll/abort/:id defaults to /admin when no return_to param', async () => {
+      addChannel(db, 'UCabortdefault', 'Abort Default Ch');
+      const triggeredAt = Date.now();
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', ?)"
+      ).run(triggeredAt, 0);
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+      const resp = await request(app.server)
+        .post(`/admin/poll/abort/${runId}`)
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/admin');
     });
   });
 

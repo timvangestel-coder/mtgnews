@@ -264,6 +264,27 @@ describe('poll-worker', () => {
     process.env.LLM_CONCURRENCY = originalEnv;
   });
 
+  // Issue #43: worker passes runId to pollChannel -> signals get poll_run_id
+  it('passes runId to pollChannel so signals have poll_run_id', async () => {
+    const runId = enqueuePollRun(db);
+
+    await workerProcessRun(db, runId, {
+      fetchRss: (channelId: string) => {
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_fk1', 'FK Video 1', 1));
+        return Promise.resolve(makeXml('vid_fk2', 'FK Video 2', 1));
+      },
+      extractCaptions: () => Promise.resolve([{ text: 'mtg talk', start: 0, end: 5 }]),
+    } as WorkerOptions);
+
+    const signals = db.prepare(
+      'SELECT video_id, poll_run_id FROM signals'
+    ).all() as Array<{ video_id: string; poll_run_id: number | null }>;
+    expect(signals).toHaveLength(2);
+    for (const s of signals) {
+      expect(s.poll_run_id).toBe(runId);
+    }
+  });
+
   it('errors in one signal do not block other signals (concurrent pool)', async () => {
     mockAnalyze.mockImplementation((database, videoId) => {
       if (videoId === 'vid_fail1') {
