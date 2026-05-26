@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
+import { createTopic, listTopics } from './db/topics';
 import {
   QueryFilters,
   QueryResult,
@@ -42,8 +43,11 @@ describe('query', () => {
 
   beforeEach(() => {
     db = createTestDb();
-    addChannel(db, 'UC1', 'Channel 1');
-    addChannel(db, 'UC2', 'Channel 2');
+    createTopic(db, 'esports', 'Esports', 'esports');
+    createTopic(db, 'politics', 'Politics', 'politics');
+    const topics = listTopics(db);
+    addChannel(db, 'UC1', 'Channel 1', null, topics[0].id);
+    addChannel(db, 'UC2', 'Channel 2', null, topics[1].id);
 
     // seed 5 signals across 2 channels, varying sentiment + dates
     insertSignal(db, 'v1', 'UC1', '2026-01-01T00:00:00Z', 3, [{ name: 'Koma', type: 'Player', sentiment: 'positive' }]);
@@ -229,5 +233,54 @@ describe('query', () => {
     // v1-v5 all have NULL relevance_status by default
     const result = querySignals(db);
     expect(result.total).toBe(5);
+  });
+
+  // -- Topic filter (Issue #56) --
+  it('topicKey filters signals to only that topic channels', () => {
+    const result = querySignals(db, { topicKey: 'esports' });
+    const ids = result.items.map((s: any) => s.video_id);
+    expect(ids).not.toContain('v3');
+    expect(ids).not.toContain('v4');
+    expect(result.total).toBe(3);
+  });
+
+  it('topicKey with nonMatching key returns empty', () => {
+    const result = querySignals(db, { topicKey: 'nonexistent' });
+    expect(result.items).toHaveLength(0);
+    expect(result.total).toBe(0);
+  });
+
+  it('topicKey combined with channelId works', () => {
+    const result = querySignals(db, { topicKey: 'esports', channelId: 'UC1' });
+    const ids = result.items.map((s: any) => s.video_id);
+    expect(ids).toEqual(['v5', 'v2', 'v1']);
+    expect(result.total).toBe(3);
+  });
+
+  it('topicKey with channelId from different topic returns empty', () => {
+    const result = querySignals(db, { topicKey: 'esports', channelId: 'UC2' });
+    expect(result.items).toHaveLength(0);
+    expect(result.total).toBe(0);
+  });
+
+  it('empty topicKey returns all signals', () => {
+    const result = querySignals(db, { topicKey: '' });
+    expect(result.total).toBe(5);
+  });
+
+  it('topicKey with pagination works', () => {
+    const page1 = querySignals(db, { topicKey: 'esports', limit: 2 });
+    expect(page1.items).toHaveLength(2);
+    expect(page1.total).toBe(3);
+
+    const page2 = querySignals(db, { topicKey: 'esports', limit: 2, offset: 2 });
+    expect(page2.items).toHaveLength(1);
+    expect(page2.total).toBe(3);
+  });
+
+  it('topicKey combined with date and sentiment filters', () => {
+    const result = querySignals(db, { topicKey: 'esports', minSentiment: 3, dateFrom: '2026-01-01T00:00:00Z' });
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map((s: any) => s.video_id)).toEqual(['v2', 'v1']);
   });
 });

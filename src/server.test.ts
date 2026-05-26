@@ -47,24 +47,30 @@ function createTestServer(testDb: Database.Database) {
 
   expressApp.get('/signals', (req, res) => {
     const channelId = req.query.channelId as string | undefined;
+    const topicKey = req.query.topicKey as string | undefined;
     const showIrrelevant = req.query.showIrrelevant === 'true';
     const page = parseInt(req.query.page as string, 10) || 1;
     const isHtmx = req.query.htmx === 'true';
     const limit = 25;
     const offset = (page - 1) * limit;
-    const result = querySignals(testDb, { channelId, includeIrrelevant: showIrrelevant, limit, offset });
-    const channels = listChannels(testDb);
+    const result = querySignals(testDb, { channelId, topicKey: topicKey || undefined, includeIrrelevant: showIrrelevant, limit, offset });
+    const rawChannels = listChannels(testDb);
+    const topics = listTopics(testDb);
+    const channels = rawChannels.map((ch) => ({
+      ...ch,
+      topic_key: ch.topic_id ? (topics.find((t) => t.id === ch.topic_id)?.key ?? null) : null,
+    }));
     const totalPages = Math.ceil(result.total / limit);
 
     if (isHtmx) {
       res.render('_signalsTable', {
-        signals: result.items, page, totalPages, total: result.total, channelId, showIrrelevant,
+        signals: result.items, page, totalPages, total: result.total, channelId, topicKey, showIrrelevant,
         layout: false,
       });
     } else {
       res.render('signals', {
         activePage: 'signals', title: 'Signals',
-        signals: result.items, channels, page, totalPages, total: result.total, channelId, showIrrelevant,
+        signals: result.items, channels, topics, page, totalPages, total: result.total, channelId, topicKey, showIrrelevant,
       });
     }
   });

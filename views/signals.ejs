@@ -1,52 +1,76 @@
 <h2 class="text-2xl font-bold mb-4">Signals</h2>
 
-<!-- Channel Filter Pills + Show Irrelevant Toggle -->
-<div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-  <div class="flex flex-wrap gap-2"
-       x-data="{
-        channels: <%= JSON.stringify(channels || []) %>,
-        selected: '<%= channelId || '' %>',
-        showIrrelevant: <%= typeof showIrrelevant === 'boolean' ? showIrrelevant : 'false' %>,
-        getUrl() {
-          var params = new URLSearchParams();
-          if (this.selected) params.set('channelId', this.selected);
-          if (this.showIrrelevant) params.set('showIrrelevant', 'true');
-          params.set('htmx', 'true');
-          return '/signals?' + params.toString();
-        }
-      }">
-    <button class="rounded-full px-4 py-1 text-sm transition"
-             :class="selected === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
-             @click="selected = ''; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
-      All
-    </button>
-    <% for (var ci = 0; ci < (channels || []).length; ci++) { var ch = channels[ci]; %>
-      <button class="rounded-full px-4 py-1 text-sm transition"
-              :class="selected === '<%= ch.channel_id %>' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
-              @click="selected = '<%= ch.channel_id %>'; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
-        <%= ch.display_name || ch.channel_id %>
-      </button>
-    <% } %>
-  </div>
-
-  <!-- Show Irrelevant Toggle -->
-  <div x-data="{
-      showIrrelevant: <%= typeof showIrrelevant === 'boolean' ? showIrrelevant : 'false' %>,
+<!-- Topic + Channel Filter Pills + Show Irrelevant Toggle -->
+<div class="mb-4 flex flex-col gap-3"
+     x-data="{
+      topics: <%= JSON.stringify(topics || []) %>,
       channels: <%= JSON.stringify(channels || []) %>,
-      selected: '<%= channelId || '' %>',
+      selectedTopic: '<%= (topicKey || '').replace(/'/g, "\\'") %>',
+      selectedChannel: '<%= (channelId || '').replace(/'/g, "\\'") %>',
+      showIrrelevant: <%= typeof showIrrelevant === 'boolean' ? showIrrelevant : 'false' %>,
+      get filteredChannels() {
+        return this.selectedTopic
+          ? this.channels.filter(c => c.topic_key === this.selectedTopic)
+          : this.channels;
+      },
       getUrl() {
         var params = new URLSearchParams();
-        if (this.selected) params.set('channelId', this.selected);
+        if (this.selectedTopic) params.set('topicKey', this.selectedTopic);
+        if (this.selectedChannel) params.set('channelId', this.selectedChannel);
         if (this.showIrrelevant) params.set('showIrrelevant', 'true');
         params.set('htmx', 'true');
         return '/signals?' + params.toString();
+      },
+      selectTopic(key) {
+        this.selectedTopic = key;
+        this.selectedChannel = '';
+        $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
+      },
+      selectChannel(id) {
+        this.selectedChannel = id;
+        $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
       }
     }">
+
+  <!-- Row 1: Topic Pills -->
+  <div class="flex flex-wrap gap-2">
     <button class="rounded-full px-4 py-1 text-sm transition"
-            :class="showIrrelevant ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'"
-            @click="showIrrelevant = !showIrrelevant; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
-      Show Irrelevant
+            :class="selectedTopic === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+            @click="selectTopic('')">
+      All Topics
     </button>
+    <template x-for="topic in topics" :key="topic.key">
+      <button class="rounded-full px-4 py-1 text-sm transition"
+              :class="selectedTopic === topic.key ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+              @click="selectTopic(topic.key)"
+              x-text="topic.short_name || topic.key">
+      </button>
+    </template>
+  </div>
+
+  <!-- Row 2: Channel Pills (filtered by selected topic) -->
+  <div class="flex flex-wrap gap-2 items-center">
+    <button class="rounded-full px-4 py-1 text-sm transition"
+            :class="selectedChannel === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+            @click="selectChannel('')">
+      All Channels
+    </button>
+    <template x-for="ch in filteredChannels" :key="ch.channel_id">
+      <button class="rounded-full px-4 py-1 text-sm transition"
+              :class="selectedChannel === ch.channel_id ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+              @click="selectChannel(ch.channel_id)"
+              x-text="ch.display_name || ch.channel_id">
+      </button>
+    </template>
+
+    <!-- Show Irrelevant Toggle -->
+    <div class="ml-auto">
+      <button class="rounded-full px-4 py-1 text-sm transition"
+              :class="showIrrelevant ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'"
+              @click="showIrrelevant = !showIrrelevant; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
+        Show Irrelevant
+      </button>
+    </div>
   </div>
 </div>
 
@@ -96,6 +120,7 @@
       <% if (page > 1) { %>
         <% var prevParams = new URLSearchParams(); %>
         <% if (channelId) prevParams.set('channelId', channelId); %>
+        <% if (topicKey) prevParams.set('topicKey', topicKey); %>
         <% if (showIrrelevant) prevParams.set('showIrrelevant', 'true'); %>
         <% prevParams.set('page', String(page - 1)); %>
         <% prevParams.set('htmx', 'true'); %>
@@ -108,6 +133,7 @@
       <% if (page < totalPages) { %>
         <% var nextParams = new URLSearchParams(); %>
         <% if (channelId) nextParams.set('channelId', channelId); %>
+        <% if (topicKey) nextParams.set('topicKey', topicKey); %>
         <% if (showIrrelevant) nextParams.set('showIrrelevant', 'true'); %>
         <% nextParams.set('page', String(page + 1)); %>
         <% nextParams.set('htmx', 'true'); %>

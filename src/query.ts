@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 
 export interface QueryFilters {
   channelId?: string;
+  topicKey?: string;
   dateFrom?: string;
   dateTo?: string;
   minSentiment?: number;
@@ -67,6 +68,11 @@ export function querySignals(db: Database.Database, filters: QueryFilters = {}):
   if (filters.channelId) {
     conditions.push('s.channel_id = ?');
     params.push(filters.channelId);
+  }
+
+  if (filters.topicKey) {
+    conditions.push('s.channel_id IN (SELECT channel_id FROM channels WHERE topic_id IN (SELECT id FROM topics WHERE key = ?))');
+    params.push(filters.topicKey);
   }
 
   if (filters.dateFrom) {

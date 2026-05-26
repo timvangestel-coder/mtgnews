@@ -56,14 +56,21 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
   // signals
   app.get('/signals', (req, res) => {
     const channelId = req.query.channelId as string | undefined;
+    const topicKey = req.query.topicKey as string | undefined;
     const showIrrelevant = req.query.showIrrelevant === 'true';
     const page = parseInt(req.query.page as string, 10) || 1;
     const isHtmx = req.query.htmx === 'true';
     const limit = 25;
     const offset = (page - 1) * limit;
 
-    const result = querySignals(useDb, { channelId, includeIrrelevant: showIrrelevant, limit, offset });
-    const channels = listChannels(useDb);
+    const result = querySignals(useDb, { channelId, topicKey: topicKey || undefined, includeIrrelevant: showIrrelevant, limit, offset });
+    const rawChannels = listChannels(useDb);
+    // Add topic_key for Alpine.js filtering in UI
+    const channels = rawChannels.map((ch) => ({
+      ...ch,
+      topic_key: ch.topic_id ? (listTopics(useDb).find((t) => t.id === ch.topic_id)?.key ?? null) : null,
+    }));
+    const topics = listTopics(useDb);
     const totalPages = Math.ceil(result.total / limit);
 
     if (isHtmx) {
@@ -73,6 +80,7 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
         totalPages,
         total: result.total,
         channelId,
+        topicKey,
         showIrrelevant,
         layout: false,
       });
@@ -82,10 +90,12 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
         title: 'Signals',
         signals: result.items,
         channels,
+        topics,
         page,
         totalPages,
         total: result.total,
         channelId,
+        topicKey,
         showIrrelevant,
       });
     }
