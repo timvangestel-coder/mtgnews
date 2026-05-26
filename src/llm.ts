@@ -25,14 +25,25 @@ interface MergedAnalysisResponse {
   takeaways: Array<{ text: string; timestamp: string }>;
   overall_sentiment: { score: number; label: string };
   entities: Array<{ entity_name: string; entity_type: string; sentiment: string }>;
+  relevant?: boolean;
 }
 
-function buildMergedPrompt(transcriptionText: string): string {
-  return `You are an MTG (Magic: The Gathering) content analyst. Analyze the following video transcription and produce a structured JSON response containing summary, key takeaways, overall sentiment, and entity mentions.
+function buildMergedPrompt(transcriptionText: string, filterText?: string): string {
+  const relevanceSection = filterText
+    ? `Channel filter text: ${filterText}
+
+First, judge whether the content meets the channel's filter criteria. Include "relevant": true or "relevant": false in your JSON response. If content does not meet the criteria, set relevant to false.`
+    : '';
+
+  const minimalInstruction = filterText
+    ? `\n\nIMPORTANT: If content is NOT relevant, return ONLY {"relevant": false} without generating summary, takeaways, sentiment, or entities.`
+    : '';
+
+  return `You are a content analyst. Analyze the following video transcription and produce a structured JSON response containing summary, key takeaways, overall sentiment, and entity mentions.${relevanceSection ? '\n\n' + relevanceSection : ''}${minimalInstruction}
 
 Return ONLY valid JSON with this structure:
 {
-  "summary": "A concise 2-3 sentence summary of the MTG-relevant content",
+  "summary": "A concise 2-3 sentence summary of the relevant content",
   "takeaways": [
     { "text": "Key takeaway description", "timestamp": "T:ss" }
   ],
@@ -41,13 +52,13 @@ Return ONLY valid JSON with this structure:
     "label": "Neutral"
   },
   "entities": [
-    { "entity_name": "Kaldra", "entity_type": "set", "sentiment": "Positive" }
-  ]
+    { "entity_name": "ExampleEntity", "entity_type": "other", "sentiment": "Positive" }
+  ]${relevanceSection ? ',\n  "relevant": true' : ''}
 }
 
 Rules:
 - Each takeaway must include a timestamp in "T:ss" format where ss is the start seconds as an integer
-- Focus only on MTG-relevant topics (cards, sets, formats, players, meta, rules)
+- Focus only on topics matching the channel filter text
 - Keep takeaways concise and actionable
 
 Sentiment score scale (integer 1-5):
@@ -183,9 +194,29 @@ export async function analyzeSignal(
 
     const transcriptionText = extractTranscriptionText((sigRow as any).transcription as string);
 
+    // Fetch channel topic filter_text (issue #52)
+    const sigFull = db.prepare('SELECT channel_id FROM signals WHERE video_id = ?').get(videoId) as { channel_id: string } | undefined;
+    let filterText: string | undefined;
+    if (sigFull?.channel_id) {
+      const chRow = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(sigFull.channel_id) as { topic_id?: number | null } | undefined;
+      if (chRow?.topic_id) {
+        const topicRow = db.prepare('SELECT filter_text FROM topics WHERE id = ?').get(chRow.topic_id) as { filter_text?: string } | undefined;
+        filterText = topicRow?.filter_text || undefined;
+      }
+    }
+
     // Single merged LLM call (issue #38)
-    const analysisContent = await callLlmWithRetry(config.endpoint, config.model, buildMergedPrompt(transcriptionText), 'analysis', videoId, signal);
+    const analysisContent = await callLlmWithRetry(config.endpoint, config.model, buildMergedPrompt(transcriptionText, filterText), 'analysis', videoId, signal);
     const analysis: MergedAnalysisResponse = JSON.parse(analysisContent);
+
+    // Handle relevance (issue #45): missing relevant = treat as true (backward compat)
+    const isRelevant = analysis.relevant !== false;
+
+    if (!isRelevant) {
+      // Irrelevant: set status + processed_at, skip summary/sentiment/entities
+      db.prepare('UPDATE signals SET relevance_status = ?, processed_at = ? WHERE video_id = ?').run('irrelevant', Date.now(), videoId);
+      return { success: true };
+    }
 
     const summaryDisplay = [analysis.summary, ...analysis.takeaways.map((t) => `${t.timestamp} ${t.text}`)].join('\n');
 
@@ -194,10 +225,10 @@ export async function analyzeSignal(
 
     // Persist results
     const updateSignal = db.prepare(`
-      UPDATE signals SET summary = ?, overall_sentiment = ?, sentiment_label = ?, processed_at = ?
+      UPDATE signals SET summary = ?, overall_sentiment = ?, sentiment_label = ?, processed_at = ?, relevance_status = ?
       WHERE video_id = ?
     `);
-    updateSignal.run(summaryDisplay, clampedScore, analysis.overall_sentiment.label, Date.now(), videoId);
+    updateSignal.run(summaryDisplay, clampedScore, analysis.overall_sentiment.label, Date.now(), 'relevant', videoId);
 
     // Delete old entity mentions, insert new
     db.prepare('DELETE FROM entity_mentions WHERE signal_video_id = ?').run(videoId);

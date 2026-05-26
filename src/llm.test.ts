@@ -361,6 +361,156 @@ describe('llm', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
+    it('injects channel topic filter_text into LLM prompt', async () => {
+      const db = createTestDb();
+      db.prepare(`INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)`).run('modern', 'Modern', 'Only content about Modern format is relevant.');
+      db.prepare(`
+        INSERT INTO channels (channel_id, display_name, added_at, topic_id)
+        VALUES (?, ?, ?, ?)
+      `).run('UCfilter', 'Filter Channel', Date.now(), 1);
+      db.prepare(`
+        INSERT INTO signals (video_id, channel_id, title, transcription, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('v-filter', 'UCfilter', 'Test Video', 'some text', Date.now());
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] }) } }] }) as any });
+
+      await analyzeSignal(db, 'v-filter', config);
+
+      const prompt = JSON.parse(mockFetch.mock.calls[0][1].body as string).messages[0].content;
+      expect(prompt).toContain('Only content about Modern format is relevant.');
+    });
+
+    it('LLM relevant:false -> relevance_status=irrelevant, no summary/sentiment/entities stored', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-irrel', 'transcription text');
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [], relevant: false }) } }] }) as any });
+
+      const result = await analyzeSignal(db, 'v-irrel', config);
+
+      expect(result.success).toBe(true);
+      const signal = db.prepare('SELECT relevance_status, processed_at, summary, overall_sentiment FROM signals WHERE video_id = ?').get('v-irrel');
+      expect(signal.relevance_status).toBe('irrelevant');
+      expect(signal.processed_at).toBeDefined();
+      expect(signal.summary).toBeNull();
+      expect(signal.overall_sentiment).toBeNull();
+
+      const mentions = db.prepare('SELECT COUNT(*) as c FROM entity_mentions WHERE signal_video_id = ?').get('v-irrel');
+      expect(mentions.c).toBe(0);
+    });
+
+    it('LLM relevant:true -> relevance_status=relevant, normal storage', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-rel', 'transcription text');
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 'good summary', takeaways: [], overall_sentiment: { score: 4, label: 'Positive' }, entities: [{ entity_name: 'TestCard', entity_type: 'card', sentiment: 'Positive' }], relevant: true }) } }] }) as any });
+
+      const result = await analyzeSignal(db, 'v-rel', config);
+
+      expect(result.success).toBe(true);
+      const signal = db.prepare('SELECT relevance_status, summary, overall_sentiment FROM signals WHERE video_id = ?').get('v-rel');
+      expect(signal.relevance_status).toBe('relevant');
+      expect(signal.summary).toContain('good summary');
+      expect(signal.overall_sentiment).toBe(4);
+
+      const mentions = db.prepare('SELECT COUNT(*) as c FROM entity_mentions WHERE signal_video_id = ?').get('v-rel');
+      expect(mentions.c).toBe(1);
+    });
+
+    it('LLM missing relevant field -> backward compat, relevance_status=relevant', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-backcompat', 'transcription text');
+
+      // No relevant field in response
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] }) } }] }) as any });
+
+      const result = await analyzeSignal(db, 'v-backcompat', config);
+
+      expect(result.success).toBe(true);
+      const signal = db.prepare('SELECT relevance_status, summary FROM signals WHERE video_id = ?').get('v-backcompat');
+      expect(signal.relevance_status).toBe('relevant');
+      expect(signal.summary).toContain('s');
+    });
+
+    it('prompt instructs LLM to return minimal JSON when irrelevant', async () => {
+      const db = createTestDb();
+      db.prepare(`INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)`).run('mtg', 'MTG', 'Content must be primarily about Magic: The Gathering (MTG).');
+      db.prepare(`
+        INSERT INTO channels (channel_id, display_name, added_at, topic_id)
+        VALUES (?, ?, ?, ?)
+      `).run('UCfilter', 'Filter Channel', Date.now(), 1);
+      db.prepare(`
+        INSERT INTO signals (video_id, channel_id, title, transcription, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('v-minimal', 'UCfilter', 'Test Video', 'some text', Date.now());
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ relevant: false }) } }] }) as any });
+
+      await analyzeSignal(db, 'v-minimal', config);
+
+      const prompt = JSON.parse(mockFetch.mock.calls[0][1].body as string).messages[0].content;
+      // Prompt must instruct LLM to return only { relevant: false } when content is irrelevant
+      expect(prompt).toContain('relevant');
+      expect(prompt).toMatch(/if.*not.*relevant.*return.*only|irrelevant.*return.*only.*relevant/i);
+    });
+
+    it('accepts minimal JSON { relevant: false } from LLM for irrelevant content', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-min-irr', 'transcription text');
+
+      // Minimal response: only relevant:false, no summary/takeaways/entities
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ relevant: false }) } }] }) as any });
+
+      const result = await analyzeSignal(db, 'v-min-irr', config);
+
+      expect(result.success).toBe(true);
+      const signal = db.prepare('SELECT relevance_status, processed_at, summary FROM signals WHERE video_id = ?').get('v-min-irr');
+      expect(signal.relevance_status).toBe('irrelevant');
+      expect(signal.processed_at).toBeDefined();
+      expect(signal.summary).toBeNull();
+    });
+
+    it('prompt uses generic role "You are a content analyst"', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-role', 'transcription text');
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] }) } }] }) as any });
+
+      await analyzeSignal(db, 'v-role', config);
+
+      const prompt = JSON.parse(mockFetch.mock.calls[0][1].body as string).messages[0].content;
+      expect(prompt).toContain('You are a content analyst');
+      expect(prompt).not.toContain('MTG (Magic: The Gathering)');
+    });
+
+    it('channel with no topic_id still processes correctly', async () => {
+      const db = createTestDb();
+      // Insert channel without topic_id
+      db.prepare(`
+        INSERT INTO channels (channel_id, display_name, added_at)
+        VALUES (?, ?, ?)
+      `).run('UCnofilter', 'No Filter Channel', Date.now());
+      db.prepare(`
+        INSERT INTO signals (video_id, channel_id, title, transcription, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('v-nofilter', 'UCnofilter', 'Test Video', 'some text', Date.now());
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] }) } }] }) as any });
+
+      const result = await analyzeSignal(db, 'v-nofilter', config);
+
+      expect(result.success).toBe(true);
+      const signal = db.prepare('SELECT relevance_status, summary FROM signals WHERE video_id = ?').get('v-nofilter');
+      expect(signal.relevance_status).toBe('relevant');
+      expect(signal.summary).toContain('s');
+    });
+
     it('returns descriptive error with call name when LLM response has unexpected structure', async () => {
       const db = createTestDb();
       insertChannel(db, 'UCtest');
