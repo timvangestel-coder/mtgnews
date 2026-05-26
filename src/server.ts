@@ -6,7 +6,8 @@ import Database from 'better-sqlite3';
 import { db } from './index';
 import { startScheduledPolling } from './scheduler';
 import { querySignals } from './query';
-import { listChannels, addChannel, removeChannel, toggleChannelActive, getChannelLastPollDate } from './db/watchlist';
+import { listChannels, addChannel, removeChannel, toggleChannelActive, updateChannelTopic, getChannelLastPollDate } from './db/watchlist';
+import { createTopic, listTopics, updateTopic, deleteTopic } from './db/topics';
 import { getSignalById } from './signal-detail';
 import { injectTimestampAnchors, formatTranscriptionHtml } from './signal-detail';
 import { analyzeSignal, getLlmConfig } from './llm';
@@ -55,12 +56,13 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
   // signals
   app.get('/signals', (req, res) => {
     const channelId = req.query.channelId as string | undefined;
+    const showIrrelevant = req.query.showIrrelevant === 'true';
     const page = parseInt(req.query.page as string, 10) || 1;
     const isHtmx = req.query.htmx === 'true';
     const limit = 25;
     const offset = (page - 1) * limit;
 
-    const result = querySignals(useDb, { channelId, limit, offset });
+    const result = querySignals(useDb, { channelId, includeIrrelevant: showIrrelevant, limit, offset });
     const channels = listChannels(useDb);
     const totalPages = Math.ceil(result.total / limit);
 
@@ -71,6 +73,7 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
         totalPages,
         total: result.total,
         channelId,
+        showIrrelevant,
         layout: false,
       });
     } else {
@@ -83,6 +86,7 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
         totalPages,
         total: result.total,
         channelId,
+        showIrrelevant,
       });
     }
   });
@@ -165,6 +169,12 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
       last_poll_date: getChannelLastPollDate(useDb, ch.channel_id),
     }));
 
+    // Topics with channel counts
+    const topics = listTopics(useDb).map((t) => ({
+      ...t,
+      channel_count: (useDb.prepare('SELECT COUNT(*) as c FROM channels WHERE topic_id = ?').get(t.id) as { c: number }).c,
+    }));
+
     // check for current running poll
     const latestRun = getPollRunById(useDb, (useDb.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number | null })?.max_id ?? -1);
     const currentRun = latestRun?.status === 'running' ? latestRun : null;
@@ -174,9 +184,58 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
       activePage: 'admin',
       title: 'Admin Panel',
       channels: channelsWithLastPoll,
+      topics,
       currentRun,
       currentProgress,
     });
+  });
+
+  // admin: create topic (Issue #51)
+  app.post('/admin/topics', (req, res) => {
+    const key = req.body.key as string;
+    const shortName = req.body.short_name as string;
+    const filterText = req.body.filter_text as string;
+    if (!key) {
+      res.status(400).send('key required');
+      return;
+    }
+    try {
+      createTopic(useDb, key, shortName || '', filterText || '');
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      if (msg.includes('UNIQUE constraint failed') || msg.includes('duplicate key')) {
+        res.status(400).send(`Duplicate key: ${key}`);
+        return;
+      }
+      throw err;
+    }
+    res.redirect('/admin');
+  });
+
+  // admin: update topic (Issue #51)
+  app.post('/admin/topics/update', (req, res) => {
+    const id = parseInt(req.body.id as string, 10);
+    if (isNaN(id)) {
+      res.status(400).send('id required');
+      return;
+    }
+    const opts: { key?: string; short_name?: string; filter_text?: string } = {};
+    if (req.body.key !== undefined) opts.key = req.body.key as string;
+    if (req.body.short_name !== undefined) opts.short_name = req.body.short_name as string;
+    if (req.body.filter_text !== undefined) opts.filter_text = req.body.filter_text as string;
+    updateTopic(useDb, id, opts);
+    res.redirect('/admin');
+  });
+
+  // admin: delete topic (Issue #51)
+  app.post('/admin/topics/delete', (req, res) => {
+    const id = parseInt(req.body.id as string, 10);
+    if (isNaN(id)) {
+      res.status(400).send('id required');
+      return;
+    }
+    deleteTopic(useDb, id);
+    res.redirect('/admin');
   });
 
   // admin: add channel
@@ -210,7 +269,20 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
       // ignore fetch errors, store with empty info
     }
 
-    addChannel(useDb, channelId, displayName || undefined, avatarUrl || undefined);
+    const topicId = req.body.topic_id ? parseInt(req.body.topic_id as string, 10) : null;
+    addChannel(useDb, channelId, displayName || undefined, avatarUrl || undefined, topicId);
+    res.redirect('/admin');
+  });
+
+  // admin: update channel topic
+  app.post('/admin/channels/update-topic', (req, res) => {
+    const channelId = req.body.channel_id as string;
+    if (!channelId) {
+      res.status(400).send('channel_id required');
+      return;
+    }
+    const topicId = req.body.topic_id ? parseInt(req.body.topic_id as string, 10) : null;
+    updateChannelTopic(useDb, channelId, topicId);
     res.redirect('/admin');
   });
 

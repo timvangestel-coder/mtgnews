@@ -1,29 +1,53 @@
 <h2 class="text-2xl font-bold mb-4">Signals</h2>
 
-<!-- Channel Filter Pills -->
-<div class="mb-4 flex flex-wrap gap-2"
-     x-data="{
-       channels: <%= JSON.stringify(channels || []) %>,
-       selected: '<%= channelId || '' %>',
-       getUrl() {
-         var params = new URLSearchParams();
-         if (this.selected) params.set('channelId', this.selected);
-         params.set('htmx', 'true');
-         return '/signals?' + params.toString();
-       }
-     }">
-  <button class="rounded-full px-4 py-1 text-sm transition"
-           :class="selected === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
-           @click="selected = ''; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
-    All
-  </button>
-  <% for (var ci = 0; ci < (channels || []).length; ci++) { var ch = channels[ci]; %>
+<!-- Channel Filter Pills + Show Irrelevant Toggle -->
+<div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+  <div class="flex flex-wrap gap-2"
+       x-data="{
+        channels: <%= JSON.stringify(channels || []) %>,
+        selected: '<%= channelId || '' %>',
+        showIrrelevant: <%= typeof showIrrelevant === 'boolean' ? showIrrelevant : 'false' %>,
+        getUrl() {
+          var params = new URLSearchParams();
+          if (this.selected) params.set('channelId', this.selected);
+          if (this.showIrrelevant) params.set('showIrrelevant', 'true');
+          params.set('htmx', 'true');
+          return '/signals?' + params.toString();
+        }
+      }">
     <button class="rounded-full px-4 py-1 text-sm transition"
-            :class="selected === '<%= ch.channel_id %>' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
-            @click="selected = '<%= ch.channel_id %>'; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
-      <%= ch.display_name || ch.channel_id %>
+             :class="selected === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+             @click="selected = ''; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
+      All
     </button>
-  <% } %>
+    <% for (var ci = 0; ci < (channels || []).length; ci++) { var ch = channels[ci]; %>
+      <button class="rounded-full px-4 py-1 text-sm transition"
+              :class="selected === '<%= ch.channel_id %>' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+              @click="selected = '<%= ch.channel_id %>'; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
+        <%= ch.display_name || ch.channel_id %>
+      </button>
+    <% } %>
+  </div>
+
+  <!-- Show Irrelevant Toggle -->
+  <div x-data="{
+      showIrrelevant: <%= typeof showIrrelevant === 'boolean' ? showIrrelevant : 'false' %>,
+      channels: <%= JSON.stringify(channels || []) %>,
+      selected: '<%= channelId || '' %>',
+      getUrl() {
+        var params = new URLSearchParams();
+        if (this.selected) params.set('channelId', this.selected);
+        if (this.showIrrelevant) params.set('showIrrelevant', 'true');
+        params.set('htmx', 'true');
+        return '/signals?' + params.toString();
+      }
+    }">
+    <button class="rounded-full px-4 py-1 text-sm transition"
+            :class="showIrrelevant ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'"
+            @click="showIrrelevant = !showIrrelevant; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
+      Show Irrelevant
+    </button>
+  </div>
 </div>
 
 <!-- Signal Table Fragment -->
@@ -45,10 +69,11 @@
         <% var dt = signal.published_at ? new Date(signal.published_at) : new Date(); %>
         <% var dateStr = dt.toLocaleDateString(); %>
         <% var timeStr = dt.toLocaleTimeString(); %>
-        <% var summary = (signal.summary || '').substring(0, 50); %>
+        <% var isIrrelevant = signal.relevance_status === 'irrelevant'; %>
+        <% var summary = isIrrelevant ? '[Irrelevant]' : (signal.summary || '').substring(0, 50); %>
         <% var sentiment = signal.overall_sentiment || 3; %>
         <% var colors = ['', 'bg-red-600', 'bg-orange-500', 'bg-yellow-500', 'bg-lime-500', 'bg-green-600']; %>
-        <tr class="border-b hover:bg-gray-50 cursor-pointer" onclick="location.href='/signals/<%= signal.video_id %>'">
+        <tr class="border-b hover:bg-gray-50 cursor-pointer <%= isIrrelevant ? 'opacity-50' : '' %>" onclick="location.href='/signals/<%= signal.video_id %>'">
           <td class="py-2 px-3 text-sm"><%= dateStr %></td>
           <td class="py-2 px-3 text-sm"><%= timeStr %></td>
           <td class="py-2 px-3 text-sm"><%= summary %></td>
@@ -71,6 +96,7 @@
       <% if (page > 1) { %>
         <% var prevParams = new URLSearchParams(); %>
         <% if (channelId) prevParams.set('channelId', channelId); %>
+        <% if (showIrrelevant) prevParams.set('showIrrelevant', 'true'); %>
         <% prevParams.set('page', String(page - 1)); %>
         <% prevParams.set('htmx', 'true'); %>
         <button hx-get="/signals?<%= prevParams.toString() %>"
@@ -82,6 +108,7 @@
       <% if (page < totalPages) { %>
         <% var nextParams = new URLSearchParams(); %>
         <% if (channelId) nextParams.set('channelId', channelId); %>
+        <% if (showIrrelevant) nextParams.set('showIrrelevant', 'true'); %>
         <% nextParams.set('page', String(page + 1)); %>
         <% nextParams.set('htmx', 'true'); %>
         <button hx-get="/signals?<%= nextParams.toString() %>"
@@ -93,5 +120,3 @@
     </div>
   </div>
 </div>
-
-

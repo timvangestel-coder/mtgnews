@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
+import { createTopic } from './db/topics';
 import { enqueuePollRun } from './poll-scheduler';
 import { workerProcessRun } from './poll-worker';
 import * as llm from './llm';
@@ -46,8 +47,9 @@ describe('poll integration: full multi-channel cycle', () => {
 
   beforeEach(() => {
     db = createTestDb();
-    addChannel(db, 'UC_A', 'Channel A');
-    addChannel(db, 'UC_B', 'Channel B');
+    createTopic(db, 'mtg', 'MTG', 'MTG filter');
+    addChannel(db, 'UC_A', 'Channel A', undefined, 1);
+    addChannel(db, 'UC_B', 'Channel B', undefined, 1);
     vi.spyOn(llm, 'analyzeSignal').mockImplementation(
       (database, videoId) => {
         database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);

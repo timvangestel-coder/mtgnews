@@ -61,33 +61,52 @@ describe('Schema initialization', () => {
     expect(columnMap.get('added_at')?.notnull).toBe(1);
   });
 
-  it('channels table has filter_criteria column with default (issue #44)', async () => {
+  it('channels table has topic_id column referencing topics (issue #52)', async () => {
     const db = createTestDb();
     await initSchema(db);
 
     const columns = db
       .prepare("PRAGMA table_info(channels)")
-      .all() as { name: string; type: string; dflt_value: string | null }[];
+      .all() as { name: string; type: string }[];
 
     const columnMap = new Map(
-      columns.map((c) => [c.name, { type: c.type, dflt_value: c.dflt_value }])
+      columns.map((c) => [c.name, { type: c.type }])
     );
 
-    expect(columnMap.has('filter_criteria')).toBe(true);
-    expect(columnMap.get('filter_criteria')?.type).toBe('TEXT');
-    expect(columnMap.get('filter_criteria')?.dflt_value).toContain('Magic: The Gathering');
+    expect(columnMap.has('topic_id')).toBe(true);
+    expect(columnMap.get('topic_id')?.type).toBe('INTEGER');
 
-    // Verify default applies on insert
+    // filter_criteria should NOT exist (removed in issue #52)
+    expect(columnMap.has('filter_criteria')).toBe(false);
+
+    // Verify topic_id can be set via direct insert
     db.prepare(
-      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
+      `INSERT INTO topics (key, short_name, filter_text) VALUES ('mtg', 'MTG', 'MTG filter')`
+    ).run();
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at, topic_id) VALUES ('UC1', 'Test', 1700000000, 1)`
     ).run();
 
     const row = db
-      .prepare('SELECT filter_criteria FROM channels WHERE channel_id = ?')
-      .get('UC1') as { filter_criteria: string | null };
+      .prepare('SELECT topic_id FROM channels WHERE channel_id = ?')
+      .get('UC1') as { topic_id: number | null };
 
-    expect(row?.filter_criteria).toBeDefined();
-    expect(row?.filter_criteria).toContain('Magic: The Gathering');
+    expect(row?.topic_id).toBe(1);
+  });
+
+  it('channels table allows NULL topic_id', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC2', 'No Topic', 1700000000)`
+    ).run();
+
+    const row = db
+      .prepare('SELECT topic_id FROM channels WHERE channel_id = ?')
+      .get('UC2') as { topic_id: number | null };
+
+    expect(row?.topic_id).toBeNull();
   });
 
   it('signals table has relevance_status column (issue #44)', async () => {

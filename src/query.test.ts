@@ -169,4 +169,65 @@ describe('query', () => {
       expect(trending[i].mention_count).toBeLessThanOrEqual(trending[i - 1].mention_count);
     }
   });
+
+  // -- Relevance filter (Issue #47) --
+  it('default (no includeIrrelevant) excludes signals with relevance_status=irrelevant', () => {
+    // Mark v3 as irrelevant
+    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v3');
+
+    const result = querySignals(db);
+    const ids = result.items.map((s: any) => s.video_id);
+    expect(ids).not.toContain('v3');
+    expect(result.total).toBe(4);
+  });
+
+  it('includeIrrelevant: true includes irrelevant signals', () => {
+    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v3');
+
+    const result = querySignals(db, { includeIrrelevant: true });
+    const ids = result.items.map((s: any) => s.video_id);
+    expect(ids).toContain('v3');
+    expect(result.total).toBe(5);
+  });
+
+  it('includeIrrelevant: false excludes irrelevant signals (explicit)', () => {
+    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v3');
+
+    const result = querySignals(db, { includeIrrelevant: false });
+    const ids = result.items.map((s: any) => s.video_id);
+    expect(ids).not.toContain('v3');
+    expect(result.total).toBe(4);
+  });
+
+  it('includeIrrelevant works with channel filter combined', () => {
+    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v2'); // UC1 signal
+    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v3'); // UC2 signal
+
+    // Default: exclude irrelevant, filter by UC1 -> should get v5, v1 (v2 excluded)
+    const result = querySignals(db, { channelId: 'UC1' });
+    const ids = result.items.map((s: any) => s.video_id);
+    expect(ids).toEqual(['v5', 'v1']);
+    expect(result.total).toBe(2);
+
+    // Include irrelevant, filter by UC1 -> should get v5, v2, v1
+    const result2 = querySignals(db, { channelId: 'UC1', includeIrrelevant: true });
+    const ids2 = result2.items.map((s: any) => s.video_id);
+    expect(ids2).toEqual(['v5', 'v2', 'v1']);
+    expect(result2.total).toBe(3);
+  });
+
+  it('signals with relevance_status=irrelevant return correct status in row', () => {
+    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v4');
+
+    const result = querySignals(db, { includeIrrelevant: true });
+    const v4Row = result.items.find((s: any) => s.video_id === 'v4');
+    expect(v4Row).toBeDefined();
+    expect(v4Row!.relevance_status).toBe('irrelevant');
+  });
+
+  it('signals with NULL relevance_status are always included', () => {
+    // v1-v5 all have NULL relevance_status by default
+    const result = querySignals(db);
+    expect(result.total).toBe(5);
+  });
 });

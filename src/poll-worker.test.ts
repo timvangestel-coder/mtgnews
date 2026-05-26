@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
+import { createTopic } from './db/topics';
 import { enqueuePollRun } from './poll-scheduler';
 import { workerProcessRun, WorkerOptions } from './poll-worker';
 import * as llm from './llm';
@@ -34,8 +35,9 @@ describe('poll-worker', () => {
 
   beforeEach(() => {
     db = createTestDb();
-    addChannel(db, 'UC1', 'Channel 1');
-    addChannel(db, 'UC2', 'Channel 2');
+    createTopic(db, 'mtg', 'MTG', 'MTG filter');
+    addChannel(db, 'UC1', 'Channel 1', undefined, 1);
+    addChannel(db, 'UC2', 'Channel 2', undefined, 1);
     // Default: analyzeSignal sets processed_at (simulates success)
     mockAnalyze = vi.spyOn(llm, 'analyzeSignal').mockImplementation(
       (database, videoId) => {
@@ -283,6 +285,63 @@ describe('poll-worker', () => {
     for (const s of signals) {
       expect(s.poll_run_id).toBe(runId);
     }
+  });
+
+  // Issue #55: skip NULL-topic channels, log warning
+  it('skips channels with NULL topic_id and only processes channels with topic assigned', async () => {
+    // Add a channel without topic_id
+    addChannel(db, 'UC_NO_TOPIC', 'No Topic Channel');
+
+    const runId = enqueuePollRun(db);
+
+    await workerProcessRun(db, runId, {
+      fetchRss: (channelId: string) => {
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_t1', 'T1 Video', 1));
+        if (channelId === 'UC2') return Promise.resolve(makeXml('vid_t2', 'T2 Video', 1));
+        // UC_NO_TOPIC should never reach here
+        throw new Error('fetchRss called for NULL-topic channel');
+      },
+      extractCaptions: () => Promise.resolve([{ text: 'mtg talk', start: 0, end: 5 }]),
+    } as WorkerOptions);
+
+    // Only 2 channels processed (UC1, UC2) — UC_NO_TOPIC skipped
+    const progress = db.prepare('SELECT * FROM poll_run_progress WHERE poll_run_id = ?').all(runId);
+    const channelIds = progress.map((p: any) => p.channel_id);
+    expect(channelIds).toContain('UC1');
+    expect(channelIds).toContain('UC2');
+    expect(channelIds).not.toContain('UC_NO_TOPIC');
+
+    // Run completes with signals from topic channels only
+    const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
+    expect(run.status).toBe('done');
+    expect(run.new_signal_count).toBe(2);
+  });
+
+  it('logs warning for channels skipped due to NULL topic_id', async () => {
+    addChannel(db, 'UC_NULL_TOPIC', 'Null Topic Channel');
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const runId = enqueuePollRun(db);
+
+    await workerProcessRun(db, runId, {
+      fetchRss: (channelId: string) => {
+        if (channelId === 'UC1') return Promise.resolve(makeXml('vid_w1', 'W Video 1', 1));
+        return Promise.resolve(makeXml('vid_w2', 'W Video 2', 1));
+      },
+      extractCaptions: () => Promise.resolve([{ text: 'mtg talk', start: 0, end: 5 }]),
+    } as WorkerOptions);
+
+    // Should log a warning about skipped channel
+    const messages = [...warnSpy.mock.calls, ...logSpy.mock.calls].flat();
+    const hasSkipWarning = messages.some((m: string) =>
+      m.includes('UC_NULL_TOPIC') && (m.includes('skip') || m.includes('NULL topic'))
+    );
+    expect(hasSkipWarning).toBe(true);
+
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
   });
 
   it('errors in one signal do not block other signals (concurrent pool)', async () => {

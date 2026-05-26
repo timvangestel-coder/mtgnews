@@ -7,6 +7,7 @@ export interface QueryFilters {
   minSentiment?: number;
   maxSentiment?: number;
   entityMention?: string;
+  includeIrrelevant?: boolean;
   offset?: number;
   limit?: number;
 }
@@ -93,6 +94,12 @@ export function querySignals(db: Database.Database, filters: QueryFilters = {}):
     params.push(filters.entityMention);
   }
 
+  // Default: exclude irrelevant signals (includeIrrelevant defaults to false)
+  if (!filters.includeIrrelevant) {
+    conditions.push('(s.relevance_status IS NULL OR s.relevance_status != ?)');
+    params.push('irrelevant');
+  }
+
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   // Get total count
@@ -103,7 +110,7 @@ export function querySignals(db: Database.Database, filters: QueryFilters = {}):
   // Get paginated results, ordered by published_at DESC
   const selectSql = `
     SELECT s.video_id, s.channel_id, s.title, s.published_at, s.transcription,
-           s.summary, s.overall_sentiment, s.sentiment_label, s.created_at, s.processed_at
+           s.summary, s.overall_sentiment, s.sentiment_label, s.created_at, s.processed_at, s.relevance_status
     FROM signals s ${whereClause}
     ORDER BY s.published_at DESC
     LIMIT ? OFFSET ?

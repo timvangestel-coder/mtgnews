@@ -5,14 +5,14 @@ export function initDb(db: Database.Database): void {
   db.pragma('foreign_keys = ON');
 
   db.exec(`
-     CREATE TABLE IF NOT EXISTS channels (
-       channel_id    TEXT PRIMARY KEY,
-       display_name  TEXT,
-       avatar_url    TEXT,
-       active        INTEGER DEFAULT 1,
-       added_at      INTEGER NOT NULL,
-       filter_criteria TEXT DEFAULT 'Content must be primarily about Magic: The Gathering (MTG), not other TCGs or unrelated topics.'
-     );
+      CREATE TABLE IF NOT EXISTS channels (
+        channel_id    TEXT PRIMARY KEY,
+        display_name  TEXT,
+        avatar_url    TEXT,
+        active        INTEGER DEFAULT 1,
+        added_at      INTEGER NOT NULL,
+        topic_id      INTEGER REFERENCES topics(id)
+      );
 
     CREATE TABLE IF NOT EXISTS signals (
       video_id          TEXT PRIMARY KEY,
@@ -47,15 +47,22 @@ export function initDb(db: Database.Database): void {
       abort_time       INTEGER
     );
 
-    CREATE TABLE IF NOT EXISTS poll_run_progress (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      poll_run_id   INTEGER REFERENCES poll_runs(id),
-      channel_id    TEXT,
-      status        TEXT NOT NULL,
-      signals_found INTEGER DEFAULT 0,
-      updated_at    INTEGER NOT NULL
-    );
-  `);
+     CREATE TABLE IF NOT EXISTS poll_run_progress (
+       id            INTEGER PRIMARY KEY AUTOINCREMENT,
+       poll_run_id   INTEGER REFERENCES poll_runs(id),
+       channel_id    TEXT,
+       status        TEXT NOT NULL,
+       signals_found INTEGER DEFAULT 0,
+       updated_at    INTEGER NOT NULL
+     );
+
+     CREATE TABLE IF NOT EXISTS topics (
+       id          INTEGER PRIMARY KEY AUTOINCREMENT,
+       key         TEXT UNIQUE NOT NULL,
+       short_name  TEXT NOT NULL,
+       filter_text TEXT NOT NULL
+     );
+   `);
 
   // Migration: add missing columns for existing databases
   const channelRows = db.pragma('table_info(channels)') as Array<{ name: string }>;
@@ -83,13 +90,18 @@ export function initDb(db: Database.Database): void {
     db.exec('ALTER TABLE signals ADD COLUMN poll_run_id INTEGER REFERENCES poll_runs(id)');
   }
 
-  // Migration: add filter_criteria to channels (issue #44)
-  if (!channelCols.includes('filter_criteria')) {
-    db.exec("ALTER TABLE channels ADD COLUMN filter_criteria TEXT DEFAULT 'Content must be primarily about Magic: The Gathering (MTG), not other TCGs or unrelated topics.'");
-  }
-
   // Migration: add relevance_status to signals (issue #44)
   if (!signalCols.includes('relevance_status')) {
     db.exec('ALTER TABLE signals ADD COLUMN relevance_status TEXT');
+  }
+
+  // Migration: add topic_id to channels (issue #52)
+  if (!channelCols.includes('topic_id')) {
+    db.exec('ALTER TABLE channels ADD COLUMN topic_id INTEGER REFERENCES topics(id)');
+  }
+
+  // Migration: drop filter_criteria from channels (issue #52)
+  if (channelCols.includes('filter_criteria')) {
+    db.exec('ALTER TABLE channels DROP COLUMN filter_criteria');
   }
 }

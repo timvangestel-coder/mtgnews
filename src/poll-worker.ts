@@ -54,6 +54,15 @@ export async function workerProcessRun(
   // Issue #39: read concurrency limit from env
   const concurrency = parseInt(process.env.LLM_CONCURRENCY || '3', 10);
 
+  // Issue #55: log warnings for active channels with NULL topic_id
+  const skippedChannels = db.prepare(
+    "SELECT channel_id, display_name FROM channels WHERE active = 1 AND topic_id IS NULL"
+  ).all() as Array<{ channel_id: string; display_name: string | null }>;
+
+  for (const ch of skippedChannels) {
+    console.warn(`Skipping channel ${ch.channel_id} (${ch.display_name ?? 'unknown'}): NULL topic_id`);
+  }
+
   const channels = listActiveChannels(db);
   let totalNewSignals = 0;
 

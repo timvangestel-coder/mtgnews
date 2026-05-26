@@ -6,7 +6,8 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Server } from 'http';
 import { initDb } from './db/init-db';
-import { addChannel, removeChannel, toggleChannelActive, listChannels, getChannelLastPollDate } from './db/watchlist';
+import { addChannel, removeChannel, toggleChannelActive, listChannels, updateChannelTopic, getChannelLastPollDate } from './db/watchlist';
+import { createTopic, listTopics, getTopicById, updateTopic, deleteTopic } from './db/topics';
 import { querySignals } from './query';
 import { getSignalById, injectTimestampAnchors, formatTranscriptionHtml } from './signal-detail';
 import { queryPollRuns, getPollRunById, queryPollRunProgress } from './db/poll-runs';
@@ -46,23 +47,24 @@ function createTestServer(testDb: Database.Database) {
 
   expressApp.get('/signals', (req, res) => {
     const channelId = req.query.channelId as string | undefined;
+    const showIrrelevant = req.query.showIrrelevant === 'true';
     const page = parseInt(req.query.page as string, 10) || 1;
     const isHtmx = req.query.htmx === 'true';
     const limit = 25;
     const offset = (page - 1) * limit;
-    const result = querySignals(testDb, { channelId, limit, offset });
+    const result = querySignals(testDb, { channelId, includeIrrelevant: showIrrelevant, limit, offset });
     const channels = listChannels(testDb);
     const totalPages = Math.ceil(result.total / limit);
 
     if (isHtmx) {
       res.render('_signalsTable', {
-        signals: result.items, page, totalPages, total: result.total, channelId,
+        signals: result.items, page, totalPages, total: result.total, channelId, showIrrelevant,
         layout: false,
       });
     } else {
       res.render('signals', {
         activePage: 'signals', title: 'Signals',
-        signals: result.items, channels, page, totalPages, total: result.total, channelId,
+        signals: result.items, channels, page, totalPages, total: result.total, channelId, showIrrelevant,
       });
     }
   });
@@ -119,6 +121,10 @@ function createTestServer(testDb: Database.Database) {
       ...ch,
       last_poll_date: getChannelLastPollDate(testDb, ch.channel_id),
     }));
+    const topics = listTopics(testDb).map((t) => ({
+      ...t,
+      channel_count: (testDb.prepare('SELECT COUNT(*) as c FROM channels WHERE topic_id = ?').get(t.id) as { c: number }).c,
+    }));
     const maxRow = testDb.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number | null } | undefined;
     const latestRun = maxRow?.max_id ? getPollRunById(testDb, maxRow.max_id) : null;
     const currentRun = latestRun?.status === 'running' ? latestRun : null;
@@ -126,8 +132,54 @@ function createTestServer(testDb: Database.Database) {
 
     res.render('admin', {
       activePage: 'admin', title: 'Admin Panel',
-      channels, currentRun, currentProgress,
+      channels, topics, currentRun, currentProgress,
     });
+  });
+
+  // Topics CRUD routes (Issue #51)
+  expressApp.post('/admin/topics', (_req, res) => {
+    const key = _req.body.key as string;
+    const shortName = _req.body.short_name as string;
+    const filterText = _req.body.filter_text as string;
+    if (!key) {
+      res.status(400).send('key required');
+      return;
+    }
+    try {
+      createTopic(testDb, key, shortName || '', filterText || '');
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      if (msg.includes('UNIQUE constraint failed') || msg.includes('duplicate key')) {
+        res.status(400).send(`Duplicate key: ${key}`);
+        return;
+      }
+      throw err;
+    }
+    res.redirect('/admin');
+  });
+
+  expressApp.post('/admin/topics/update', (_req, res) => {
+    const id = parseInt(_req.body.id as string, 10);
+    if (isNaN(id)) {
+      res.status(400).send('id required');
+      return;
+    }
+    const opts: { key?: string; short_name?: string; filter_text?: string } = {};
+    if (_req.body.key !== undefined) opts.key = _req.body.key as string;
+    if (_req.body.short_name !== undefined) opts.short_name = _req.body.short_name as string;
+    if (_req.body.filter_text !== undefined) opts.filter_text = _req.body.filter_text as string;
+    updateTopic(testDb, id, opts);
+    res.redirect('/admin');
+  });
+
+  expressApp.post('/admin/topics/delete', (_req, res) => {
+    const id = parseInt(_req.body.id as string, 10);
+    if (isNaN(id)) {
+      res.status(400).send('id required');
+      return;
+    }
+    deleteTopic(testDb, id);
+    res.redirect('/admin');
   });
 
   expressApp.post('/admin/channels/add', (_req, res) => {
@@ -136,7 +188,19 @@ function createTestServer(testDb: Database.Database) {
       res.status(400).send('channel_id required');
       return;
     }
-    addChannel(testDb, channelId);
+    const topicId = _req.body.topic_id ? parseInt(_req.body.topic_id as string, 10) : null;
+    addChannel(testDb, channelId, undefined, undefined, topicId);
+    res.redirect('/admin');
+  });
+
+  expressApp.post('/admin/channels/update-topic', (_req, res) => {
+    const channelId = _req.body.channel_id as string;
+    if (!channelId) {
+      res.status(400).send('channel_id required');
+      return;
+    }
+    const topicId = _req.body.topic_id ? parseInt(_req.body.topic_id as string, 10) : null;
+    updateChannelTopic(testDb, channelId, topicId);
     res.redirect('/admin');
   });
 
@@ -229,6 +293,78 @@ describe('Express server', () => {
     db.close();
   });
 
+  // -- Relevance Toggle (Issue #47) --
+  describe('Relevance Toggle', () => {
+    it('GET /signals default excludes irrelevant signals', async () => {
+      const t = Date.now();
+      addChannel(db, `UCrel${t}`, 'Rel Ch');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(`rel-${t}-1`, `UCrel${t}`, 'Relevant', `2101-12-31T00:00:00Z`, '[]', 'relevant summary', 4, Date.now());
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, relevance_status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(`rel-${t}-2`, `UCrel${t}`, 'Irrelevant', `2101-12-30T00:00:00Z`, '[]', 'irrelevant summary', 4, 'irrelevant', Date.now());
+
+      const resp = await request(app.server).get('/signals');
+      expect(resp.status).toBe(200);
+      expect(resp.text).toContain('relevant summary');
+      expect(resp.text).not.toContain('irrelevant summary');
+    });
+
+    it('GET /signals?showIrrelevant=true includes irrelevant signals with [Irrelevant] badge', async () => {
+      const t = Date.now();
+      addChannel(db, `UCrel2${t}`, 'Rel2 Ch');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, relevance_status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(`rel2-${t}-1`, `UCrel2${t}`, 'Irrelevant 2', `2101-12-29T00:00:00Z`, '[]', 'irrelevant summary 2', 4, 'irrelevant', Date.now());
+
+      const resp = await request(app.server).get('/signals?showIrrelevant=true');
+      expect(resp.status).toBe(200);
+      // Irrelevant rows show [Irrelevant] badge + opacity-50, not the summary text
+      expect(resp.text).toContain('[Irrelevant]');
+      expect(resp.text).toContain('opacity-50');
+    });
+
+    it('GET /signals?showIrrelevant=true shows [Irrelevant] badge on irrelevant rows', async () => {
+      const t = Date.now();
+      addChannel(db, `UCrel3${t}`, 'Rel3 Ch');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, relevance_status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(`rel3-${t}-1`, `UCrel3${t}`, 'Irrelevant 3', `2101-12-28T00:00:00Z`, '[]', 'irrelevant summary 3', 4, 'irrelevant', Date.now());
+
+      const resp = await request(app.server).get('/signals?showIrrelevant=true');
+      expect(resp.status).toBe(200);
+      expect(resp.text).toContain('[Irrelevant]');
+    });
+
+    it('GET /signals shows "Show Irrelevant" toggle button', async () => {
+      const resp = await request(app.server).get('/signals');
+      expect(resp.status).toBe(200);
+      expect(resp.text).toContain('Show Irrelevant');
+    });
+
+    it('HTMX swap with showIrrelevant persists state in pagination links', async () => {
+      const t = Date.now();
+      addChannel(db, `UCrel4${t}`, 'Rel4 Ch');
+      // Insert enough signals to trigger pagination
+      for (let i = 1; i <= 26; i++) {
+        db.prepare(
+          `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(`rel4-${t}-${i}`, `UCrel4${t}`, `Video ${i}`, `2102-01-${String(i).padStart(2,'0')}T00:00:00Z`, '[]', `summary ${i}`, 3, Date.now());
+      }
+
+      const resp = await request(app.server).get('/signals?showIrrelevant=true&htmx=true');
+      expect(resp.status).toBe(200);
+      // Pagination next link should include showIrrelevant=true
+      expect(resp.text).toContain('showIrrelevant=true');
+    });
+  });
+
   // -- Signal Viewer (Issue #11) --
   describe('Signal Viewer', () => {
     const t = () => Date.now();
@@ -238,7 +374,7 @@ describe('Express server', () => {
       db.prepare(
         `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(`sv-${t()}-1`, 'UC1', 'Test Video', `2101-12-31T00:00:00Z`, '[]', 'This is a test summary for the signal', 4, Date.now());
+      ).run(`sv-${t()}-1`, 'UC1', 'Test Video', `2103-12-31T00:00:00Z`, '[]', 'This is a test summary for the signal', 4, Date.now());
 
       const resp = await request(app.server).get('/signals');
       expect(resp.status).toBe(200);
@@ -250,11 +386,11 @@ describe('Express server', () => {
       db.prepare(
         `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(`sv-${t()}-s1`, 'UC1', 'Low Sent', `2101-06-30T00:00:00Z`, '[]', 'low sentiment', 1, Date.now());
+      ).run(`sv-${t()}-s1`, 'UC1', 'Low Sent', `2103-06-30T00:00:00Z`, '[]', 'low sentiment', 1, Date.now());
       db.prepare(
         `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(`sv-${t()}-s5`, 'UC1', 'High Sent', `2101-06-29T00:00:00Z`, '[]', 'high sentiment', 5, Date.now());
+      ).run(`sv-${t()}-s5`, 'UC1', 'High Sent', `2103-06-29T00:00:00Z`, '[]', 'high sentiment', 5, Date.now());
 
       const resp = await request(app.server).get('/signals');
       expect(resp.status).toBe(200);
@@ -789,6 +925,346 @@ describe('Express server', () => {
 
       expect(resp.status).toBe(302);
       expect(resp.header.location).toBe('/admin');
+    });
+  });
+
+  // -- Topics CRUD (Issue #51) --
+  describe('Topics CRUD', () => {
+    it('POST /admin/topics creates topic and redirects to /admin', async () => {
+      const resp = await request(app.server)
+        .post('/admin/topics')
+        .type('form')
+        .send({ key: 'test-topic-1', short_name: 'Test Topic', filter_text: 'MTG news content' });
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/admin');
+
+      const topics = listTopics(db);
+      const topic = topics.find((t) => t.key === 'test-topic-1');
+      expect(topic).toBeDefined();
+      expect(topic!.short_name).toBe('Test Topic');
+      expect(topic!.filter_text).toBe('MTG news content');
+    });
+
+    it('POST /admin/topics returns 400 when key is missing', async () => {
+      const resp = await request(app.server)
+        .post('/admin/topics')
+        .type('form')
+        .send({ short_name: 'No Key', filter_text: 'x' });
+
+      expect(resp.status).toBe(400);
+    });
+
+    it('POST /admin/topics returns 400 for duplicate key', async () => {
+      // Create first
+      await request(app.server)
+        .post('/admin/topics')
+        .type('form')
+        .send({ key: 'dup-topic-1', short_name: 'Dup', filter_text: 'x' });
+
+      // Try duplicate
+      const resp = await request(app.server)
+        .post('/admin/topics')
+        .type('form')
+        .send({ key: 'dup-topic-1', short_name: 'Dup2', filter_text: 'y' });
+
+      expect(resp.status).toBe(400);
+    });
+
+    it('POST /admin/topics/update modifies topic and redirects', async () => {
+      // Create
+      createTopic(db, 'upd-topic-1', 'Before', 'old filter');
+      const topic = listTopics(db).find((t) => t.key === 'upd-topic-1')!;
+
+      const resp = await request(app.server)
+        .post('/admin/topics/update')
+        .type('form')
+        .send({ id: String(topic.id), key: 'upd-topic-1', short_name: 'After', filter_text: 'new filter' });
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/admin');
+
+      const updated = getTopicById(db, topic.id);
+      expect(updated!.short_name).toBe('After');
+      expect(updated!.filter_text).toBe('new filter');
+    });
+
+    it('POST /admin/topics/update returns 400 when id is missing', async () => {
+      const resp = await request(app.server)
+        .post('/admin/topics/update')
+        .type('form')
+        .send({ short_name: 'x' });
+
+      expect(resp.status).toBe(400);
+    });
+
+    it('POST /admin/topics/delete removes topic and nullifies channel references', async () => {
+      createTopic(db, 'del-topic-1', 'Delete Me', 'filter');
+      const topic = listTopics(db).find((t) => t.key === 'del-topic-1')!;
+
+      // Assign a channel to this topic
+      const delChannelId = `UCdeltopic${Date.now()}`;
+      addChannel(db, delChannelId, 'Del Channel');
+      db.prepare('UPDATE channels SET topic_id = ? WHERE channel_id = ?').run(topic.id, delChannelId);
+
+      const resp = await request(app.server)
+        .post('/admin/topics/delete')
+        .type('form')
+        .send({ id: String(topic.id) });
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/admin');
+
+      // Topic gone
+      expect(getTopicById(db, topic.id)).toBeUndefined();
+
+      // Channel topic_id nullified
+      const ch = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(delChannelId);
+      expect(ch.topic_id).toBeNull();
+    });
+
+    it('POST /admin/topics/delete returns 400 when id is missing', async () => {
+      const resp = await request(app.server)
+        .post('/admin/topics/delete')
+        .type('form')
+        .send({});
+
+      expect(resp.status).toBe(400);
+    });
+
+    it('GET /admin passes topics to template', async () => {
+      createTopic(db, 'get-admin-topic', 'Admin Topic', 'filter');
+
+      const resp = await request(app.server).get('/admin');
+      expect(resp.status).toBe(200);
+      expect(resp.text).toContain('Admin Topic');
+    });
+  });
+
+  // -- Channels Admin Tab Topic Selector (Issue #53) --
+  describe('Channels Admin Tab — Topic Selector', () => {
+    it('GET /admin Add Channel form shows topic dropdown instead of filter_criteria textarea', async () => {
+      createTopic(db, 'ui-topic-1', 'MTG News', 'mtg filter');
+
+      const resp = await request(app.server).get('/admin');
+      expect(resp.status).toBe(200);
+      // Topic dropdown present
+      expect(resp.text).toContain('name="topic_id"');
+      expect(resp.text).toContain('MTG News');
+      // Old filter_criteria textarea removed
+      expect(resp.text).not.toContain('filter_criteria');
+    });
+
+    it('GET /admin topic dropdown has select element with options per topic', async () => {
+      createTopic(db, 'ui-topic-2a', 'Format A', 'f1');
+      createTopic(db, 'ui-topic-2b', 'Format B', 'f2');
+
+      const resp = await request(app.server).get('/admin');
+      expect(resp.status).toBe(200);
+      // Select element with topic options
+      expect(resp.text).toContain('<select');
+      expect(resp.text).toContain('Format A');
+      expect(resp.text).toContain('Format B');
+    });
+
+    it('GET /admin WatchList row shows topic badge for channel with topic', async () => {
+      createTopic(db, 'badge-topic-1', 'Snippet', 's1');
+      const topic = listTopics(db).find((t) => t.key === 'badge-topic-1')!;
+      const channelId = `UCbadgetopic${Date.now()}`;
+      addChannel(db, channelId, 'Badge Channel', undefined, topic.id);
+
+      const resp = await request(app.server).get('/admin');
+      expect(resp.status).toBe(200);
+      // Topic badge rendered as pill
+      expect(resp.text).toContain('Snippet');
+    });
+
+    it('GET /admin WatchList row shows warning indicator for channel with NULL topic_id', async () => {
+      const channelId = `UCnotopic${Date.now()}`;
+      addChannel(db, channelId, 'No Topic Channel');
+
+      const resp = await request(app.server).get('/admin');
+      expect(resp.status).toBe(200);
+      // Warning indicator for NULL topic
+      expect(resp.text).toContain('No topic');
+    });
+
+    it('GET /admin WatchList row shows Change Topic dropdown per channel', async () => {
+      createTopic(db, 'changetopic-1', 'Change A', 'ca');
+      const channelId = `UCchangetopic${Date.now()}`;
+      addChannel(db, channelId, 'Change Topic Channel');
+
+      const resp = await request(app.server).get('/admin');
+      expect(resp.status).toBe(200);
+      // Change topic form present
+      expect(resp.text).toContain('update-topic');
+    });
+
+    it('POST /admin/channels/add with topic_id creates channel with correct topic', async () => {
+      createTopic(db, 'add-ch-53', 'Add Ch Topic', 'acf');
+      const topic = listTopics(db).find((t) => t.key === 'add-ch-53')!;
+      const channelId = `UCaddch53${Date.now()}`;
+
+      const resp = await request(app.server)
+        .post('/admin/channels/add')
+        .type('form')
+        .send({ channel_id: channelId, topic_id: String(topic.id) });
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/admin');
+
+      const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(channelId);
+      expect(row.topic_id).toBe(topic.id);
+    });
+
+    it('POST /admin/channels/update-topic reassigns channel and redirects', async () => {
+      createTopic(db, 'reassign-1', 'Reassign A', 'ra');
+      createTopic(db, 'reassign-2', 'Reassign B', 'rb');
+      const t1 = listTopics(db).find((t) => t.key === 'reassign-1')!;
+      const t2 = listTopics(db).find((t) => t.key === 'reassign-2')!;
+      const channelId = `UCreassign${Date.now()}`;
+      addChannel(db, channelId, 'Reassign Channel', undefined, t1.id);
+
+      const resp = await request(app.server)
+        .post('/admin/channels/update-topic')
+        .type('form')
+        .send({ channel_id: channelId, topic_id: String(t2.id) });
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/admin');
+
+      const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(channelId);
+      expect(row.topic_id).toBe(t2.id);
+    });
+
+    it('POST /admin/channels/update-topic clears topic when empty submitted', async () => {
+      createTopic(db, 'clear-1', 'Clear A', 'cla');
+      const t1 = listTopics(db).find((t) => t.key === 'clear-1')!;
+      const channelId = `UCcleartopic${Date.now()}`;
+      addChannel(db, channelId, 'Clear Channel', undefined, t1.id);
+
+      // Submit empty topic_id -> should NULL it
+      const resp = await request(app.server)
+        .post('/admin/channels/update-topic')
+        .type('form')
+        .send({ channel_id: channelId });
+
+      expect(resp.status).toBe(302);
+
+      const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(channelId);
+      expect(row.topic_id).toBeNull();
+    });
+
+    it('GET /admin does NOT contain old update-filter route references', async () => {
+      const resp = await request(app.server).get('/admin');
+      expect(resp.status).toBe(200);
+      // Old filter_criteria UI removed
+      expect(resp.text).not.toContain('update-filter');
+      expect(resp.text).not.toContain('filter_criteria');
+    });
+  });
+
+  // -- Channel-Topic Linkage (Issue #52) --
+  describe('Channel Topic Linkage', () => {
+    it('addChannel persists topic_id to DB', async () => {
+      const channelId = `UCtopic${Date.now()}`;
+      createTopic(db, 'ch-topic-test', 'Ch Topic', 'test filter');
+      const topic = listTopics(db).find((t) => t.key === 'ch-topic-test')!;
+      addChannel(db, channelId, 'Topic Ch', undefined, topic.id);
+
+      const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(channelId);
+      expect(row.topic_id).toBe(topic.id);
+    });
+
+    it('addChannel allows null topic_id', async () => {
+      const channelId = `UCtopicnull${Date.now()}`;
+      addChannel(db, channelId, 'No Topic Ch');
+
+      const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(channelId);
+      expect(row.topic_id).toBeNull();
+    });
+
+    it('updateChannelTopic updates topic_id in DB', async () => {
+      const channelId = `UCtopicupd${Date.now()}`;
+      createTopic(db, 'upd-t1', 'Upd T1', 'f1');
+      createTopic(db, 'upd-t2', 'Upd T2', 'f2');
+      const t1 = listTopics(db).find((t) => t.key === 'upd-t1')!;
+      const t2 = listTopics(db).find((t) => t.key === 'upd-t2')!;
+      addChannel(db, channelId, 'Update Topic Ch', undefined, t1.id);
+
+      updateChannelTopic(db, channelId, t2.id);
+
+      const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(channelId);
+      expect(row.topic_id).toBe(t2.id);
+    });
+
+    it('listChannels returns topic_id', async () => {
+      const channelId = `UCtopiclist${Date.now()}`;
+      createTopic(db, 'list-t1', 'List T1', 'f1');
+      const topic = listTopics(db).find((t) => t.key === 'list-t1')!;
+      addChannel(db, channelId, 'List Topic Ch', undefined, topic.id);
+
+      const channels = listChannels(db);
+      const ch = channels.find((c) => c.channel_id === channelId);
+      expect(ch).toBeDefined();
+      expect(ch!.topic_id).toBe(topic.id);
+    });
+
+    it('POST /admin/channels/add persists topic_id', async () => {
+      const channelId = `UCaddtopic${Date.now()}`;
+      createTopic(db, 'add-t1', 'Add T1', 'f1');
+      const topic = listTopics(db).find((t) => t.key === 'add-t1')!;
+      const resp = await request(app.server)
+        .post('/admin/channels/add')
+        .type('form')
+        .send({ channel_id: channelId, topic_id: String(topic.id) });
+
+      expect(resp.status).toBe(302);
+
+      const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(channelId);
+      expect(row.topic_id).toBe(topic.id);
+    });
+
+    it('POST /admin/channels/add allows null topic_id when not provided', async () => {
+      const channelId = `UCaddtopicnull${Date.now()}`;
+      const resp = await request(app.server)
+        .post('/admin/channels/add')
+        .type('form')
+        .send({ channel_id: channelId });
+
+      expect(resp.status).toBe(302);
+
+      const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(channelId);
+      expect(row.topic_id).toBeNull();
+    });
+
+    it('POST /admin/channels/update-topic updates topic_id and redirects', async () => {
+      const channelId = `UCupdtopic${Date.now()}`;
+      createTopic(db, 'updhttp-t1', 'UpdHttp T1', 'f1');
+      createTopic(db, 'updhttp-t2', 'UpdHttp T2', 'f2');
+      const t1 = listTopics(db).find((t) => t.key === 'updhttp-t1')!;
+      const t2 = listTopics(db).find((t) => t.key === 'updhttp-t2')!;
+      addChannel(db, channelId, 'Update Via HTTP Ch', undefined, t1.id);
+
+      const resp = await request(app.server)
+        .post('/admin/channels/update-topic')
+        .type('form')
+        .send({ channel_id: channelId, topic_id: String(t2.id) });
+
+      expect(resp.status).toBe(302);
+      expect(resp.header.location).toBe('/admin');
+
+      const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(channelId);
+      expect(row.topic_id).toBe(t2.id);
+    });
+
+    it('POST /admin/channels/update-topic returns 400 without channel_id', async () => {
+      const resp = await request(app.server)
+        .post('/admin/channels/update-topic')
+        .type('form')
+        .send({ topic_id: '1' });
+
+      expect(resp.status).toBe(400);
     });
   });
 

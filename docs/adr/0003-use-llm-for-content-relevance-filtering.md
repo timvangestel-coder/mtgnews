@@ -1,7 +1,9 @@
 # 0003 — Use LLM for Content Relevance Filtering
 
 **Date:** 2026-05-25  
-**Status:** Accepted  
+**Status:** Superseded by [0004-topic-based-relevance-filtering.md](./0004-topic-based-relevance-filtering.md)  
+
+The core mechanism (LLM judges relevance before analysis, single merged call, `relevance_status` on signals) remains in effect. The criteria source changed from per-channel `filter_criteria` to Topic-based `filter_text`. See ADR 0004 for current design.
 
 ## Problem
 Signal `z3l1ybLWhko` (a Pokemon TCG video) was processed by the LLM with an MTG-focused prompt (`You are an MTG analyst`). The LLM hallucinated MTG entities ("Aetherdrift", "Paradox Rift") not present in the transcription, mapping ambiguous TCG terms to known MTG concepts from its training data. This produced garbage summaries for non-MTG content that entered the system because channels had no topic filter.

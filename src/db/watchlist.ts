@@ -6,13 +6,23 @@ export interface ChannelRow {
   avatar_url: string | null;
   active: number;
   added_at: number;
-  filter_criteria?: string;
+  topic_id: number | null;
 }
 
-export function addChannel(db: Database.Database, channelId: string, displayName?: string, avatarUrl?: string): void {
+export function addChannel(
+  db: Database.Database,
+  channelId: string,
+  displayName?: string,
+  avatarUrl?: string,
+  topicId?: number | null
+): void {
   db.prepare(
-    `INSERT OR IGNORE INTO channels (channel_id, display_name, avatar_url, active, added_at) VALUES (?, ?, ?, ?, ?)`
-  ).run(channelId, displayName ?? null, avatarUrl ?? null, 1, Date.now());
+    `INSERT OR IGNORE INTO channels (channel_id, display_name, avatar_url, active, added_at, topic_id) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(channelId, displayName ?? null, avatarUrl ?? null, 1, Date.now(), topicId ?? null);
+}
+
+export function updateChannelTopic(db: Database.Database, channelId: string, topicId: number | null): void {
+  db.prepare('UPDATE channels SET topic_id = ? WHERE channel_id = ?').run(topicId, channelId);
 }
 
 export function removeChannel(db: Database.Database, channelId: string): void {
@@ -31,7 +41,9 @@ export function updateChannelInfo(db: Database.Database, channelId: string, disp
 }
 
 export function listChannels(db: Database.Database): ChannelRow[] {
-  return db.prepare('SELECT channel_id, display_name, avatar_url, active, added_at FROM channels ORDER BY added_at DESC').all();
+  return db.prepare(
+    'SELECT channel_id, display_name, avatar_url, active, added_at, topic_id FROM channels ORDER BY added_at DESC'
+  ).all();
 }
 
 export function getChannelLastPollDate(db: Database.Database, channelId: string): number | null {
@@ -42,5 +54,7 @@ export function getChannelLastPollDate(db: Database.Database, channelId: string)
 }
 
 export function listActiveChannels(db: Database.Database): ChannelRow[] {
-  return db.prepare('SELECT channel_id, display_name, avatar_url, active, added_at FROM channels WHERE active = 1 ORDER BY added_at DESC').all();
+  return db.prepare(
+    'SELECT channel_id, display_name, avatar_url, active, added_at, topic_id FROM channels WHERE active = 1 AND topic_id IS NOT NULL ORDER BY added_at DESC'
+  ).all();
 }

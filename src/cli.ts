@@ -3,9 +3,12 @@ import { addChannel, listChannels, removeChannel } from './db/watchlist';
 import { pollChannel } from './poll';
 import { enqueuePollRun } from './poll-scheduler';
 import { workerProcessRun } from './poll-worker';
+import { deleteVideo } from './delete-video';
 
 function main() {
-  const args = process.argv.slice(2);
+  // Find args after the script file (works with both `node` and `tsx` which may use full paths)
+  const scriptIdx = process.argv.findIndex((a) => a.includes('cli.ts'));
+  const args = scriptIdx >= 0 ? process.argv.slice(scriptIdx + 1) : process.argv.slice(2);
   const [command, subcommand, channelId] = args;
 
   switch (command) {
@@ -15,8 +18,11 @@ function main() {
     case 'poll':
       handlePoll(subcommand, channelId);
       break;
+    case 'delete-video':
+      handleDeleteVideo(subcommand);
+      break;
     default:
-      console.error('Usage: tsx src/cli.ts <watchlist|poll> ...');
+      console.error('Usage: tsx src/cli.ts <watchlist|poll|delete-video> ...');
       process.exit(1);
   }
 }
@@ -92,6 +98,21 @@ function handleWatchlist(subcommand: string | undefined, channelId: string | und
     default:
       console.error('Usage: tsx src/cli.ts watchlist <add|remove|list> [channel_id]');
       process.exit(1);
+  }
+}
+
+function handleDeleteVideo(videoId: string | undefined) {
+  if (!videoId) {
+    console.error('Usage: tsx src/cli.ts delete-video <video_id>');
+    process.exit(1);
+  }
+
+  const deleted = deleteVideo(db, videoId);
+  if (deleted) {
+    console.log(`Deleted video ${videoId} and all related entity mentions.`);
+  } else {
+    console.error(`Video ${videoId} not found in database.`);
+    process.exit(1);
   }
 }
 
