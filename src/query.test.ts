@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
-import { createTopic, listTopics } from './db/topics';
+import { createTopic, listTopics } from './db/watchlist';
 import {
   QueryFilters,
   QueryResult,

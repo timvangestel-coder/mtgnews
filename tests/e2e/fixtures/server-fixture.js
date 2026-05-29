@@ -19,6 +19,16 @@ const test = base.extend({
     ).run('UC_test_channel_2', 'Test Channel 2', '', now);
 
     db.prepare(
+      `INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)`
+    ).run('mtg', 'MTG', 'Magic the Gathering content');
+    db.prepare(
+      `INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)`
+    ).run('ai', 'AI', 'Artificial Intelligence news');
+
+    // Assign topic to channel 1
+    db.prepare(`UPDATE channels SET topic_id = 1 WHERE channel_id = ?`).run('UC_test_channel_1');
+
+    db.prepare(
       `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, sentiment_label, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run('vid_1', 'UC_test_channel_1', 'Signal One', '2026-05-01T10:00:00Z', '[]', 'Summary for signal one', 1, 'negative', now);

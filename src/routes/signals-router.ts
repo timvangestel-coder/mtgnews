@@ -1,0 +1,86 @@
+import { Router } from 'express';
+import { SignalQueryService } from '../services/signal-query-service';
+import { listTopics, getChannelsWithTopics } from '../db/watchlist';
+
+interface RenderRequest extends express.Request {
+  query: Record<string, string | string[] | undefined>;
+}
+
+export function createSignalsRouter(service: SignalQueryService) {
+  const router = Router();
+
+  // GET /signals — list signals (Signal Viewer)
+  router.get('/signals', (req: RenderRequest, res) => {
+    const channelId = req.query.channelId as string | undefined;
+    const topicKey = req.query.topicKey as string | undefined;
+    const showIrrelevant = req.query.showIrrelevant === 'true';
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const isHtmx = req.query.htmx === 'true';
+    const limit = 25;
+    const offset = (page - 1) * limit;
+
+    const result = service.listSignals({ channelId, topicKey, includeIrrelevant: showIrrelevant, limit, offset });
+    const channels = getChannelsWithTopics(service.database);
+    const topics = listTopics(service.database);
+    const totalPages = Math.ceil(result.total / limit);
+
+    if (isHtmx) {
+      res.render('_signalsTable', {
+        signals: result.items,
+        page,
+        totalPages,
+        total: result.total,
+        channelId,
+        topicKey,
+        showIrrelevant,
+        layout: false,
+      });
+    } else {
+      res.render('signals', {
+        activePage: 'signals',
+        title: 'Signals',
+        signals: result.items,
+        channels,
+        topics,
+        page,
+        totalPages,
+        total: result.total,
+        channelId,
+        topicKey,
+        showIrrelevant,
+      });
+    }
+  });
+
+  // GET /signals/:id — signal detail
+  router.get('/signals/:id', (req, res) => {
+    const detail = service.getSignalDetail(req.params.id);
+    if (!detail) {
+      res.status(404).send('Signal not found');
+      return;
+    }
+
+    res.render('signal-detail', {
+      activePage: 'signals',
+      title: detail.signal.title || 'Signal Detail',
+      signal: detail.signal,
+      channel: detail.channel,
+      summaryHtml: detail.summaryHtml,
+      transcriptionHtml: detail.transcriptionHtml,
+      error: req.query.error as string | undefined,
+    });
+  });
+
+  // POST /signals/:id/summarize
+  router.post('/signals/:id/summarize', async (req, res) => {
+    const videoId = req.params.id;
+    const result = await service.summarizeSignal(videoId);
+    if (!result.success) {
+      res.redirect(`/signals/${videoId}?error=${encodeURIComponent(result.error || 'Summarization failed')}`);
+    } else {
+      res.redirect(`/signals/${videoId}`);
+    }
+  });
+
+  return router;
+}

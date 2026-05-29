@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
-import { createTopic } from './db/topics';
+import { createTopic } from './db/watchlist';
 import { enqueuePollRun } from './poll-scheduler';
 import { workerProcessRun } from './poll-worker';
 import * as llm from './llm';

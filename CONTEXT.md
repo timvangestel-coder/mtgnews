@@ -19,8 +19,12 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 | **Entity** | A topic-relevant concept mentioned in a Signal: card name, set name, player name, model, company, etc. Extracted and scored by the LLM during sentiment analysis. Entity type vocabulary is free-form (not constrained per-topic). Topic membership derived via join chain through signals→channels→topics. |
 | **Poll** | A single execution of the scheduled ingestion cycle: fetch RSS feeds for all active Channels with a non-NULL `topic_id`, identify new videos, extract transcriptions, run LLM analysis, persist results. Runs once daily. Channels without a topic are skipped. |
 | **E2E Test** | End-to-end browser test using Playwright. Spins up the Express server against an in-memory SQLite DB seeded with fixture data. Tests client-side behavior (Alpine.js toggles, HTMX swaps, transcription expand/collapse) that supertest unit tests cannot verify. |
-| **Run Abort** | A user-initiated cancellation of an active PollRun. Records `abort_time` timestamp on the poll_runs row. Deletes unsummarized signals created within `[triggered_at, abort_time]`. Transitions run status to `done-forced` (amber badge) if processed signals exist, or deletes the run entirely if zero signals were summarized. Uses both a DB flag (`status='aborting'`) and an in-memory AbortController for immediate cancellation of in-flight LLM calls. |
-| **Stale Run** | A PollRun stuck at `status='running'` with no `completed_at`, caused by server shutdown mid-execution. Auto-cleaned on startup: transitioned to `done-forced` with unsummarized signals deleted. |
+| **Run Abort** | A user-initiated cancellation of an active PollRun. Fires an in-memory AbortController to cancel in-flight LLM HTTP requests and stop the worker between tasks. Then deletes unsummarized signals by FK (`WHERE poll_run_id = ? AND processed_at IS NULL`) — no time window, so no race condition. Always transitions run status to `done-forced` with correct `new_signal_count`, even when zero signals were summarized. The run row is never deleted — the UI needs it to display abort status. |
+ | **Stale Run** | A PollRun stuck at `status='running'` with no `completed_at`, caused by server shutdown mid-execution. Auto-cleaned on startup: transitioned to `done-forced` with unsummarized signals deleted. |
+ | **Route Module** | An Express Router factory (e.g., `createSignalsRouter`) that receives a service layer dependency and mounts HTTP handlers for one domain area. Each module exports a single `Router` instance. Route modules are thin: parse params → call service → render template or redirect. Mounted in `server.ts` via `app.use()`. |
+ | **Service Layer** | Domain-specific orchestration modules that sit between route handlers and pure domain functions. Two naming conventions: `-Service` suffix for read-only query services (`SignalQueryService`, `PollQueryService`), `-Manager` suffix for write/CRUD managers (`ChannelManager`, `TopicManager`). The service wraps DB access and coordinates multi-function operations (e.g., query + format + enrich). Services are the primary unit of testing — unit tests target services directly with in-memory SQLite, while route modules get lightweight HTTP smoke tests. |
+ | **HTTP Retry Module** | A generic `fetchWithRetry(url, options, retryConfig)` module that handles timeout via AbortController, external abort signal merging, transient error detection (TypeError, ECONNRESET, ECONNREFUSED), and exponential backoff. Consumer-agnostic: the LLM client is the current adapter; other HTTP clients may adopt it later. |
+ | **Transcription Merge Module** | A pure-function module (`transcription-merge.ts`) containing `mergeOverlappingSegments()` and `groupSegments()`. Input: raw caption segments. Output: grouped `[{time: number (ms), text: string}]`. No I/O, no format detection — purely algorithmic. Tested in isolation via `merge-segments.test.ts`. |
 
 ## Decisions
 
@@ -42,7 +46,7 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 - **Schema initialization** uses simple `CREATE TABLE IF NOT EXISTS` in a single module called at app startup — no migration runner framework. Greenfield project with stable schema.
 
 ### Polling & Background Worker Model
-- **Queue-based async polling via SQLite job table.** Trigger enqueues a `PollRun` row → background worker (separate file/module, runs in-process but on its own loop) picks up the job → processes channels and signals using a **global concurrency-limited task pool** (RSS fetch, caption extraction, and LLM analysis all share the same pool). Concurrency limit controlled by `LLM_CONCURRENCY` env var (default 3). Progress tracked in `poll_run_progress` table. UI polls for status via HTMX `<meta refresh>` or periodic `hx-get`.
+- **Queue-based async polling via SQLite job table.** Trigger enqueues a `PollRun` row → background worker (separate file/module, runs in-process but on its own loop) picks up the job → processes channels sequentially (RSS fetch + caption extraction), then runs LLM analysis through a **concurrency-limited task pool** controlled by `LLM_CONCURRENCY` env var (default 3). Progress tracked in `poll_run_progress` table. UI polls for status via HTMX periodic `hx-get`.
 - **Scheduled polling** also creates `PollRun` entries — triggers once daily via `node-cron` or equivalent, runs the same worker path as manual trigger (single source of truth).
 
 ### Data Model — Transcription Storage
@@ -60,7 +64,8 @@ MTG news & sentiment scanner. Ingests YouTube videos from watched channels, extr
 - Express (TypeScript, with `ts-node-dev` or `tsx` for dev hot-reload)
 - EJS template engine (`@types/ejs`) — minimal logic, `include()` for layout partials
 - HTMX for AJAX-driven HTML swaps (pagination, channel filter, poll trigger, detail navigation)
-- Alpine.js (CDN in layout) — lightweight reactivity for toggle pills + signal row expand/collapse
+- Alpine.js (CDN in layout, loaded with `defer`) — lightweight reactivity for toggle pills, signal row expand/collapse, and Admin Panel tab system (`x-data` + `x-if` templates)
+- **HTMX + Alpine integration:** Elements inserted by Alpine's `<template x-if>` are not visible to HTMX at page load (Alpine runs after HTMX scans the DOM). Use `x-init="htmx.process($el)"` on the container `<div>` inside each template so HTMX re-scans and registers `hx-*` attributes after Alpine inserts them.
 - Tailwind CSS via CDN (`<script src="https://cdn.tailwindcss.com">`) for dev; production build optional later
 - SQLite via `better-sqlite3` (synchronous, native bindings)
 - `yt-dlp` via Node.js child_process or wrapper
@@ -147,7 +152,7 @@ Three tabs: [Channels] [Topics] [Polling]. Alpine.js-managed tab state.
 
 **[Polling] tab:**
 - **Poll trigger:** "Run Poll Now" button + lookback days input. Trigger enqueues a `PollRun` job → UI shows progress inline via HTMX polling. Run History list lives on `/polls`.
-- **Live Progress Widget:** HTMX `<meta refresh>` or periodic `hx-get` for status updates.
+- **Live Progress Widget:** HTMX periodic `hx-get` with `hx-trigger="every 3s"` and `hx-swap="outerHTML"` for self-replacing progress updates.
 
 **Authentication:** No auth — internal tool, trusted access only. Admin routes guarded by obscurity (URL hidden in nav).
 

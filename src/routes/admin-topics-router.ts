@@ -1,0 +1,73 @@
+import { Router } from 'express';
+import { TopicManager } from '../services/topic-manager';
+import { UpdateTopicOptions } from '../db/watchlist';
+import { htmxNoContent } from '../utils/htmx-response';
+
+export function createAdminTopicsRouter(service: TopicManager) {
+  const router = Router();
+
+  // POST /admin/topics — create
+  router.post('/admin/topics', (req, res) => {
+    const key = req.body.key as string;
+    const shortName = req.body.short_name as string;
+    const filterText = req.body.filter_text as string;
+
+    if (!key) {
+      res.status(400).send('key required');
+      return;
+    }
+
+    try {
+      service.create(key, shortName || '', filterText || '');
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      if (msg.includes('UNIQUE constraint failed') || msg.includes('duplicate key')) {
+        res.status(400).send(`Duplicate key: ${key}`);
+        return;
+      }
+      throw err;
+    }
+
+    htmxNoContent(req, res, '/admin?tab=topics');
+  });
+
+  // POST /admin/topics/update — update with HTMX row re-render
+  router.post('/admin/topics/update', (req, res) => {
+    const id = parseInt(req.body.id as string, 10);
+    if (isNaN(id)) {
+      res.status(400).send('id required');
+      return;
+    }
+
+    const opts: UpdateTopicOptions = {};
+    if (req.body.key !== undefined) opts.key = req.body.key as string;
+    if (req.body.short_name !== undefined) opts.short_name = req.body.short_name as string;
+    if (req.body.filter_text !== undefined) opts.filter_text = req.body.filter_text as string;
+
+    service.update(id, opts);
+
+    // Issue #65: return re-rendered row HTML for HTMX requests
+    if (req.headers['hx-request'] === 'true') {
+      const updated = service.getTopicWithCount(id);
+      if (updated) {
+        return res.status(200).render('admin/_topicRow', { topic: updated, layout: false });
+      }
+    }
+
+    htmxNoContent(req, res, '/admin?tab=topics');
+  });
+
+  // POST /admin/topics/delete — force-delete (nullifies channel topic_id)
+  router.post('/admin/topics/delete', (req, res) => {
+    const id = parseInt(req.body.id as string, 10);
+    if (isNaN(id)) {
+      res.status(400).send('id required');
+      return;
+    }
+
+    service.delete(id);
+    htmxNoContent(req, res, '/admin?tab=topics');
+  });
+
+  return router;
+}

@@ -36,6 +36,48 @@
       <%- body %>
     </main>
   </div>
+  <!-- Admin topic actions — must load before Alpine so onclick handlers can find it -->
+  <% if (activePage === 'admin') { %>
+  <script>
+    window.__topicSubmit = function(topicId, actionUrl) {
+      var tbody = document.querySelector('tbody[x-data]');
+      if (!tbody) return;
+      var alpineData = Alpine.$data(tbody);
+      var row = document.querySelector("tr[data-topic-id='" + topicId + "']");
+      if (!row) return;
+
+      var values = { id: String(topicId) };
+      ['key', 'short_name', 'filter_text'].forEach(function(name) {
+        var inp = row.querySelector('[name=' + name + ']');
+        if (inp) values[name] = inp.value;
+      });
+
+      fetch(actionUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
+        body: new URLSearchParams(values).toString()
+      }).then(function() {
+        if (actionUrl === '/admin/topics/update') {
+          var s1 = row.querySelector('td:nth-child(1) span');
+          if (s1) s1.textContent = values.key;
+          var s2 = row.querySelector('td:nth-child(2) span');
+          if (s2) s2.textContent = values.short_name;
+          var ft = values.filter_text || '';
+          var s3 = row.querySelector('td:nth-child(3) span');
+          if (s3) {
+            s3.textContent = ft.substring(0, 80) + (ft.length > 80 ? '\u2026' : '');
+            s3.setAttribute('title', ft);
+          }
+        } else {
+          if (row && row.parentNode) row.parentNode.removeChild(row);
+        }
+        alpineData.editId = null;
+      }).catch(function(err) {
+        console.error('Topic action failed:', err);
+      });
+    };
+  </script>
+  <% } %>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </body>
 </html>

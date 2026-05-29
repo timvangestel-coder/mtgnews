@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { mergeOverlappingSegments } from './transcription';
-import type { TranscriptionSegment } from './transcription';
+import { mergeOverlappingSegments } from './transcription-merge';
+import type { RawSegment } from './transcription-merge';
 
 describe('mergeOverlappingSegments', () => {
   // Tracer bullet: basic overlapping paint-on segments merge into one
   it('merges overlapping segments where each is a superset of the previous', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'Folks,', start: 4150, end: 5000 },
-      { text: 'Folks, welcome', start: 4160, end: 6000 },
-    ];
+     const segments: RawSegment[] = [
+       { text: 'Folks,', start: 4150, end: 5000 },
+       { text: 'Folks, welcome', start: 4160, end: 6000 },
+     ];
 
     const result = mergeOverlappingSegments(segments);
 
@@ -20,8 +20,8 @@ describe('mergeOverlappingSegments', () => {
 
   // Real-world pattern from actual DB: contiguous segments with boundary word overlap
   it('merges contiguous segments and trims overlapping boundary words', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'Folks,', start: 4150, end: 4160 },
+     const segments: RawSegment[] = [
+       { text: 'Folks,', start: 4150, end: 4160 },
       { text: 'Folks, welcome', start: 4160, end: 5670 },
       { text: 'welcome back. My name is Rudy. You\'re', start: 5670, end: 5680 },
       { text: 'welcome back. My name is Rudy. You\'re watching', start: 5680, end: 8150 },
@@ -53,9 +53,9 @@ describe('mergeOverlappingSegments', () => {
 
   // Real-world pattern: paint-on sequence from YouTube auto-captions (overlapping variant)
   it('collapses a full paint-on sequence into merged segments', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'Folks,', start: 4150, end: 5000 },
-      { text: 'Folks, welcome', start: 4160, end: 5660 },
+     const segments: RawSegment[] = [
+       { text: 'Folks,', start: 4150, end: 5000 },
+       { text: 'Folks, welcome', start: 4160, end: 5660 },
       { text: 'welcome back. My name is Rudy. You\'re', start: 5670, end: 8140 },
       { text: 'welcome back. My name is Rudy. You\'re watching', start: 5680, end: 8160 },
     ];
@@ -72,10 +72,10 @@ describe('mergeOverlappingSegments', () => {
 
   // No overlap: segments that don't overlap stay separate
   it('leaves non-overlapping segments unchanged', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'hello world', start: 0, end: 2500 },
-      { text: 'mtg news today', start: 2500, end: 5000 },
-    ];
+     const segments: RawSegment[] = [
+       { text: 'hello world', start: 0, end: 2500 },
+       { text: 'mtg news today', start: 2500, end: 5000 },
+     ];
 
     const result = mergeOverlappingSegments(segments);
 
@@ -91,9 +91,9 @@ describe('mergeOverlappingSegments', () => {
 
   // Edge case: single segment
   it('returns single segment unchanged', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'only segment', start: 0, end: 3000 },
-    ];
+     const segments: RawSegment[] = [
+       { text: 'only segment', start: 0, end: 3000 },
+     ];
 
     const result = mergeOverlappingSegments(segments);
 
@@ -103,10 +103,10 @@ describe('mergeOverlappingSegments', () => {
 
   // No text overlap: overlapping timestamps but different content
   it('keeps segments separate when timestamps overlap but text does not', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'first sentence', start: 0, end: 3000 },
-      { text: 'completely different', start: 2000, end: 5000 },
-    ];
+     const segments: RawSegment[] = [
+       { text: 'first sentence', start: 0, end: 3000 },
+       { text: 'completely different', start: 2000, end: 5000 },
+     ];
 
     const result = mergeOverlappingSegments(segments);
 
@@ -115,10 +115,10 @@ describe('mergeOverlappingSegments', () => {
 
   // Multi-word prefix match: current text starts with previous text
   it('merges when current text is a strict extension of previous text', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'welcome back', start: 1000, end: 4000 },
-      { text: 'welcome back to the show', start: 1500, end: 5000 },
-    ];
+     const segments: RawSegment[] = [
+       { text: 'welcome back', start: 1000, end: 4000 },
+       { text: 'welcome back to the show', start: 1500, end: 5000 },
+     ];
 
     const result = mergeOverlappingSegments(segments);
 
@@ -130,10 +130,10 @@ describe('mergeOverlappingSegments', () => {
 
   // Case insensitive text comparison
   it('handles case-insensitive prefix matching', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'Hello', start: 0, end: 2000 },
-      { text: 'Hello world', start: 500, end: 3000 },
-    ];
+     const segments: RawSegment[] = [
+       { text: 'Hello', start: 0, end: 2000 },
+       { text: 'Hello world', start: 500, end: 3000 },
+     ];
 
     const result = mergeOverlappingSegments(segments);
 
@@ -143,9 +143,9 @@ describe('mergeOverlappingSegments', () => {
 
   // Longer chain: multiple overlapping groups
   it('merges multiple independent overlapping groups', () => {
-    const segments: TranscriptionSegment[] = [
-      // Group 1: paint-on overlap
-      { text: 'alpha', start: 0, end: 1000 },
+     const segments: RawSegment[] = [
+       // Group 1: paint-on overlap
+       { text: 'alpha', start: 0, end: 1000 },
       { text: 'alpha beta', start: 100, end: 2000 },
       // Gap
       // Group 2: paint-on overlap
@@ -164,8 +164,8 @@ describe('mergeOverlappingSegments', () => {
 
   // Boundary word trim: multi-word overlap
   it('trims multi-word boundary overlap', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'hello world foo bar', start: 0, end: 3000 },
+     const segments: RawSegment[] = [
+       { text: 'hello world foo bar', start: 0, end: 3000 },
       { text: 'foo bar baz', start: 3000, end: 6000 },
     ];
 
@@ -179,10 +179,10 @@ describe('mergeOverlappingSegments', () => {
 
   // Boundary word trim: no overlap case
   it('does not trim when there is no word overlap at boundary', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'hello world', start: 0, end: 3000 },
-      { text: 'foo bar', start: 3000, end: 6000 },
-    ];
+     const segments: RawSegment[] = [
+       { text: 'hello world', start: 0, end: 3000 },
+       { text: 'foo bar', start: 3000, end: 6000 },
+     ];
 
     const result = mergeOverlappingSegments(segments);
 
@@ -192,9 +192,9 @@ describe('mergeOverlappingSegments', () => {
   });
 
   // Boundary word trim: punctuation handling - word with comma
-  it('trims boundary overlap ignoring trailing punctuation', () => {
-    const segments: TranscriptionSegment[] = [
-      { text: 'welcome to the show', start: 0, end: 3000 },
+    it('trims boundary overlap ignoring trailing punctuation', () => {
+     const segments: RawSegment[] = [
+       { text: 'welcome to the show', start: 0, end: 3000 },
       { text: 'show you need to see', start: 3000, end: 6000 },
     ];
 

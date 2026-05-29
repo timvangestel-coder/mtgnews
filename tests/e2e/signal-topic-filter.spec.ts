@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/server-fixture';
 
-test('topic pill click filters channel pills and signal table', async ({ page }) => {
-  await page.goto('/signals');
+test('topic pill click filters channel pills and signal table', async ({ page, baseUrl }) => {
+  await page.goto(`${baseUrl}/signals`);
 
   // Topic pills exist above channel pills
   const topicPills = page.locator('[x-data] > div:first-child button');

@@ -1,19 +1,19 @@
 <h2 class="text-2xl font-bold mb-4">Admin Panel</h2>
 
 <!-- Tab Navigation -->
-<div class="mb-6" x-data="{ activeTab: 'channels' }">
+<div class="mb-6" x-data="{ activeTab: '<%= tab || "channels" %>' }">
   <div class="flex gap-2 mb-6">
-    <button @click="activeTab = 'channels'"
+    <button @click="activeTab = 'channels'; history.replaceState(null, '', '/admin?tab=channels')"
       :class="activeTab === 'channels' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Channels
     </button>
-    <button @click="activeTab = 'topics'"
+    <button @click="activeTab = 'topics'; history.replaceState(null, '', '/admin?tab=topics')"
       :class="activeTab === 'topics' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Topics
     </button>
-    <button @click="activeTab = 'polling'"
+    <button @click="activeTab = 'polling'; history.replaceState(null, '', '/admin?tab=polling')"
       :class="activeTab === 'polling' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Polling
@@ -22,11 +22,11 @@
 
   <!-- Channels Tab -->
   <template x-if="activeTab === 'channels'">
-    <div>
+    <div x-init="htmx.process($el)">
        <!-- Add Channel -->
        <div class="mb-6">
          <h3 class="text-xl font-semibold mb-2">Add Channel</h3>
-         <form action="/admin/channels/add" method="post" class="flex flex-col gap-2">
+         <form hx-post="/admin/channels/add" hx-swap="none" class="flex flex-col gap-2">
            <div class="flex gap-2">
              <input type="text" name="channel_id" placeholder="YouTube Channel ID (e.g. UCxxxx)"
                 class="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required />
@@ -72,11 +72,11 @@
                 </div>
 
                 <!-- Active Toggle -->
-                <form action="/admin/channels/toggle" method="post" class="flex items-center gap-2">
+                <form hx-post="/admin/channels/toggle" hx-swap="none" class="flex items-center gap-2">
                   <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
                   <input type="hidden" name="active" value="<%= !ch.active %>" />
                   <label class="inline-flex items-center cursor-pointer">
-                    <input type="checkbox" <%= ch.active ? 'checked' : '' %> class="sr-only peer" onchange="this.form.submit()" />
+                    <input type="checkbox" <%= ch.active ? 'checked' : '' %> class="sr-only peer" onchange="this.form.requestSubmit()" />
                     <div class="w-9 h-5 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                   </label>
                   <span class="text-xs text-gray-500"><%= ch.active ? 'Active' : 'Inactive' %></span>
@@ -91,9 +91,9 @@
                  <% } %>
 
                  <!-- Change Topic -->
-                 <form action="/admin/channels/update-topic" method="post" class="flex items-center gap-1">
+                 <form hx-post="/admin/channels/update-topic" hx-swap="none" class="flex items-center gap-1">
                    <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
-                   <select name="topic_id" onchange="this.form.submit()" class="text-xs px-1 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                   <select name="topic_id" onchange="this.form.requestSubmit()" class="text-xs px-1 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
                      <% var noTopic = !ch.topic_id; %>
                      <option value="<%= noTopic ? '' : 'x' %>"<%= noTopic ? ' selected' : '' %>></option>
                      <% topics.forEach(function(topic) { %>
@@ -104,7 +104,7 @@
                  </form>
 
                 <!-- Remove -->
-                <form action="/admin/channels/remove" method="post">
+                <form hx-post="/admin/channels/remove" hx-swap="none">
                   <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
                   <button type="submit" class="text-sm text-red-600 hover:text-red-800"
                     onclick="return confirm('Remove <%= ch.display_name || ch.channel_id %>?')">Remove</button>
@@ -121,13 +121,13 @@
 
   <!-- Topics Tab -->
   <template x-if="activeTab === 'topics'">
-    <div>
+    <div x-init="htmx.process($el)">
       <h3 class="text-xl font-semibold mb-2">Topics</h3>
 
       <!-- Add Topic Form -->
       <div class="mb-6" x-data="">
         <h4 class="text-lg font-medium mb-2">Add Topic</h4>
-        <form action="/admin/topics" method="post" class="flex flex-col gap-2 max-w-xl">
+        <form hx-post="/admin/topics" hx-swap="none" class="flex flex-col gap-2 max-w-xl">
           <input type="text" name="key" placeholder="Key (slug, unique)"
              class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required />
           <input type="text" name="short_name" placeholder="Short Name"
@@ -151,55 +151,13 @@
                 <th class="py-2 px-3 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody x-data="{ editId: null }">
               <% topics.forEach(function(topic) { %>
-                <tr class="border-b" x-data="{ editing: false }">
-                  <template x-if="editing">
-                    <!-- Edit Mode -->
-                    <tr class="border-b bg-gray-50">
-                      <td colspan="5" class="p-3">
-                        <form action="/admin/topics/update" method="post" class="flex flex-col gap-2 max-w-xl">
-                          <input type="hidden" name="id" value="<%= topic.id %>" />
-                          <input type="text" name="key" value="<%= topic.key %>"
-                             class="px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-                          <input type="text" name="short_name" value="<%= topic.short_name %>"
-                             class="px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-                          <textarea name="filter_text" rows="2"
-                            class="px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"><%= topic.filter_text %></textarea>
-                          <div class="flex gap-2">
-                            <button type="submit" class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700">Save</button>
-                            <button @click.prevent="editing = false" type="button" class="px-3 py-1 bg-gray-300 rounded text-sm hover:bg-gray-400">Cancel</button>
-                          </div>
-                        </form>
-                      </td>
-                    </tr>
-                  </template>
-                  <template x-if="!editing">
-                    <tr class="border-b">
-                      <td class="py-2 px-3 font-mono text-xs"><%= topic.key %></td>
-                      <td class="py-2 px-3"><%= topic.short_name %></td>
-                       <% var ft = topic.filter_text || ''; %>
-                       <td class="py-2 px-3 max-w-[200px] truncate" title="<%= ft %>"><%= ft.substring(0, 80) %><% if (ft.length > 80) { %>&hellip;<% } %></td>
-                      <td class="py-2 px-3"><%= topic.channel_count || 0 %></td>
-                      <td class="py-2 px-3 flex gap-3">
-                        <button @click="editing = true" class="text-blue-600 hover:text-blue-800 text-xs">Edit</button>
-                        <form action="/admin/topics/delete" method="post" class="inline">
-                          <input type="hidden" name="id" value="<%= topic.id %>" />
-                          <% if ((topic.channel_count || 0) > 0) { %>
-                            <button type="submit" class="text-red-600 hover:text-red-800 text-xs"
-                              onclick="return confirm('Delete this topic? <%= topic.channel_count %> channel(s) will be unassigned.')')">Delete</button>
-                          <% } else { %>
-                            <button type="submit" class="text-red-600 hover:text-red-800 text-xs"
-                              onclick="return confirm('Delete this topic?')">Delete</button>
-                          <% } %>
-                        </form>
-                      </td>
-                    </tr>
-                  </template>
-                </tr>
+                <%- include('admin/_topicRow', { topic }) %>
               <% }); %>
             </tbody>
           </table>
+
         <% } else { %>
           <p class="text-gray-500">No topics yet. Add one above.</p>
         <% } %>
@@ -209,11 +167,11 @@
 
   <!-- Polling Tab -->
   <template x-if="activeTab === 'polling'">
-    <div>
+    <div x-init="htmx.process($el)">
       <!-- Run Poll Now -->
       <div class="mb-6">
         <h3 class="text-xl font-semibold mb-2">Run Poll</h3>
-        <form action="/admin/poll/trigger" method="post" class="flex gap-2 items-center">
+        <form hx-post="/admin/poll/trigger" hx-swap="none" class="flex gap-2 items-center">
           <label for="lookback_days" class="text-sm text-gray-600">Lookback (days):</label>
           <input id="lookback_days" name="lookback_days" type="number" min="0" max="365" value="2"
             class="w-20 px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />

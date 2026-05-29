@@ -21,13 +21,18 @@ test.describe('Signal page channel filter pills', () => {
     testDb = new Database(dbPath);
     initDb(testDb);
 
-    // Seed channels
+    // Seed topic
     testDb.prepare(
-      "INSERT INTO channels (channel_id, display_name, avatar_url, active, added_at) VALUES (?, ?, '', ?, ?)"
-    ).run('UC_alpha', 'Alpha Channel', 1, Date.now());
+      "INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)"
+    ).run('test', 'Test', 'Test content');
+
+    // Seed channels with topic_id
     testDb.prepare(
-      "INSERT INTO channels (channel_id, display_name, avatar_url, active, added_at) VALUES (?, ?, '', ?, ?)"
-    ).run('UC_beta', 'Beta Channel', 1, Date.now());
+      "INSERT INTO channels (channel_id, display_name, avatar_url, active, added_at, topic_id) VALUES (?, ?, '', ?, ?, ?)"
+    ).run('UC_alpha', 'Alpha Channel', 1, Date.now(), 1);
+    testDb.prepare(
+      "INSERT INTO channels (channel_id, display_name, avatar_url, active, added_at, topic_id) VALUES (?, ?, '', ?, ?, ?)"
+    ).run('UC_beta', 'Beta Channel', 1, Date.now(), 1);
 
     // Seed signals
     testDb.prepare(
@@ -64,8 +69,8 @@ test.describe('Signal page channel filter pills', () => {
     // Alpine x-data initialized (no console error from undefined Alpine)
     await expect(page.locator('[x-data]')).toBeAttached();
 
-    // "All" pill active (blue bg); channel pills present
-    const allPill = page.getByRole('button', { name: 'All' });
+    // "All Channels" pill active (blue bg); channel pills present
+    const allPill = page.getByRole('button', { name: 'All Channels' });
     await expect(allPill).toBeVisible();
     expect(await allPill.getAttribute('class')).toContain('bg-blue-600');
 
@@ -85,10 +90,10 @@ test.describe('Signal page channel filter pills', () => {
 
     // Alpha pill now blue, All pill gray
     expect(await page.getByRole('button', { name: 'Alpha Channel' }).getAttribute('class')).toContain('bg-blue-600');
-    expect(await page.getByRole('button', { name: 'All' }).getAttribute('class')).toContain('bg-gray-200');
+    expect(await page.getByRole('button', { name: 'All Channels' }).getAttribute('class')).toContain('bg-gray-200');
 
-    // Click "All" pill → resets filter, both signals back
-    await page.getByRole('button', { name: 'All' }).click();
+    // Click "All Channels" pill → resets filter, both signals back
+    await page.getByRole('button', { name: 'All Channels' }).click();
     // Wait for HTMX to swap: beta signal reappears
     await expect(page.getByText('beta signal summary')).toBeVisible({ timeout: 5000 });
 

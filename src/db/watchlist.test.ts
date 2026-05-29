@@ -3,13 +3,20 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb } from './init-db';
 import {
   addChannel,
-  listChannels,
-  listActiveChannels,
   removeChannel,
-  updateChannelTopic,
   toggleChannelActive,
+  listChannels,
+  updateChannelTopic,
+  getChannelLastPollDate,
+  createTopic,
+  listTopics,
+  getTopicById,
+  updateTopic,
+  deleteTopic,
+  getChannelsWithTopics,
+  listActiveChannels,
+  getAdminData,
 } from './watchlist';
-import { createTopic } from './topics';
 
 function createTestDb() {
   const db = new Database(':memory:');
@@ -17,7 +24,7 @@ function createTestDb() {
   return db;
 }
 
-describe('watchlist', () => {
+describe('watchlist module', () => {
   let db: Database.Database;
 
   beforeEach(() => {
@@ -28,128 +35,204 @@ describe('watchlist', () => {
     db.close();
   });
 
-  it('addChannel inserts a row with channel_id, added_at, and topic_id', () => {
-    createTopic(db, 'mtg', 'MTG', 'MTG filter text');
-    addChannel(db, 'UC123', 'Test Channel', null, 1);
+  describe('Channel CRUD', () => {
+    it('addChannel inserts a channel row', () => {
+      addChannel(db, 'UC1', 'Channel 1');
 
-    const row = db.prepare(
-      'SELECT channel_id, added_at, topic_id FROM channels WHERE channel_id = ?'
-    ).get('UC123');
-    expect(row).toBeDefined();
-    expect(row.channel_id).toBe('UC123');
-    expect(typeof row.added_at).toBe('number');
-    expect(row.added_at).toBeGreaterThan(0);
-    expect(row.topic_id).toBe(1);
+      const channels = listChannels(db);
+      expect(channels.length).toBe(1);
+      expect(channels[0].channel_id).toBe('UC1');
+      expect(channels[0].active).toBe(1);
+    });
+
+    it('addChannel with topic_id persists linkage', () => {
+      createTopic(db, 'mtg', 'MTG', 'filter');
+      const row = db.prepare('SELECT id FROM topics WHERE key = ?').get('mtg') as { id: number };
+      addChannel(db, 'UC2', 'Channel 2', undefined, row.id);
+
+      const ch = listChannels(db).find((c) => c.channel_id === 'UC2');
+      expect(ch!.topic_id).toBe(row.id);
+    });
+
+    it('removeChannel deletes channel and related signals/mentions in transaction', () => {
+      addChannel(db, 'UC3', 'Remove Me');
+      db.prepare(
+        "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run('v1', 'UC3', 'Title', '2026-01-01T00:00:00Z', '[]', Date.now());
+      db.prepare(
+        "INSERT INTO entity_mentions (signal_video_id, entity_name) VALUES (?, ?)"
+      ).run('v1', 'entity');
+
+      removeChannel(db, 'UC3');
+
+      expect(listChannels(db).find((c) => c.channel_id === 'UC3')).toBeUndefined();
+      const sigCount = (db.prepare("SELECT COUNT(*) as c FROM signals WHERE channel_id = ?").get('UC3') as { c: number }).c;
+      expect(sigCount).toBe(0);
+      const emCount = (db.prepare("SELECT COUNT(*) as c FROM entity_mentions").get() as { c: number }).c;
+      expect(emCount).toBe(0);
+    });
+
+    it('toggleChannelActive flips active flag', () => {
+      addChannel(db, 'UC4', 'Toggle Me');
+      toggleChannelActive(db, 'UC4', false);
+
+      const ch = listChannels(db).find((c) => c.channel_id === 'UC4');
+      expect(ch!.active).toBe(0);
+    });
+
+    it('updateChannelTopic changes topic_id', () => {
+      createTopic(db, 't1', 'T1', 'f1');
+      createTopic(db, 't2', 'T2', 'f2');
+      const t2row = db.prepare('SELECT id FROM topics WHERE key = ?').get('t2') as { id: number };
+
+      addChannel(db, 'UC5', 'Update Topic Ch');
+      updateChannelTopic(db, 'UC5', t2row.id);
+
+      const ch = listChannels(db).find((c) => c.channel_id === 'UC5');
+      expect(ch!.topic_id).toBe(t2row.id);
+    });
+
+    it('getChannelLastPollDate returns null when no poll progress', () => {
+      addChannel(db, 'UC6', 'No Poll Ch');
+      const last = getChannelLastPollDate(db, 'UC6');
+      expect(last).toBeNull();
+    });
+
+    it('getChannelLastPollDate returns max updated_at from poll_run_progress', () => {
+      addChannel(db, 'UC7', 'Poll Ch');
+      db.prepare(
+        "INSERT INTO poll_run_progress (channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?)"
+      ).run('UC7', 'done', 2, 1000);
+      db.prepare(
+        "INSERT INTO poll_run_progress (channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?)"
+      ).run('UC7', 'done', 3, 2000);
+
+      const last = getChannelLastPollDate(db, 'UC7');
+      expect(last).toBe(2000);
+    });
   });
 
-  it('addChannel ignores duplicate channel_id without throwing', () => {
-    createTopic(db, 'mtg', 'MTG', 'MTG filter text');
-    addChannel(db, 'UC123', 'Test Channel', null, 1);
-    addChannel(db, 'UC123', 'Test Channel 2', null, 1);
+  describe('Topic CRUD', () => {
+    it('createTopic inserts a topic row', () => {
+      createTopic(db, 'aggression', 'Aggro', 'Content about aggressive strategies');
 
-    const count = db.prepare('SELECT COUNT(*) as cnt FROM channels WHERE channel_id = ?').get('UC123');
-    expect(count.cnt).toBe(1);
+      const topics = listTopics(db);
+      expect(topics.length).toBe(1);
+      expect(topics[0].key).toBe('aggression');
+    });
+
+    it('createTopic throws on duplicate key', () => {
+      createTopic(db, 'aggro', 'Aggro', 'filter');
+      expect(() => createTopic(db, 'aggro', 'Aggro 2', 'other')).toThrow();
+    });
+
+    it('listTopics returns all topics ordered by id ASC', () => {
+      createTopic(db, 'control', 'Control', 'f1');
+      createTopic(db, 'combo', 'Combo', 'f2');
+
+      const topics = listTopics(db);
+      expect(topics.length).toBe(2);
+      expect(topics[0].key).toBe('control');
+      expect(topics[1].key).toBe('combo');
+    });
+
+    it('getTopicById returns topic or undefined', () => {
+      createTopic(db, 'midrange', 'Midrange', 'f3');
+      const row = db.prepare('SELECT id FROM topics WHERE key = ?').get('midrange') as { id: number };
+      expect(getTopicById(db, row.id)!.key).toBe('midrange');
+      expect(getTopicById(db, 999)).toBeUndefined();
+    });
+
+    it('updateTopic updates provided fields only', () => {
+      createTopic(db, 'ctl', 'Control', 'old filter');
+      const row = db.prepare('SELECT id FROM topics WHERE key = ?').get('ctl') as { id: number };
+
+      updateTopic(db, row.id, { short_name: 'Updated Control' });
+
+      const t = getTopicById(db, row.id);
+      expect(t!.short_name).toBe('Updated Control');
+      expect(t!.filter_text).toBe('old filter');
+    });
+
+    it('deleteTopic deletes topic and nullifies channel references', () => {
+      createTopic(db, 'del', 'Delete Me', 'f4');
+      const row = db.prepare('SELECT id FROM topics WHERE key = ?').get('del') as { id: number };
+      addChannel(db, 'UC8', 'Del Ch', undefined, row.id);
+
+      deleteTopic(db, row.id);
+
+      expect(getTopicById(db, row.id)).toBeUndefined();
+      const ch = listChannels(db).find((c) => c.channel_id === 'UC8');
+      expect(ch!.topic_id).toBeNull();
+    });
   });
 
-  it('removeChannel deletes channel without affecting signals', () => {
-    createTopic(db, 'mtg', 'MTG', 'MTG filter text');
-    addChannel(db, 'UC123', 'Test Channel', null, 1);
-    // insert a signal referencing this channel
-    db.prepare(
-      'INSERT INTO signals (video_id, channel_id, transcription, created_at) VALUES (?, ?, ?, ?)'
-    ).run('vid1', 'UC123', 'transcript', Date.now());
+  describe('Deep queries', () => {
+    it('getChannelsWithTopics returns channels with topic_key from LEFT JOIN', () => {
+      createTopic(db, 'mtg', 'MTG', 'f5');
+      const trow = db.prepare('SELECT id FROM topics WHERE key = ?').get('mtg') as { id: number };
 
-    removeChannel(db, 'UC123');
+      addChannel(db, 'UC9', 'With Topic Ch', undefined, trow.id);
+      addChannel(db, 'UC10', 'No Topic Ch');
 
-    const channel = db.prepare('SELECT * FROM channels WHERE channel_id = ?').get('UC123');
-    expect(channel).toBeUndefined();
+      const channels = getChannelsWithTopics(db);
+      expect(channels.length).toBe(2);
 
-    const signal = db.prepare('SELECT * FROM signals WHERE video_id = ?').get('vid1');
-    expect(signal).toBeDefined();
-    expect(signal.channel_id).toBe('UC123');
-  });
+      const withT = channels.find((c) => c.channel_id === 'UC9');
+      expect(withT!.topic_key).toBe('mtg');
 
-  it('removeChannel handles non-existent channel_id gracefully', () => {
-    expect(() => removeChannel(db, 'UC999')).not.toThrow();
-  });
+      const noT = channels.find((c) => c.channel_id === 'UC10');
+      expect(noT!.topic_key).toBeNull();
+    });
 
-  it('listChannels returns all watched channels with topic_id', () => {
-    createTopic(db, 'mtg', 'MTG', 'MTG filter');
-    createTopic(db, 'pokemon', 'Pokemon', 'Pokemon filter');
-    addChannel(db, 'UC123', 'Channel A', null, 1);
-    addChannel(db, 'UC456', 'Channel B', null, 2);
+    it('listActiveChannels returns only active channels with non-null topic', () => {
+      createTopic(db, 'active-t', 'Active T', 'f6');
+      const trow = db.prepare('SELECT id FROM topics WHERE key = ?').get('active-t') as { id: number };
 
-    const channels = listChannels(db);
-    expect(channels.length).toBe(2);
+      addChannel(db, 'UC11', 'Active With Topic', undefined, trow.id);
+      addChannel(db, 'UC12', 'Inactive', undefined, trow.id);
+      toggleChannelActive(db, 'UC12', false);
+      addChannel(db, 'UC13', 'No Topic Active');
 
-    const ids = channels.map((c) => c.channel_id).sort();
-    expect(ids).toEqual(['UC123', 'UC456']);
+      const channels = listActiveChannels(db);
+      expect(channels.length).toBe(1);
+      expect(channels[0].channel_id).toBe('UC11');
+    });
 
-    for (const ch of channels) {
-      expect(typeof ch.added_at).toBe('number');
-      expect(typeof ch.topic_id).toBe('number');
-    }
-  });
+    it('getAdminData returns channels with last_poll_date and topics with channel_count', () => {
+      createTopic(db, 'admin-t', 'Admin T', 'f7');
+      const trow = db.prepare('SELECT id FROM topics WHERE key = ?').get('admin-t') as { id: number };
 
-  it('listChannels returns empty array when no channels', () => {
-    const channels = listChannels(db);
-    expect(channels).toEqual([]);
-  });
+      addChannel(db, 'UC14', 'Admin Ch 1', undefined, trow.id);
+      addChannel(db, 'UC15', 'Admin Ch 2', undefined, trow.id);
+      addChannel(db, 'UC16', 'No Topic');
 
-  it('updateChannelTopic changes topic_id for a channel', () => {
-    createTopic(db, 'mtg', 'MTG', 'MTG filter');
-    createTopic(db, 'pokemon', 'Pokemon', 'Pokemon filter');
-    addChannel(db, 'UC123', 'Test Channel', null, 1);
+      // Insert poll progress for UC14
+      db.prepare(
+        "INSERT INTO poll_run_progress (channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?)"
+      ).run('UC14', 'done', 3, 5000);
 
-    updateChannelTopic(db, 'UC123', 2);
+      const data = getAdminData(db);
 
-    const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get('UC123');
-    expect(row.topic_id).toBe(2);
-  });
+      // Channels: UC14 has last_poll_date, others null
+      expect(data.channels.length).toBe(3);
+      const ch14 = data.channels.find((c) => c.channel_id === 'UC14');
+      expect(ch14!.last_poll_date).toBe(5000);
+      expect(ch14!.topic_key).toBe('admin-t');
 
-  it('updateChannelTopic sets topic_id to null', () => {
-    createTopic(db, 'mtg', 'MTG', 'MTG filter');
-    addChannel(db, 'UC123', 'Test Channel', null, 1);
+      const ch16 = data.channels.find((c) => c.channel_id === 'UC16');
+      expect(ch16!.last_poll_date).toBeNull();
+      expect(ch16!.topic_key).toBeNull();
 
-    updateChannelTopic(db, 'UC123', null);
+      // Topics: admin-t has channel_count=2
+      expect(data.topics.length).toBe(1);
+      expect(data.topics[0].channel_count).toBe(2);
+    });
 
-    const row = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get('UC123');
-    expect(row.topic_id).toBeNull();
-  });
-
-  it('listActiveChannels excludes inactive channels', () => {
-    createTopic(db, 'mtg', 'MTG', 'MTG filter');
-    addChannel(db, 'UC123', 'Active Channel', null, 1);
-    addChannel(db, 'UC456', 'Inactive Channel', null, 1);
-    toggleChannelActive(db, 'UC456', false);
-
-    const active = listActiveChannels(db);
-    expect(active.length).toBe(1);
-    expect(active[0].channel_id).toBe('UC123');
-  });
-
-  it('listActiveChannels excludes channels with NULL topic_id', () => {
-    createTopic(db, 'mtg', 'MTG', 'MTG filter');
-    addChannel(db, 'UC123', 'With Topic', null, 1);
-    // Add channel with null topic_id
-    addChannel(db, 'UC456', 'No Topic', null, null as unknown as number);
-
-    const active = listActiveChannels(db);
-    expect(active.length).toBe(1);
-    expect(active[0].channel_id).toBe('UC123');
-  });
-
-  it('listActiveChannels requires both active=1 AND topic_id NOT NULL', () => {
-    createTopic(db, 'mtg', 'MTG', 'MTG filter');
-    addChannel(db, 'UC123', 'Full Active', null, 1);
-    // Active but no topic
-    addChannel(db, 'UC456', 'No Topic', null, null as unknown as number);
-    // Has topic but inactive
-    addChannel(db, 'UC789', 'Inactive', null, 1);
-    toggleChannelActive(db, 'UC789', false);
-
-    const active = listActiveChannels(db);
-    expect(active.length).toBe(1);
-    expect(active[0].channel_id).toBe('UC123');
+    it('getAdminData handles empty state', () => {
+      const data = getAdminData(db);
+      expect(data.channels).toEqual([]);
+      expect(data.topics).toEqual([]);
+    });
   });
 });

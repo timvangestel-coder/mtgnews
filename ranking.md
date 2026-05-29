@@ -1,0 +1,99 @@
+# File Ranking by Line Count
+
+Total files scanned: **89**
+
+| Rank | File | Lines |
+|------|------|-------|
+| 1 | `src\poll-worker.test.ts` | 375 |
+| 2 | `src\db\init-db.test.ts` | 359 |
+| 3 | `src\llm.test.ts` | 322 |
+| 4 | `src\query.test.ts` | 287 |
+| 5 | `tests\e2e\admin.spec.js` | 264 |
+| 6 | `src\transcription.test.ts` | 261 |
+| 7 | `scripts\test-llm-response.ts` | 259 |
+| 8 | `src\abort.test.ts` | 249 |
+| 9 | `views\signal-detail.ejs` | 243 |
+| 10 | `src\db\watchlist.test.ts` | 238 |
+| 11 | `src\rss-discovery.test.ts` | 235 |
+| 12 | `src\routes\admin-topics-router.test.ts` | 216 |
+| 13 | `views\admin.ejs` | 214 |
+| 14 | `src\merge-segments.test.ts` | 208 |
+| 15 | `src\rss-discovery.ts` | 202 |
+| 16 | `src\services\signal-query-service.test.ts` | 202 |
+| 17 | `src\signal-detail.test.ts` | 191 |
+| 18 | `tests\e2e\signal-detail.spec.js` | 189 |
+| 19 | `src\db\watchlist.ts` | 187 |
+| 20 | `src\routes\admin-channels-router.test.ts` | 187 |
+| 21 | `src\services\channel-manager.test.ts` | 187 |
+| 22 | `src\http-retry.test.ts` | 186 |
+| 23 | `src\transcription.ts` | 175 |
+| 24 | `src\routes\admin-polling-router.test.ts` | 172 |
+| 25 | `src\routes\signals-router.test.ts` | 161 |
+| 26 | `src\poll.test.ts` | 154 |
+| 27 | `src\query.ts` | 153 |
+| 28 | `src\llm.ts` | 151 |
+| 29 | `tests\e2e\fixtures\signal-detail-page.js` | 151 |
+| 30 | `src\poll-integration.test.ts` | 149 |
+| 31 | `views\signals.ejs` | 148 |
+| 32 | `src\transcription-merge.ts` | 146 |
+| 33 | `src\poll-worker.ts` | 145 |
+| 34 | `src\services\topic-manager.test.ts` | 144 |
+| 35 | `tests\e2e\polls.spec.js` | 125 |
+| 36 | `src\cli.ts` | 120 |
+| 37 | `src\services\poll-query-service.test.ts` | 114 |
+| 38 | `src\db\init-db.ts` | 108 |
+| 39 | `src\poll.ts` | 105 |
+| 40 | `src\services\poll-trigger-service.test.ts` | 104 |
+| 41 | `tests\e2e\signal-filter-pills.spec.ts` | 104 |
+| 42 | `src\db\poll-runs.test.ts` | 102 |
+| 43 | `src\routes\polls-router.test.ts` | 100 |
+| 44 | `src\http-retry.ts` | 91 |
+| 45 | `src\server.ts` | 91 |
+| 46 | `scripts\rank-files-by-lines.mjs` | 88 |
+| 47 | `src\delete-video.test.ts` | 87 |
+| 48 | `src\routes\signals-router.ts` | 86 |
+| 49 | `views\layout.ejs` | 83 |
+| 50 | `scripts\clear-data.ts` | 74 |
+| 51 | `src\routes\admin-topics-router.ts` | 74 |
+| 52 | `views\poll-detail.ejs` | 74 |
+| 53 | `views\_signalsTable.ejs` | 73 |
+| 54 | `views\polls.ejs` | 72 |
+| 55 | `src\abort.ts` | 71 |
+| 56 | `src\signal-detail.ts` | 71 |
+| 57 | `src\services\signal-query-service.ts` | 70 |
+| 58 | `src\routes\admin-router.test.ts` | 67 |
+| 59 | `tests\e2e\signals.spec.js` | 67 |
+| 60 | `src\db\poll-runs.ts` | 66 |
+| 61 | `src\services\channel-manager.ts` | 62 |
+| 62 | `tests\e2e\fixtures\server-fixture.js` | 62 |
+| 63 | `tests\e2e\admin-topic-edit.spec.ts` | 59 |
+| 64 | `src\poll-scheduler.test.ts` | 58 |
+| 65 | `src\routes\admin-channels-router.ts` | 57 |
+| 66 | `src\routes\admin-polling-router.ts` | 57 |
+| 67 | `src\scheduler.test.ts` | 55 |
+| 68 | `tests\e2e\debug.spec.js` | 54 |
+| 69 | `tests\e2e\debug-save.spec.js` | 47 |
+| 70 | `views\admin\_pollProgress.ejs` | 47 |
+| 71 | `src\prompt-builder.ts` | 46 |
+| 72 | `tests\helpers\test-server.ts` | 45 |
+| 73 | `src\routes\polls-router.ts` | 43 |
+| 74 | `src\services\poll-trigger-service.ts` | 41 |
+| 75 | `src\services\topic-manager.ts` | 38 |
+| 76 | `views\admin\_topicRow.ejs` | 37 |
+| 77 | `src\routes\admin-router.ts` | 36 |
+| 78 | `src\scheduler.ts` | 30 |
+| 79 | `src\services\poll-query-service.ts` | 30 |
+| 80 | `src\poll-scheduler.ts` | 27 |
+| 81 | `src\index.ts` | 25 |
+| 82 | `scripts\delete-unprocessed.mjs` | 22 |
+| 83 | `playwright.config.ts` | 19 |
+| 84 | `src\delete-video.ts` | 19 |
+| 85 | `tests\e2e\signal-topic-filter.spec.ts` | 14 |
+| 86 | `src\utils\htmx-response.ts` | 13 |
+| 87 | `tests\e2e\smoke.spec.js` | 8 |
+| 88 | `vitest.config.ts` | 8 |
+| 89 | `diag_test_vtt_stderr.txt` | 4 |
+
+---
+
+**Total lines across all files: 10460**
