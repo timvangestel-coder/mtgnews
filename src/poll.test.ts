@@ -4,7 +4,7 @@ import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
 import { RssCandidate } from './rss-discovery';
 import { TranscriptionSegment } from './transcription';
-import { pollChannel } from './poll';
+import { ingestSignal, IngestResult, pollChannel } from './poll';
 
 function createTestDb() {
   const db = new Database(':memory:');
@@ -27,6 +27,137 @@ const SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <published>2026-05-11T08:00:00Z</published>
   </entry>
 </feed>`;
+
+describe('ingestSignal', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+    addChannel(db, 'UCtest', 'Test Channel');
+  });
+
+  afterAll(() => {
+    db.close();
+  });
+
+  it('ingests a new candidate and persists the signal', async () => {
+    const candidate: RssCandidate = {
+      video_id: 'vid1',
+      channel_id: 'UCtest',
+      title: 'Test Video',
+      published_at: '2026-05-10T12:00:00Z',
+    };
+
+    const result: IngestResult = await ingestSignal(db, candidate, {
+      extractCaptions: () =>
+        Promise.resolve([
+          { text: 'hello world', start: 0, end: 5000 },
+        ]),
+    });
+
+    expect(result.ingested).toBe(true);
+    expect(result.duplicate).toBe(false);
+    expect(result.noCaptions).toBe(false);
+
+    const signals = db.prepare('SELECT video_id, title, transcription FROM signals').all();
+    expect(signals).toHaveLength(1);
+    expect(signals[0].video_id).toBe('vid1');
+    expect(signals[0].title).toBe('Test Video');
+  });
+
+  it('returns duplicate when video already exists in signals', async () => {
+    // Pre-insert the video
+    db.prepare(
+      'INSERT INTO signals (video_id, channel_id, transcription, created_at) VALUES (?, ?, ?, ?)'
+    ).run('vid1', 'UCtest', '[]', Date.now());
+
+    const candidate: RssCandidate = {
+      video_id: 'vid1',
+      channel_id: 'UCtest',
+      title: 'Test Video',
+      published_at: '2026-05-10T12:00:00Z',
+    };
+
+    const result: IngestResult = await ingestSignal(db, candidate, {
+      extractCaptions: () => Promise.resolve([{ text: 'x', start: 0, end: 1 }]),
+    });
+
+    expect(result.duplicate).toBe(true);
+    expect(result.ingested).toBe(false);
+    expect(result.noCaptions).toBe(false);
+
+    // No new signal inserted — still just the original
+    const signals = db.prepare('SELECT video_id FROM signals').all();
+    expect(signals).toHaveLength(1);
+  });
+
+  it('returns noCaptions when extraction returns empty segments', async () => {
+    const candidate: RssCandidate = {
+      video_id: 'vid1',
+      channel_id: 'UCtest',
+      title: 'Test Video',
+      published_at: '2026-05-10T12:00:00Z',
+    };
+
+    const result: IngestResult = await ingestSignal(db, candidate, {
+      extractCaptions: () => Promise.resolve([]),
+    });
+
+    expect(result.noCaptions).toBe(true);
+    expect(result.ingested).toBe(false);
+    expect(result.duplicate).toBe(false);
+
+    // No signal persisted
+    const signals = db.prepare('SELECT video_id FROM signals').all();
+    expect(signals).toHaveLength(0);
+  });
+
+  it('returns noCaptions when extraction throws an error', async () => {
+    const candidate: RssCandidate = {
+      video_id: 'vid1',
+      channel_id: 'UCtest',
+      title: 'Test Video',
+      published_at: '2026-05-10T12:00:00Z',
+    };
+
+    const result: IngestResult = await ingestSignal(db, candidate, {
+      extractCaptions: () => Promise.reject(new Error('yt-dlp failed')),
+    });
+
+    expect(result.noCaptions).toBe(true);
+    expect(result.ingested).toBe(false);
+    expect(result.duplicate).toBe(false);
+
+    // No signal persisted, no crash
+    const signals = db.prepare('SELECT video_id FROM signals').all();
+    expect(signals).toHaveLength(0);
+  });
+
+  it('persists poll_run_id when runId provided', async () => {
+    // Create a poll_run row so FK constraint passes
+    const runResult = db.prepare(
+      'INSERT INTO poll_runs (triggered_at, status, lookback_days) VALUES (?, ?, ?)'
+    ).run(Date.now(), 'running', 2);
+    const runId = Number(runResult.lastInsertRowid);
+
+    const candidate: RssCandidate = {
+      video_id: 'vid1',
+      channel_id: 'UCtest',
+      title: 'Test Video',
+      published_at: '2026-05-10T12:00:00Z',
+    };
+
+    const result: IngestResult = await ingestSignal(db, candidate, {
+      extractCaptions: () => Promise.resolve([{ text: 'hello', start: 0, end: 5000 }]),
+      runId,
+    });
+
+    expect(result.ingested).toBe(true);
+
+    const signal = db.prepare('SELECT poll_run_id FROM signals WHERE video_id = ?').get('vid1') as { poll_run_id: number | null };
+    expect(signal.poll_run_id).toBe(runId);
+  });
+});
 
 describe('poll', () => {
   let db: Database.Database;
@@ -149,5 +280,27 @@ describe('poll', () => {
     for (const s of signals) {
       expect(s.poll_run_id).toBeNull();
     }
+  });
+
+  // Issue #61: pollChannel should NOT fetch RSS a second time for duplicate counting
+  it('counts duplicates without a second RSS fetch', async () => {
+    let rssFetchCount = 0;
+    const fetchRss = () => {
+      rssFetchCount++;
+      return Promise.resolve(SAMPLE_XML);
+    };
+
+    // Pre-insert vid1 so it's a duplicate
+    db.prepare(
+      'INSERT INTO signals (video_id, channel_id, transcription, created_at) VALUES (?, ?, ?, ?)'
+    ).run('vid1', 'UCtest', '[]', Date.now());
+
+    await pollChannel(db, 'UCtest', {
+      fetchRss,
+      extractCaptions: () => Promise.resolve([{ text: 'x', start: 0, end: 1 }]),
+    });
+
+    // RSS should only be fetched ONCE (by discoverCandidates), not twice
+    expect(rssFetchCount).toBe(1);
   });
 });

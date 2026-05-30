@@ -61,7 +61,7 @@ test.describe('Admin Panel', () => {
     // Click Polling tab (default is Channels)
     await page.click('button:has-text("Polling")');
     
-    const pollButton = page.locator('form[action="/admin/poll/trigger"] button');
+    const pollButton = page.locator('form[hx-post="/admin/poll/trigger"] button');
     await expect(pollButton).toBeVisible();
     await expect(pollButton).toContainText('Run Poll Now');
   });

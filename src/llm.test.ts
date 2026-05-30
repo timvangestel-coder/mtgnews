@@ -218,7 +218,7 @@ describe('llm', () => {
       expect(prompt).toContain('Only Modern format.');
     });
 
-    it('relevant:false -> sets irrelevant status, skips summary/sentiment/entities', async () => {
+    it('relevant:false -> sets irrelevant status without processed_at, skips summary/sentiment/entities', async () => {
       const db = createTestDb();
       insertChannel(db, 'UCtest');
       insertSignal(db, 'v-irrel', 'text');
@@ -230,7 +230,7 @@ describe('llm', () => {
 
       const sig = db.prepare('SELECT relevance_status, processed_at, summary FROM signals WHERE video_id = ?').get('v-irrel');
       expect(sig.relevance_status).toBe('irrelevant');
-      expect(sig.processed_at).toBeDefined();
+      expect(sig.processed_at).toBeNull(); // Don't mark as processed so summarize button stays visible
       expect(sig.summary).toBeNull();
     });
 
@@ -305,6 +305,43 @@ describe('llm', () => {
 
       const sig = db.prepare('SELECT relevance_status FROM signals WHERE video_id = ?').get('v-nofilter');
       expect(sig.relevance_status).toBe('relevant');
+    });
+
+    it('handles LLM response with prose reasoning before trailing JSON', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-prose', 'text');
+
+      // Exact format: long prose reasoning (with braces scattered in text) + JSON at end
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ choices: [{ message: { content: "Here's a thinking process:\n\n1. Analyze the input\n2. Check relevance - it matches\n3. Generate output\n\nSome reasoning with {braces} in the middle.\n\n{\"summary\":\"s\",\"takeaways\":[],\"overall_sentiment\":{\"score\":3,\"label\":\"Neutral\"},\"entities\":[]}" } }] }),
+      } as any);
+
+      const result = await analyzeSignal(db, 'v-prose', config);
+      expect(result.success).toBe(true);
+
+      const sig = db.prepare('SELECT summary FROM signals WHERE video_id = ?').get('v-prose');
+      expect(sig.summary).toContain('s');
+    });
+
+    it('handles LLM response with prose before minimal irrelevant JSON', async () => {
+      const db = createTestDb();
+      insertChannel(db, 'UCtest');
+      insertSignal(db, 'v-irr-prose', 'text');
+
+      // Exact format: long reasoning that mentions {"relevant": false} in text + actual JSON at end
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ choices: [{ message: { content: "Thinking through this...\n\nThe content doesn't match. Decision: relevant=false, so return {\"relevant\": false}.\n\nDone. ✅\n{\"relevant\": false}" } }] }),
+      } as any);
+
+      const result = await analyzeSignal(db, 'v-irr-prose', config);
+      expect(result.success).toBe(true);
+
+      const sig = db.prepare('SELECT relevance_status, processed_at FROM signals WHERE video_id = ?').get('v-irr-prose');
+      expect(sig.relevance_status).toBe('irrelevant');
+      expect(sig.processed_at).toBeNull(); // Don't mark as processed so summarize button stays visible
     });
 
     it('returns descriptive error for unexpected response structure', async () => {

@@ -45,6 +45,23 @@ function extractTranscriptionText(transcription: string): string {
   return transcription;
 }
 
+function extractTrailingJson(content: string): string {
+  // LLM always outputs [prose reasoning] + [JSON object at end].
+  // Scan backwards from the last '}' to find the matching opening '{'.
+  const text = content.trimEnd();
+  let end = text.length - 1;
+  while (end >= 0 && text[end] !== '}') end--;
+  if (end < 0) return content;
+
+  let depth = 0;
+  for (let i = end; i >= 0; i--) {
+    if (text[i] === '}') depth++;
+    else if (text[i] === '{') depth--;
+    if (depth === 0) return text.substring(i, end + 1);
+  }
+  return content;
+}
+
 function clampScore(score: number): number {
   return Math.max(1, Math.min(5, Math.round(score)));
 }
@@ -115,12 +132,17 @@ export async function analyzeSignal(
     const analysisContent = await callLlmWithRetry(
       config.endpoint, config.model, buildMergedPrompt(transcriptionText, filterText), 'analysis', videoId, signal
     );
-    const analysis: MergedAnalysisResponse = JSON.parse(analysisContent);
+
+    // LLM always outputs [prose reasoning] + [JSON object at end].
+    // Extract the final JSON by scanning backwards from the closing brace.
+    const jsonStr = extractTrailingJson(analysisContent);
+    const analysis: MergedAnalysisResponse = JSON.parse(jsonStr);
     const isRelevant = analysis.relevant !== false;
 
     if (!isRelevant) {
-      db.prepare('UPDATE signals SET relevance_status = ?, processed_at = ? WHERE video_id = ?')
-        .run('irrelevant', Date.now(), videoId);
+      // Don't set processed_at for irrelevant signals — keep the summarize button visible.
+      db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?')
+        .run('irrelevant', videoId);
       return { success: true };
     }
 

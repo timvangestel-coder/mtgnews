@@ -33,13 +33,14 @@ describe('admin-polling-router', () => {
       db.close();
     });
 
-    it('creates a poll run and returns 204 for HTMX requests', async () => {
+    it('creates a poll run and returns 200 with HX-Redirect for HTMX requests', async () => {
       const res = await request(app)
         .post('/admin/poll/trigger')
         .set('HX-Request', 'true')
         .send({});
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBe('/admin?tab=polling');
 
       const count = (db.prepare('SELECT COUNT(*) as c FROM poll_runs').get() as { c: number }).c;
       expect(count).toBeGreaterThan(0);

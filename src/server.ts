@@ -4,7 +4,7 @@ import path from 'path';
 import { Server } from 'http';
 import Database from 'better-sqlite3';
 import { db } from './index';
-import { startScheduledPolling } from './scheduler';
+import { recoverStaleRuns, startScheduledPolling } from './scheduler';
 import { SignalQueryService } from './services/signal-query-service';
 import { createSignalsRouter } from './routes/signals-router';
 import { ChannelManager } from './services/channel-manager';
@@ -45,6 +45,12 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
   // static
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // Recover stale runs from previous startup (blocking, DB-only)
+  const recovered = recoverStaleRuns(useDb);
+  if (recovered > 0) {
+    console.log(`[scheduler] Recovered ${recovered} stale run(s) on startup`);
+  }
 
   // start background worker (opt-out for tests)
   if (opts.startScheduler !== false) {

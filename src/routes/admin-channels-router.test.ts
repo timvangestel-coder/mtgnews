@@ -45,13 +45,14 @@ describe('admin-channels-router', () => {
       expect(res.status).toBe(400);
     });
 
-    it('returns 204 for HTMX requests on success', async () => {
+    it('returns 200 with HX-Redirect for HTMX requests on success', async () => {
       const res = await request(app)
         .post('/admin/channels/add')
         .set('HX-Request', 'true')
         .send({ channel_id: '@testhandle' });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBe('/admin?tab=channels');
     });
 
     it('redirects for non-HTMX requests on success', async () => {
@@ -69,7 +70,8 @@ describe('admin-channels-router', () => {
         .set('HX-Request', 'true')
         .send({ channel_id: '@withtopic', topic_id: '1' });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBe('/admin?tab=channels');
     });
   });
 
@@ -92,13 +94,14 @@ describe('admin-channels-router', () => {
       expect(res.status).toBe(400);
     });
 
-    it('returns 204 for HTMX requests on success', async () => {
+    it('returns 200 with HX-Redirect for HTMX requests on success', async () => {
       const res = await request(app)
         .post('/admin/channels/remove')
         .set('HX-Request', 'true')
         .send({ channel_id: 'UCsome123' });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBe('/admin?tab=channels');
     });
 
     it('redirects for non-HTMX requests on success', async () => {
@@ -129,13 +132,14 @@ describe('admin-channels-router', () => {
       expect(res.status).toBe(400);
     });
 
-    it('returns 204 for HTMX requests on success', async () => {
+    it('returns 200 with HX-Redirect for HTMX requests on success', async () => {
       const res = await request(app)
         .post('/admin/channels/toggle')
         .set('HX-Request', 'true')
         .send({ channel_id: 'UCtoggle123', active: 'true' });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBe('/admin?tab=channels');
     });
 
     it('redirects for non-HTMX requests on success', async () => {
@@ -167,13 +171,14 @@ describe('admin-channels-router', () => {
       expect(res.status).toBe(400);
     });
 
-    it('returns 204 for HTMX requests on success', async () => {
+    it('returns 200 with HX-Redirect for HTMX requests on success', async () => {
       const res = await request(app)
         .post('/admin/channels/update-topic')
         .set('HX-Request', 'true')
         .send({ channel_id: 'UCtopic123', topic_id: '1' });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBe('/admin?tab=channels');
     });
 
     it('redirects for non-HTMX requests on success', async () => {

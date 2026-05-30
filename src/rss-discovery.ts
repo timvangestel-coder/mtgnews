@@ -144,12 +144,24 @@ export interface DiscoveryOptions {
   lookbackDays?: number;
 }
 
+export interface ChannelDiscoveryResult {
+  candidates: RssCandidate[];
+  duplicateCount: number;
+  /** Channel IDs whose RSS fetch failed */
+  fetchErrors: string[];
+}
+
+/**
+ * Discover new video candidates from RSS feeds.
+ * Returns per-channel results with candidates and duplicate counts,
+ * eliminating the need for a second RSS fetch to count duplicates.
+ */
 export async function discoverCandidates(
   db: Database,
   channelIds: string[],
   options: DiscoveryOptions = {}
-): Promise<RssCandidate[]> {
-  if (channelIds.length === 0) return [];
+): Promise<ChannelDiscoveryResult> {
+  if (channelIds.length === 0) return { candidates: [], duplicateCount: 0, fetchErrors: [] };
 
   const fetchFn = options.fetchRss || fetchRssSync;
 
@@ -158,6 +170,8 @@ export async function discoverCandidates(
   const processedIds = new Set(existing.map((r) => r.video_id));
 
   const candidates: RssCandidate[] = [];
+  let duplicateCount = 0;
+  const fetchErrors: string[] = [];
 
   // compute cutoff timestamp for lookback filtering
   const cutoffMs = options.lookbackDays != null
@@ -173,7 +187,10 @@ export async function discoverCandidates(
         entry.channel_id = channelId;
 
         // skip if already processed
-        if (processedIds.has(entry.video_id)) continue;
+        if (processedIds.has(entry.video_id)) {
+          duplicateCount++;
+          continue;
+        }
 
         // skip if older than lookback window
         if (cutoffMs != null) {
@@ -184,11 +201,11 @@ export async function discoverCandidates(
         candidates.push(entry);
       }
     } catch {
-      // log & skip - graceful handling
+      fetchErrors.push(channelId);
     }
   }
 
-  return candidates;
+  return { candidates, duplicateCount, fetchErrors };
 }
 
 export async function fetchChannelInfo(channelId: string): Promise<ChannelInfo | null> {

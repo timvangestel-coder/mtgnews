@@ -41,14 +41,15 @@ describe('admin-topics-router', () => {
       expect(res.status).toBe(400);
     });
 
-    it('creates topic and returns 204 for HTMX requests', async () => {
+    it('creates topic and returns 200 with HX-Redirect for HTMX requests', async () => {
       const t = Date.now();
       const res = await request(app)
         .post('/admin/topics')
         .set('HX-Request', 'true')
         .send({ key: `htmx-topic-${t}`, short_name: `HTMX Topic ${t}`, filter_text: 'test' });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBe('/admin?tab=topics');
 
       const topics = listTopics(db);
       expect(topics.find((tp) => tp.key === `htmx-topic-${t}`)).toBeDefined();
@@ -165,7 +166,7 @@ describe('admin-topics-router', () => {
       expect(res.status).toBe(400);
     });
 
-    it('deletes topic and returns 204 for HTMX requests', async () => {
+    it('deletes topic and returns 200 with HX-Redirect for HTMX requests', async () => {
       const t = Date.now();
       dbCreateTopic(db, `del-htmx-${t}`, 'Delete Me', '');
       const topic = listTopics(db).find((tp) => tp.key === `del-htmx-${t}`)!;
@@ -175,7 +176,8 @@ describe('admin-topics-router', () => {
         .set('HX-Request', 'true')
         .send({ id: String(topic.id) });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBe('/admin?tab=topics');
 
       const remaining = listTopics(db).find((tp) => tp.key === `del-htmx-${t}`);
       expect(remaining).toBeUndefined();

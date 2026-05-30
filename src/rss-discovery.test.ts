@@ -122,57 +122,60 @@ describe('rss-discovery', () => {
     it('returns candidates for channels with no existing signals', async () => {
       db.prepare('INSERT INTO channels (channel_id, added_at) VALUES (?, ?)').run('UC123', Date.now());
 
-      const candidates = await discoverCandidates(db, ['UC123'], {
+      const result = await discoverCandidates(db, ['UC123'], {
         fetchRss: () => Promise.resolve(SAMPLE_XML),
       });
 
-      expect(candidates).toHaveLength(2);
+      expect(result.candidates).toHaveLength(2);
+      expect(result.duplicateCount).toBe(0);
     });
 
-    it('excludes video IDs already in signals table', async () => {
+    it('excludes video IDs already in signals table and reports duplicate count', async () => {
       db.prepare('INSERT INTO channels (channel_id, added_at) VALUES (?, ?)').run('UC123', Date.now());
       db.prepare(
         'INSERT INTO signals (video_id, channel_id, transcription, created_at) VALUES (?, ?, ?, ?)'
       ).run('dQw4w9WgXcQ', 'UC123', '[]', Date.now());
 
-      const candidates = await discoverCandidates(db, ['UC123'], {
+      const result = await discoverCandidates(db, ['UC123'], {
         fetchRss: () => Promise.resolve(SAMPLE_XML),
       });
 
       // dQw4w9WgXcQ already processed -> only abc123 remains
-      const videoIds = candidates.map((c) => c.video_id);
+      const videoIds = result.candidates.map((c) => c.video_id);
       expect(videoIds).not.toContain('dQw4w9WgXcQ');
       expect(videoIds).toContain('abc123');
+      expect(result.duplicateCount).toBe(1);
     });
 
     it('includes channel_id in each candidate', async () => {
       db.prepare('INSERT INTO channels (channel_id, added_at) VALUES (?, ?)').run('UC123', Date.now());
 
-      const candidates = await discoverCandidates(db, ['UC123'], {
+      const result = await discoverCandidates(db, ['UC123'], {
         fetchRss: () => Promise.resolve(SAMPLE_XML),
       });
 
-      for (const c of candidates) {
+      for (const c of result.candidates) {
         expect(c.channel_id).toBe('UC123');
       }
     });
 
-    it('returns empty array when no channels provided', async () => {
-      const candidates = await discoverCandidates(db, [], {
+    it('returns empty result when no channels provided', async () => {
+      const result = await discoverCandidates(db, [], {
         fetchRss: () => Promise.resolve(SAMPLE_XML),
       });
 
-      expect(candidates).toHaveLength(0);
+      expect(result.candidates).toHaveLength(0);
+      expect(result.duplicateCount).toBe(0);
     });
 
     it('handles channel with no RSS feed gracefully without crashing', async () => {
       db.prepare('INSERT INTO channels (channel_id, added_at) VALUES (?, ?)').run('UC999', Date.now());
 
-      const candidates = await discoverCandidates(db, ['UC999'], {
+      const result = await discoverCandidates(db, ['UC999'], {
         fetchRss: () => Promise.reject(new Error('fetch failed')),
       });
 
-      expect(candidates).toEqual([]);
+      expect(result.candidates).toHaveLength(0);
     });
 
     it('filters out candidates older than lookback_days', async () => {
@@ -199,36 +202,36 @@ describe('rss-discovery', () => {
   </entry>
 </feed>`;
 
-      const candidates = await discoverCandidates(db, ['UC123'], {
+      const result = await discoverCandidates(db, ['UC123'], {
         fetchRss: () => Promise.resolve(xmlWithDates),
         lookbackDays: 2,
       });
 
       // Only recent_vid (1 day old) should pass; old_vid (10 days) should be filtered
-      expect(candidates).toHaveLength(1);
-      expect(candidates[0].video_id).toBe('recent_vid');
+      expect(result.candidates).toHaveLength(1);
+      expect(result.candidates[0].video_id).toBe('recent_vid');
     });
 
     it('includes all candidates when lookbackDays is very large', async () => {
       db.prepare('INSERT INTO channels (channel_id, added_at) VALUES (?, ?)').run('UC123', Date.now());
 
-      const candidates = await discoverCandidates(db, ['UC123'], {
+      const result = await discoverCandidates(db, ['UC123'], {
         fetchRss: () => Promise.resolve(SAMPLE_XML),
         lookbackDays: 365,
       });
 
-      expect(candidates).toHaveLength(2);
+      expect(result.candidates).toHaveLength(2);
     });
 
     it('excludes all candidates when lookbackDays is 0', async () => {
       db.prepare('INSERT INTO channels (channel_id, added_at) VALUES (?, ?)').run('UC123', Date.now());
 
-      const candidates = await discoverCandidates(db, ['UC123'], {
+      const result = await discoverCandidates(db, ['UC123'], {
         fetchRss: () => Promise.resolve(SAMPLE_XML),
         lookbackDays: 0,
       });
 
-      expect(candidates).toHaveLength(0);
+      expect(result.candidates).toHaveLength(0);
     });
   });
 });
