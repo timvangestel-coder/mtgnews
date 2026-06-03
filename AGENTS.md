@@ -10,7 +10,7 @@ Prevent that subagent output gets cut off by imposing strict output limits:
 
 Example prompt template:
 ```
-Explore [specific file/module]. Return findings in caveman style (no filler). Max 2000 chars — just raw facts: what exists, how it works, key patterns. No summaries, no conclusions, no "in conclusion" paragraphs.
+Explore [specific file/module]. Return findings in caveman style (no filler). Max 5000 chars — just raw facts: what exists, how it works, key patterns. No summaries, no conclusions, no "in conclusion" paragraphs.
 ```
 
 ### Issue tracker

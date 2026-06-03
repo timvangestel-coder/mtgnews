@@ -267,6 +267,55 @@ describe('Schema initialization', () => {
     expect(columnMap.get('updated_at')?.notnull).toBe(1);
   });
 
+  // Issue #77: phase tracking with analysis counter
+  it('poll_runs table has phase column (issue #77)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(poll_runs)")
+      .all() as { name: string; type: string }[];
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type }])
+    );
+
+    expect(columnMap.has('phase')).toBe(true);
+    expect(columnMap.get('phase')?.type).toBe('TEXT');
+
+    // Verify default value is 'channel_polling'
+    db.prepare(
+      `INSERT INTO poll_runs (triggered_at, status) VALUES (1700000000, 'pending')`
+    ).run();
+
+    const row = db.prepare('SELECT phase FROM poll_runs').get() as { phase: string | null };
+    expect(row?.phase).toBe('channel_polling');
+  });
+
+  it('poll_runs table has signals_analyzed column (issue #77)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(poll_runs)")
+      .all() as { name: string; type: string }[];
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type }])
+    );
+
+    expect(columnMap.has('signals_analyzed')).toBe(true);
+    expect(columnMap.get('signals_analyzed')?.type).toBe('INTEGER');
+
+    // Verify default value is 0
+    db.prepare(
+      `INSERT INTO poll_runs (triggered_at, status) VALUES (1700000000, 'pending')`
+    ).run();
+
+    const row = db.prepare('SELECT signals_analyzed FROM poll_runs').get() as { signals_analyzed: number | null };
+    expect(row?.signals_analyzed).toBe(0);
+  });
+
   it('is idempotent — running twice does not error or create duplicates', async () => {
     const db = createTestDb();
 

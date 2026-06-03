@@ -1,11 +1,10 @@
 import Database from 'better-sqlite3';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initDb } from './db/init-db';
-import { addChannel } from './db/watchlist';
-import { createTopic } from './db/watchlist';
-import { enqueuePollRun } from './poll-scheduler';
-import { workerProcessRun } from './poll-worker';
+import { addChannel, createTopic } from './db/watchlist';
+import { PollRunManager } from './poll-run-manager';
 import * as llm from './llm';
+import * as pollMod from './poll';
 
 function createTestDb() {
   const db = new Database(':memory:');
@@ -42,7 +41,7 @@ ${entryXml}
 </feed>`;
 }
 
-describe('poll integration: full multi-channel cycle', () => {
+describe('poll integration: full multi-channel cycle via PollRunManager', () => {
   let db: Database.Database;
 
   beforeEach(() => {
@@ -50,12 +49,10 @@ describe('poll integration: full multi-channel cycle', () => {
     createTopic(db, 'mtg', 'MTG', 'MTG filter');
     addChannel(db, 'UC_A', 'Channel A', undefined, 1);
     addChannel(db, 'UC_B', 'Channel B', undefined, 1);
-    vi.spyOn(llm, 'analyzeSignal').mockImplementation(
-      (database, videoId) => {
-        database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);
-        return Promise.resolve({ success: true });
-      }
-    );
+    vi.spyOn(llm, 'analyzeSignal').mockImplementation(async (database, videoId) => {
+      database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);
+      return { success: true };
+    });
   });
 
   afterEach(() => {
@@ -66,32 +63,41 @@ describe('poll integration: full multi-channel cycle', () => {
     db.close();
   });
 
-  it('enqueue -> worker -> done with progress rows and signals persisted', async () => {
-    // enqueue
-    const runId = enqueuePollRun(db);
-
-    const runBefore = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
-    expect(runBefore.status).toBe('running');
-    expect(runBefore.completed_at).toBeNull();
-
-    // worker processes
-    await workerProcessRun(db, runId, {
-      fetchRss: (channelId: string) => {
-        if (channelId === 'UC_A') return Promise.resolve(makeXml('v1', 'Ch1 Video', 1));
-        if (channelId === 'UC_B') return Promise.resolve(makeXmlMulti([
-          { videoId: 'v2', title: 'Ch2 Video', daysAgo: 1 },
-          { videoId: 'v3', title: 'Ch2 Video 2', daysAgo: 1 },
-        ]));
-        return Promise.resolve('');
-      },
-      extractCaptions: () => Promise.resolve([{ text: 'seg', start: 0, end: 5 }]),
+  it('startRun -> worker -> done with progress rows and signals persisted', async () => {
+    // Mock pollChannel to return controlled results
+    const mockPollChannel = vi.spyOn(pollMod, 'pollChannel').mockImplementation(async (database, channelId) => {
+      if (channelId === 'UC_A') {
+        database.prepare(
+          "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run('v1', channelId, 'Ch1 Video', new Date().toISOString(), '', Date.now(), 1);
+        return { newSignals: 1, skippedDuplicates: 0, skippedNoCaptions: [] };
+      }
+      if (channelId === 'UC_B') {
+        database.prepare(
+          "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run('v2', channelId, 'Ch2 Video', new Date().toISOString(), '', Date.now(), 1);
+        database.prepare(
+          "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run('v3', channelId, 'Ch2 Video 2', new Date().toISOString(), '', Date.now(), 1);
+        return { newSignals: 2, skippedDuplicates: 0, skippedNoCaptions: [] };
+      }
+      return { newSignals: 0, skippedDuplicates: 0, skippedNoCaptions: [] };
     });
 
-    // verify run status
-    const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
-    expect(run.status).toBe('done');
-    expect(run.completed_at).toBeTypeOf('number');
-    expect(run.new_signal_count).toBe(3); // 1 from A + 2 from B
+    const manager = new PollRunManager(db);
+    const runId = await manager.startRun();
+    expect(runId).toBeGreaterThan(0);
+
+    // Wait for worker to complete
+    await new Promise((r) => setTimeout(r, 500));
+
+    // verify run status via RunState
+    const state = manager.runState(runId);
+    expect(state).not.toBeNull();
+    expect(state!.status).toBe('complete');
+    // newSignalCount is on the DB row, not in RunState (removed in issue #79)
+    const runRow = db.prepare('SELECT new_signal_count FROM poll_runs WHERE id = ?').get(runId);
+    expect(runRow.new_signal_count).toBe(3); // 1 from A + 2 from B
 
     // verify progress rows
     const progress = db.prepare(
@@ -99,51 +105,60 @@ describe('poll integration: full multi-channel cycle', () => {
     ).all(runId);
     expect(progress).toHaveLength(2);
 
-    expect(progress[0].channel_id).toBe('UC_A');
-    expect(progress[0].status).toBe('done');
-    expect(progress[0].signals_found).toBe(1);
+    expect((progress[0] as any).channel_id).toBe('UC_A');
+    expect((progress[0] as any).status).toBe('done');
+    expect((progress[0] as any).signals_found).toBe(1);
 
-    expect(progress[1].channel_id).toBe('UC_B');
-    expect(progress[1].status).toBe('done');
-    expect(progress[1].signals_found).toBe(2);
+    expect((progress[1] as any).channel_id).toBe('UC_B');
+    expect((progress[1] as any).status).toBe('done');
+    expect((progress[1] as any).signals_found).toBe(2);
 
     // verify signals persisted
     const signals = db.prepare('SELECT video_id, channel_id FROM signals ORDER BY video_id').all();
     expect(signals).toHaveLength(3);
-    expect(signals[0].video_id).toBe('v1');
-    expect(signals[0].channel_id).toBe('UC_A');
-    expect(signals[1].video_id).toBe('v2');
-    expect(signals[1].channel_id).toBe('UC_B');
-    expect(signals[2].video_id).toBe('v3');
-    expect(signals[2].channel_id).toBe('UC_B');
+    expect((signals[0] as any).video_id).toBe('v1');
+    expect((signals[0] as any).channel_id).toBe('UC_A');
+
+    mockPollChannel.mockRestore();
   });
 
   it('failed channel does not abort run, progress reflects failure', async () => {
-    const runId = enqueuePollRun(db);
-
-    await workerProcessRun(db, runId, {
-      fetchRss: (channelId: string) => {
-        if (channelId === 'UC_A') throw new Error('network error');
-        return Promise.resolve(makeXmlMulti([
-          { videoId: 'v2', title: 'Ch2 Video', daysAgo: 1 },
-          { videoId: 'v3', title: 'Ch2 Video 2', daysAgo: 1 },
-        ]));
-      },
-      extractCaptions: () => Promise.resolve([{ text: 'seg', start: 0, end: 5 }]),
+    const mockPollChannel = vi.spyOn(pollMod, 'pollChannel').mockImplementation(async (database, channelId) => {
+      if (channelId === 'UC_A') throw new Error('network error');
+      if (channelId === 'UC_B') {
+        database.prepare(
+          "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run('v2', channelId, 'Ch2 Video', new Date().toISOString(), '', Date.now(), 1);
+        database.prepare(
+          "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run('v3', channelId, 'Ch2 Video 2', new Date().toISOString(), '', Date.now(), 1);
+        return { newSignals: 2, skippedDuplicates: 0, skippedNoCaptions: [] };
+      }
+      return { newSignals: 0, skippedDuplicates: 0, skippedNoCaptions: [] };
     });
 
-    const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
-    expect(run.status).toBe('done');
-    expect(run.new_signal_count).toBe(2); // only UC_B
+    const manager = new PollRunManager(db);
+    const runId = await manager.startRun();
+
+    // Wait for worker to complete
+    await new Promise((r) => setTimeout(r, 500));
+
+    const state = manager.runState(runId);
+    expect(state).not.toBeNull();
+    expect(state!.status).toBe('complete');
+    const runRow2 = db.prepare('SELECT new_signal_count FROM poll_runs WHERE id = ?').get(runId);
+    expect(runRow2.new_signal_count).toBe(2); // only UC_B
 
     const progress = db.prepare(
       'SELECT channel_id, status FROM poll_run_progress WHERE poll_run_id = ? ORDER BY channel_id'
     ).all(runId);
 
-    expect(progress[0].channel_id).toBe('UC_A');
-    expect(progress[0].status).toBe('failed');
+    expect((progress[0] as any).channel_id).toBe('UC_A');
+    expect((progress[0] as any).status).toBe('failed');
 
-    expect(progress[1].channel_id).toBe('UC_B');
-    expect(progress[1].status).toBe('done');
+    expect((progress[1] as any).channel_id).toBe('UC_B');
+    expect((progress[1] as any).status).toBe('done');
+
+    mockPollChannel.mockRestore();
   });
 });

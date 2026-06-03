@@ -96,5 +96,40 @@ describe('polls-router', () => {
       const res = await request(app).get('/polls/9999-detail');
       expect(res.status).toBe(404);
     });
+
+    it('shows per-channel progress in detail page', async () => {
+      // Issue #79: poll-detail shows raw DB data (no phase-based analysis counter)
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, 'running', 3, 2)"
+      ).run(Date.now());
+      db.prepare(
+        "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, signals_done, updated_at) VALUES (?, 'UCdetail1', 'done', 5, 5, ?)"
+      ).run(2, Date.now());
+
+      const res = await request(app).get('/polls/2-detail');
+      expect(res.status).toBe(200);
+      // Detail page shows signals_found count
+      expect(res.text).toContain('5');
+    });
+
+    it('shows none badge for channels with 0 signals found', async () => {
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days, phase) VALUES (?, 'running', 3, 2, 'channel_polling')"
+      ).run(Date.now());
+      // Channel with signals
+      db.prepare(
+        "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, 'done', 3, ?)"
+      ).run(3, 'UCdetail1', Date.now());
+      // Channel with ZERO signals — should show "none" not "done"
+      addChannel(db, 'UC_none_ch', 'None Ch');
+      db.prepare(
+        "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, 'done', 0, ?)"
+      ).run(3, 'UC_none_ch', Date.now());
+
+      const res = await request(app).get('/polls/3-detail');
+      expect(res.status).toBe(200);
+      // Zero-signal channel should render "none" with grey styling
+      expect(res.text).toContain('none');
+    });
   });
 });

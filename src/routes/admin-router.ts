@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { ChannelManager } from '../services/channel-manager';
 import { TopicManager } from '../services/topic-manager';
-import { PollTriggerService } from '../services/poll-trigger-service';
+import { PollRunManager } from '../poll-run-manager';
 
 export function createAdminRouter(
   channelManager: ChannelManager,
   topicManager: TopicManager,
-  pollTriggerService: PollTriggerService,
+  pollRunManager: PollRunManager,
 ) {
   const router = Router();
 
@@ -15,9 +15,12 @@ export function createAdminRouter(
     const channels = channelManager.listAll();
     const topics = topicManager.listWithCounts();
 
-    const progressResult = pollTriggerService.currentProgress();
-    const currentRun = progressResult?.run?.status === 'running' ? progressResult.run : null;
-    const currentProgress = currentRun ? progressResult.progress : [];
+    // Use RunState view model for rich progress data
+    const progressResult = pollRunManager.currentProgress();
+    let currentRunState = null;
+    if (progressResult && progressResult.run.status === 'running') {
+      currentRunState = pollRunManager.runState(progressResult.run.id);
+    }
 
     const tab = req.query.tab as string | undefined;
 
@@ -26,8 +29,7 @@ export function createAdminRouter(
       title: 'Admin Panel',
       channels,
       topics,
-      currentRun,
-      currentProgress,
+      currentRunState,
       tab,
     });
   });

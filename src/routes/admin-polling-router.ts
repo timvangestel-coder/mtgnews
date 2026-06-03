@@ -1,34 +1,36 @@
 import { Router } from 'express';
-import { PollTriggerService } from '../services/poll-trigger-service';
-import { registerRun } from '../poll-scheduler';
-import { htmxNoContent } from '../utils/htmx-response';
+import { PollRunManager } from '../poll-run-manager';
 
-export function createAdminPollingRouter(service: PollTriggerService) {
+export function createAdminPollingRouter(manager: PollRunManager) {
   const router = Router();
 
-  // POST /admin/poll/trigger
-  router.post('/admin/poll/trigger', (req, res) => {
+  // POST /admin/poll/trigger — inline widget update (no redirect)
+  router.post('/admin/poll/trigger', async (req, res) => {
     const raw = req.body.lookback_days;
     const lookbackDays = raw ? parseInt(raw as string, 10) : 2;
-    const runId = service.enqueueRun(lookbackDays);
 
-    // Spawn poll worker in background (non-blocking)
-    const controller = new AbortController();
-    import('../poll-worker').then(({ workerProcessRun }) => {
-      const worker = workerProcessRun(service.database, runId, { signal: controller.signal }).catch(console.error);
-      registerRun(runId, controller, worker);
-    });
+    // startRun handles enqueue, pre-register, and worker spawn internally
+    const runId = await manager.startRun(lookbackDays);
 
-    htmxNoContent(req, res, '/admin?tab=polling');
+    // Render progress widget inline using RunState view model
+    const state = manager.runState(runId);
+    if (state) {
+      res.render('admin/_pollProgress', {
+        state,
+        layout: false,
+      });
+    } else {
+      res.send('<p class="text-gray-500">No poll runs yet.</p>');
+    }
   });
 
   // POST /admin/poll/abort/:id
-  router.post('/admin/poll/abort/:id', (req, res) => {
+  router.post('/admin/poll/abort/:id', async (req, res) => {
     const runId = parseInt(req.params.id, 10);
     const returnTo = req.query.return_to as string | undefined;
 
     try {
-      service.abortRun(runId);
+      await manager.abortRun(runId);
     } catch (err) {
       res.redirect(`${returnTo || '/admin'}?error=${encodeURIComponent((err as Error).message)}`);
       return;
@@ -39,15 +41,22 @@ export function createAdminPollingRouter(service: PollTriggerService) {
 
   // GET /admin/poll/progress
   router.get('/admin/poll/progress', (req, res) => {
-    const result = service.currentProgress();
-    if (!result) {
+    // Get latest run id for polling endpoint
+    const row = manager.currentProgress();
+    if (!row) {
+      res.send('<p class="text-gray-500">No poll runs yet.</p>');
+      return;
+    }
+
+    // Use RunState view model for rich data (phase, signalsAnalyzed, steps)
+    const state = manager.runState(row.run.id);
+    if (!state) {
       res.send('<p class="text-gray-500">No poll runs yet.</p>');
       return;
     }
 
     res.render('admin/_pollProgress', {
-      run: result.run,
-      progress: result.progress,
+      state,
       layout: false,
     });
   });

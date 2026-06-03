@@ -168,47 +168,21 @@
   <!-- Polling Tab -->
   <template x-if="activeTab === 'polling'">
     <div x-init="htmx.process($el)">
-      <!-- Run Poll Now -->
-      <div class="mb-6">
-        <h3 class="text-xl font-semibold mb-2">Run Poll</h3>
-        <form hx-post="/admin/poll/trigger" hx-swap="none" class="flex gap-2 items-center">
-          <label for="lookback_days" class="text-sm text-gray-600">Lookback (days):</label>
-          <input id="lookback_days" name="lookback_days" type="number" min="0" max="365" value="2"
-            class="w-20 px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">
-            Run Poll Now
-          </button>
-        </form>
-      </div>
+       <!-- Run Poll Now -->
+       <div class="mb-6">
+         <h3 class="text-xl font-semibold mb-2">Run Poll</h3>
+         <form hx-post="/admin/poll/trigger" hx-target="#progress-widget" hx-swap="outerHTML" class="flex gap-2 items-center">
+           <label for="lookback_days" class="text-sm text-gray-600">Lookback (days):</label>
+           <input id="lookback_days" name="lookback_days" type="number" min="0" max="365" value="2"
+             class="w-20 px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+           <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">
+             Run Poll Now
+           </button>
+         </form>
+       </div>
 
-      <!-- Live Progress Widget -->
-      <div id="progress-widget" class="mb-6 p-4 bg-gray-50 rounded"
-        hx-get="/admin/poll/progress"
-        hx-trigger="every 3s"
-        hx-swap="outerHTML">
-        <% if (currentRun) { %>
-          <h3 class="font-semibold mb-2">
-            Run #<%= currentRun.id %> —
-            <% if (currentRun.status === 'running') { %>
-              <span class="text-amber-600">running...</span>
-            <% } else { %>
-              <span class="<%= currentRun.status === 'done' ? 'text-green-600' : 'text-red-600' %>"><%= currentRun.status %></span>
-            <% } %>
-          </h3>
-          <div class="space-y-1">
-            <% currentProgress.forEach(function(p) { %>
-              <div class="text-sm flex justify-between">
-                <span><%= p.display_name || p.channel_id %></span>
-                <span class="<%= p.status === 'done' ? 'text-green-600' : p.status === 'failed' ? 'text-red-600' : 'text-amber-600' %>">
-                  <%= p.status %><%= p.signals_found > 0 ? ' (' + p.signals_found + ')' : '' %>
-                </span>
-              </div>
-            <% }); %>
-          </div>
-        <% } else { %>
-          <p class="text-gray-500">No active poll run.</p>
-        <% } %>
-      </div>
+        <!-- Live Progress Widget — uses shared partial for consistency -->
+        <%- include('admin/_pollProgress', { state: currentRunState }) %>
     </div>
   </template>
 </div>

@@ -2,42 +2,85 @@
   hx-get="/admin/poll/progress"
   hx-trigger="every 3s"
   hx-swap="outerHTML">
-  <% if (run && run.status === 'running') { %>
+  <% if (state && state.status === 'running') { %>
     <h3 class="font-semibold mb-2 flex items-center justify-between">
       <span>
-        Run #<%= run.id %> —
+        Run #<%= state.id %> —
         <span class="text-amber-600">running...</span>
       </span>
-      <form action="/admin/poll/abort/<%= run.id %>" method="post"
+      <form action="/admin/poll/abort/<%= state.id %>" method="post"
             onsubmit="return confirm('Abort this run? Unsummarized signals will be deleted.');">
         <button type="submit" class="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded">
           Abort Run
         </button>
       </form>
     </h3>
-    <div class="space-y-1">
-      <% progress.forEach(function(p) { %>
-        <div class="text-sm flex justify-between">
-          <span><%= p.display_name || p.channel_id %></span>
-          <span class="<%= p.status === 'done' ? 'text-green-600' : p.status === 'failed' ? 'text-red-600' : 'text-amber-600' %>">
-            <%= p.status %><%= p.signals_found > 0 ? ' (' + p.signals_found + ')' : '' %>
-          </span>
-        </div>
-      <% }); %>
-    </div>
-  <% } else if (run) { %>
+
+      <div class="space-y-1">
+        <% state.steps.forEach(function(step) { %>
+          <%
+             // 5-branch step display logic:
+             // 1. pending -> "pending" (grey)
+             // 2. processing, total > 0 -> "X/Y" (blue)
+             // 3. done, total > 0 -> "Y/Y" (green)
+             // 4. done, total = 0 -> "none" (grey)
+             // 5. failed -> "failed" (red)
+             var stepLabel, stepColor;
+             if (step.status === 'pending') {
+               stepLabel = 'pending';
+               stepColor = 'text-gray-400';
+             } else if (step.status === 'failed') {
+               stepLabel = 'failed';
+               stepColor = 'text-red-600';
+             } else if (step.total === 0) {
+               stepLabel = 'none';
+               stepColor = 'text-gray-400';
+             } else if (step.status === 'processing' || step.done < step.total) {
+               // Processing: show progress "X/Y" in blue
+               stepLabel = step.done + '/' + step.total;
+               stepColor = 'text-blue-600';
+             } else {
+               // Done with signals > 0: show "Y/Y" in green
+               stepLabel = step.total + '/' + step.total;
+               stepColor = 'text-green-600';
+             }
+          %>
+         <div class="text-sm flex justify-between">
+           <span><%= step.displayName %></span>
+           <span class="<%= stepColor %>"><%= stepLabel %></span>
+         </div>
+       <% }); %>
+     </div>
+  <% } else if (state) { %>
     <h3 class="font-semibold mb-2">
-      Run #<%= run.id %> —
-      <span class="<%= run.status === 'done' ? 'text-green-600' : run.status === 'done-forced' ? 'text-amber-600' : 'text-red-600' %>"><%= run.status %></span>
-      <span class="text-gray-500 text-sm ml-2">(<%= run.new_signal_count %> new signals)</span>
+      Run #<%= state.id %> —
+      <span class="<%= state.status === 'complete' ? 'text-green-600' : state.status === 'aborted' ? 'text-amber-600' : 'text-red-600' %>"><%= state.status %></span>
     </h3>
     <div class="space-y-1">
-      <% progress.forEach(function(p) { %>
+      <% state.steps.forEach(function(step) { %>
+        <%
+          // Same 5-branch logic for completed runs
+          var stepLabel, stepColor;
+          if (step.status === 'pending') {
+            stepLabel = 'pending';
+            stepColor = 'text-gray-400';
+          } else if (step.status === 'failed') {
+            stepLabel = 'failed';
+            stepColor = 'text-red-600';
+          } else if (step.total === 0) {
+            stepLabel = 'none';
+            stepColor = 'text-gray-400';
+          } else if (step.status === 'processing' || step.done < step.total) {
+            stepLabel = step.done + '/' + step.total;
+            stepColor = 'text-blue-600';
+          } else {
+            stepLabel = step.total + '/' + step.total;
+            stepColor = 'text-green-600';
+          }
+        %>
         <div class="text-sm flex justify-between">
-          <span><%= p.display_name || p.channel_id %></span>
-          <span class="<%= p.status === 'done' ? 'text-green-600' : p.status === 'failed' ? 'text-red-600' : 'text-amber-600' %>">
-            <%= p.status %><%= p.signals_found > 0 ? ' (' + p.signals_found + ')' : '' %>
-          </span>
+          <span><%= step.displayName %></span>
+          <span class="<%= stepColor %>"><%= stepLabel %></span>
         </div>
       <% }); %>
     </div>

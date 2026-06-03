@@ -4,7 +4,7 @@ import layouts from 'express-ejs-layouts';
 import { createAdminRouter } from './admin-router';
 import { ChannelManager } from '../services/channel-manager';
 import { TopicManager } from '../services/topic-manager';
-import { PollTriggerService } from '../services/poll-trigger-service';
+import { PollRunManager } from '../poll-run-manager';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { initDb } from '../db/init-db';
@@ -15,7 +15,7 @@ function createTestApp() {
 
   const channelManager = new ChannelManager(db);
   const topicManager = new TopicManager(db);
-  const pollTriggerService = new PollTriggerService(db);
+  const pollRunManager = new PollRunManager(db);
 
   const app = express();
   app.set('view engine', 'ejs');
@@ -25,7 +25,7 @@ function createTestApp() {
   app.set('layout extractStyles', true);
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use('/', createAdminRouter(channelManager, topicManager, pollTriggerService));
+  app.use('/', createAdminRouter(channelManager, topicManager, pollRunManager));
 
   return { app, db };
 }

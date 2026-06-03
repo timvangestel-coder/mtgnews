@@ -1,8 +1,8 @@
 import cron from 'node-cron';
 import Database from 'better-sqlite3';
-import { enqueuePollRun } from './poll-scheduler';
+import { PollRunManager } from './poll-run-manager';
 
-let _db: Database.Database | null = null;
+let _manager: PollRunManager | null = null;
 let _disposable: cron.ScheduledTask | null = null;
 
 /**
@@ -58,6 +58,9 @@ export function recoverStaleRuns(db: Database.Database): number {
 
       console.log(`[scheduler] Recovered stale run #${runId}: ${row.cnt} signal(s) kept -> done-forced`);
     } else {
+      // Delete child progress rows before deleting the run
+      db.prepare(`DELETE FROM poll_run_progress WHERE poll_run_id = ?`).run(runId);
+
       // Delete run entirely (no ghost entries)
       db.prepare(`DELETE FROM poll_runs WHERE id = ?`).run(runId);
 
@@ -74,13 +77,13 @@ export function recoverStaleRuns(db: Database.Database): number {
 
 /**
  * Start daily scheduled polling at midnight UTC.
- * Enqueues a PollRun row via the same path as manual trigger.
+ * Uses PollRunManager.startRun() for the same code path as manual trigger.
  */
-export function startScheduledPolling(database: Database.Database): void {
-  _db = database;
+export function startScheduledPolling(manager: PollRunManager): void {
+  _manager = manager;
   _disposable = cron.schedule('0 0 * * *', () => {
-    if (_db) {
-      enqueuePollRun(_db, 2);
+    if (_manager) {
+      _manager.startRun(2).catch(console.error);
     }
   });
 }
@@ -93,5 +96,5 @@ export function stopScheduledPolling(): void {
     _disposable.stop();
     _disposable = null;
   }
-  _db = null;
+  _manager = null;
 }

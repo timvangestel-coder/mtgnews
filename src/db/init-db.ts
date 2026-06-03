@@ -44,7 +44,9 @@ export function initDb(db: Database.Database): void {
       new_signal_count INTEGER DEFAULT 0,
       completed_at     INTEGER,
       lookback_days    INTEGER DEFAULT 2,
-      abort_time       INTEGER
+      abort_time       INTEGER,
+      phase            TEXT DEFAULT 'channel_polling',
+      signals_analyzed INTEGER DEFAULT 0
     );
 
      CREATE TABLE IF NOT EXISTS poll_run_progress (
@@ -104,4 +106,26 @@ export function initDb(db: Database.Database): void {
   if (channelCols.includes('filter_criteria')) {
     db.exec('ALTER TABLE channels DROP COLUMN filter_criteria');
   }
+
+  // Issue #77: Migration: add phase to poll_runs
+  if (!pollRunCols.includes('phase')) {
+    db.exec("ALTER TABLE poll_runs ADD COLUMN phase TEXT DEFAULT 'channel_polling'");
+  }
+
+  // Issue #77: Migration: add signals_analyzed to poll_runs
+  if (!pollRunCols.includes('signals_analyzed')) {
+    db.exec('ALTER TABLE poll_runs ADD COLUMN signals_analyzed INTEGER DEFAULT 0');
+  }
+
+   // Issue #75/#77: Migration: add signals_to_analyze to poll_runs (total signals needing analysis)
+   if (!pollRunCols.includes('signals_to_analyze')) {
+     db.exec('ALTER TABLE poll_runs ADD COLUMN signals_to_analyze INTEGER DEFAULT 0');
+   }
+
+   // Migration: add signals_done to poll_run_progress (tracks how many signals per channel have been summarized)
+   const progressRows = db.pragma('table_info(poll_run_progress)') as Array<{ name: string }>;
+   const progressCols = progressRows.map((r) => r.name);
+   if (!progressCols.includes('signals_done')) {
+     db.exec('ALTER TABLE poll_run_progress ADD COLUMN signals_done INTEGER DEFAULT 0');
+   }
 }

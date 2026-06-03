@@ -1,7 +1,39 @@
 # Issue Log
-Last processed: #74 | Generated: 2026-05-30T10:19:00Z | Entries: 25
+Last processed: #78 | Generated: 2026-05-30T23:27:00Z | Entries: 25
 
 ## Implemented Issues
+
+### #78 — PollRunManager Consolidation
+**Area:** poll, orchestration | **Type:** refactor | **Closed:** 2026-05-30
+**Status:** ⚠️ Partial (CLOSED, 0/13 checkboxes checked) — ⚠️ Fallback
+**What changed:** Consolidated scattered poll run orchestration (`poll-scheduler.ts`, `poll-worker.ts`, `PollTriggerService`) into single deep `PollRunManager` module with `startRun()`, `abortRun()`, `runState()` interface and `RunState` view model.
+**Files touched:** `src/poll-run-manager.ts` (new), `src/server.ts`, `src/routes/admin-polling-router.ts`
+**Behavioral risk:** HIGH — massive consolidation of three modules into one, full lifecycle ownership
+**Key detail:** Acceptance criteria checkboxes all unchecked — implementation may be incomplete. Old files (`poll-scheduler.ts`, `poll-worker.ts`) may not be removed yet.
+
+### #77 — Phase Tracking with Analysis Counter in Progress Widget
+**Area:** poll, ui | **Type:** feature | **Closed:** 2026-05-30
+**Status:** ⚠️ Partial (CLOSED, 0/10 checkboxes checked) — ⚠️ Fallback
+**What changed:** Added `phase` column (`channel_polling`, `analyzing`, `complete`) and `signals_analyzed` counter to `poll_runs` table. Worker writes phase transitions and increments counter after each `analyzeSignal()` call. Progress widget shows "Analyzing signals... 2/5" during Phase 2.
+**Files touched:** `src/db/init-db.ts` (schema), `src/poll-worker.ts` (phase writes), views (progress widget)
+**Behavioral risk:** MEDIUM — DB schema change + worker state updates + UI display
+**Key detail:** Acceptance criteria checkboxes all unchecked — implementation may be incomplete.
+
+### #76 — Instant Progress Widget with Step Pre-Registration
+**Area:** poll, ui | **Type:** feature | **Closed:** 2026-05-30
+**Status:** ⚠️ Partial (CLOSED, 0/9 checkboxes checked) — ⚠️ Fallback
+**What changed:** Replaced redirect-based progress flow with instant inline widget. Step pre-registration inserts `pending` rows in `poll_run_progress` for all active channels before processing starts. Trigger form uses HTMX outerHTML swap instead of HX-Redirect.
+**Files touched:** `src/server.ts` (trigger handler), views/admin.ejs, views/_pollProgress.ejs
+**Behavioral risk:** MEDIUM — HTMX flow change from redirect to inline widget update
+**Key detail:** Acceptance criteria checkboxes all unchecked — implementation may be incomplete.
+
+### #75 — Real-time Poll Progress with PollRunManager Consolidation (Parent Epic)
+**Area:** poll, ui | **Type:** feature | **Closed:** 2026-05-30
+**Status:** ⚠️ Partial (CLOSED, 9/17 checkboxes checked) — ⚠️ Fallback
+**What changed:** Parent epic for real-time progress system: step pre-registration, inline widget update, phase tracking + analysis counter, PollRunManager consolidation. Backend mostly complete but UI layer not fully wired up.
+**Files touched:** Many files across src/ and views/ — see child issues #76-#78
+**Behavioral risk:** HIGH — umbrella issue for major poll progress overhaul
+**Key detail:** Diagnosis notes: backend `runState()` builds correct view model, but routes/templates bypass it using raw DB queries. Progress widget doesn't display phase + analysis counter. Channel status colors wrong.
 
 ### #74 — Transcription Merge Module Extraction
 **Area:** transcription | **Type:** refactor | **Closed:** 2026-05-29
@@ -171,46 +203,6 @@ Last processed: #74 | Generated: 2026-05-30T10:19:00Z | Entries: 25
 **Behavioral risk:** MEDIUM — core prompt template change affects all LLM analysis
 **Key detail:** JSON response structure unchanged. Missing `relevant` field still treated as true (backward compat).
 
-### #53 — Channels Admin Tab: topic selector + badge
-**Area:** admin, ui | **Type:** feature | **Closed:** 2026-05-29
-**Status:** ✅ No criteria (CLOSED, checkboxes unchecked but issue closed)
-**What changed:** Replaced `filter_criteria` textarea with Topic dropdown. Topic badge per channel row. "Change Topic" dropdown. NULL-topic warning indicator. Removed `/admin/channels/update-filter` route.
-**Files touched:** `views/admin.ejs`, `src/server.ts`
-**Behavioral risk:** MEDIUM — UI overhaul, route removal, DB param change (topic_id instead of filter_criteria)
-**Key detail:** Topic selection is required — cannot add channel without topic.
-
-### #52 — Channel→Topic DB linkage
-**Area:** db, schema | **Type:** feature | **Closed:** 2026-05-29
-**Status:** ✅ No criteria (CLOSED, checkboxes unchecked but issue closed)
-**What changed:** Destructive schema change: `ALTER TABLE channels ADD COLUMN topic_id INTEGER REFERENCES topics(id)`. Removed `filter_criteria` column. Updated ChannelRow type shape.
-**Files touched:** `src/db/init-db.ts`, `src/db/watchlist.ts`
-**Behavioral risk:** HIGH — destructive schema migration, existing filter_criteria values lost
-**Key detail:** `listActiveChannels()` excludes channels with NULL topic_id.
-
-### #51 — Topics Admin Tab: full CRUD UI
-**Area:** admin, ui | **Type:** feature | **Closed:** 2026-05-26
-**Status:** ✅ No criteria (CLOSED, checkboxes unchecked but issue closed)
-**What changed:** Complete Topic CRUD interface in Topics tab. Add form with key/short_name/filter_text. Topics table with channel count, edit/delete per row. Force-delete nullifies channel references.
-**Files touched:** `views/admin.ejs`, `src/server.ts` (4 new POST routes)
-**Behavioral risk:** MEDIUM — duplicate key validation, force-delete behavior
-**Key detail:** Warning shown when deleting topic with assigned channels.
-
-### #50 — Admin tabbed layout shell
-**Area:** admin, ui | **Type:** feature | **Closed:** 2026-05-26
-**Status:** ✅ No criteria (CLOSED, checkboxes unchecked but issue closed)
-**What changed:** Three-tab shell (Channels, Topics, Polling) using Alpine.js `activeTab`. Pill-style tab buttons. Pure UI reorganization — no logic changes.
-**Files touched:** `views/admin.ejs`
-**Behavioral risk:** LOW — pure UI reorganization, no server changes
-**Key detail:** Default active tab is "Channels". Topics tab shows placeholder initially.
-
-### #49 — Topic DB layer + schema
-**Area:** db, schema | **Type:** feature | **Closed:** 2026-05-26
-**Status:** ✅ No criteria (CLOSED, checkboxes unchecked but issue closed)
-**What changed:** Created `topics` SQLite table. New `src/db/topics.ts` module with CRUD operations. Force-delete sets channel `topic_id = NULL`. Schema initialization updated.
-**Files touched:** `src/db/topics.ts` (new), `src/db/init-db.ts` or schema file
-**Behavioral risk:** MEDIUM — new table, force-delete behavior affects channels
-**Key detail:** Foundation for all Topic-based filtering. `key` is UNIQUE NOT NULL.
-
 ## Unimplemented Features (expected but not delivered)
 
 ### #63 — Extract prompt-building from llm.ts into Prompt Template seam
@@ -222,5 +214,5 @@ Last processed: #74 | Generated: 2026-05-30T10:19:00Z | Entries: 25
 **Why it matters:** Duplicate deletion pattern in `abort.ts` and `delete-video.ts` with slightly different SQL. No transaction safety in delete-video path.
 
 ---
-<!-- CACHE: last_processed=74 | generated_at=2026-05-30T10:19:00Z -->
+<!-- CACHE: last_processed=78 | generated_at=2026-05-30T23:27:00Z -->
 <!-- ENTRIES: 25 -->

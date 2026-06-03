@@ -1,8 +1,7 @@
 import { db } from './index';
 import { addChannel, listChannels, removeChannel } from './db/watchlist';
 import { pollChannel } from './poll';
-import { enqueuePollRun } from './poll-scheduler';
-import { workerProcessRun } from './poll-worker';
+import { PollRunManager } from './poll-run-manager';
 import { deleteVideo } from './delete-video';
 
 function main() {
@@ -28,14 +27,20 @@ function main() {
 }
 
 async function handlePoll(subcommand: string | undefined, channelId: string | undefined) {
-  // no args -> multi-channel poll via queue+worker
+  // no args -> multi-channel poll via PollRunManager
   if (!subcommand) {
     try {
-      const runId = enqueuePollRun(db);
-      console.log(`Enqueued poll run ${runId}`);
-      await workerProcessRun(db, runId);
-      const run = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId);
-      console.log(`Poll run ${runId} complete: ${run.status}, ${run.new_signal_count} new signals`);
+      const manager = new PollRunManager(db);
+      const runId = await manager.startRun();
+      console.log(`Started poll run ${runId}`);
+      // Wait for worker to complete by polling runState
+      while (true) {
+        const state = manager.runState(runId);
+        if (state && (state.status === 'complete' || state.status === 'failed' || state.status === 'aborted')) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      const finalState = manager.runState(runId);
+      console.log(`Poll run ${runId} complete: status=${finalState?.status}, signals=${finalState?.summary.newSignalCount}`);
     } catch (err) {
       console.error(`Poll failed: ${(err as Error).message}`);
       process.exit(1);

@@ -1,102 +1,126 @@
 import Database from 'better-sqlite3';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb } from './init-db';
-import { addChannel } from './watchlist';
-import { queryPollRuns, getPollRunById, queryPollRunProgress } from './poll-runs';
+import { addChannel, createTopic } from './watchlist';
+import { preRegisterChannelProgress } from './poll-runs';
 
-let db: Database.Database;
+function createTestDb() {
+  const db = new Database(':memory:');
+  initDb(db);
+  return db;
+}
 
-describe('poll-runs DB queries', () => {
-  beforeAll(() => {
-    db = new Database(':memory:');
-    initDb(db);
+describe('preRegisterChannelProgress', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
   });
 
   afterAll(() => {
     db.close();
   });
 
-  describe('queryPollRuns', () => {
-    it('returns empty when no runs exist', () => {
-      const result = queryPollRuns(db);
-      expect(result.total).toBe(0);
-      expect(result.items).toHaveLength(0);
-    });
+  it('inserts pending rows for all active channels with topic_id', () => {
+    // Create a topic and two active channels
+    createTopic(db, 'mtg', 'MTG', 'magic the gathering');
+    addChannel(db, 'UC1', 'Channel One', null, 1);
+    addChannel(db, 'UC2', 'Channel Two', null, 1);
 
-    it('returns runs sorted newest first with channel stats', () => {
-      addChannel(db, 'UC1', 'Channel 1');
-      addChannel(db, 'UC2', 'Channel 2');
+    // Create a poll run
+    const runId = db.prepare(
+      "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, 'running', 0, 2)"
+    ).run(Date.now());
+    const rid = Number(runId.lastInsertRowid);
 
-      // run 1 (older)
-      db.prepare("INSERT INTO poll_runs (triggered_at, status, new_signal_count, completed_at, lookback_days) VALUES (?, ?, ?, ?, ?)").run(1000, 'done', 3, 2000, 3);
-      db.prepare("INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)").run(1, 'UC1', 'done', 2, 1500);
-      db.prepare("INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)").run(1, 'UC2', 'done', 1, 1600);
+    preRegisterChannelProgress(db, rid);
 
-      // run 2 (newer)
-      db.prepare("INSERT INTO poll_runs (triggered_at, status, new_signal_count, completed_at, lookback_days) VALUES (?, ?, ?, ?, ?)").run(3000, 'done', 1, 4000, 5);
-      db.prepare("INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)").run(2, 'UC1', 'done', 1, 3500);
-      db.prepare("INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, ?, ?, ?)").run(2, 'UC2', 'failed', 0, 3600);
+    const rows = db.prepare(
+      "SELECT channel_id, status FROM poll_run_progress WHERE poll_run_id = ? ORDER BY channel_id"
+    ).all(rid) as Array<{ channel_id: string; status: string }>;
 
-      const result = queryPollRuns(db);
-      expect(result.total).toBe(2);
-      expect(result.items).toHaveLength(2);
-      expect(result.items[0].id).toBe(2); // newest first
-      expect(result.items[0].channels_done).toBe(1);
-      expect(result.items[0].channels_failed).toBe(1);
-      expect(result.items[0].channels_total).toBe(2);
-      expect(result.items[0].lookback_days).toBe(5);
-      expect(result.items[1].channels_done).toBe(2);
-      expect(result.items[1].channels_failed).toBe(0);
-      expect(result.items[1].lookback_days).toBe(3);
-    });
-
-    it('respects pagination limit and offset', () => {
-      // add more runs
-      for (let i = 3; i <= 10; i++) {
-        db.prepare("INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, ?, ?)").run(i * 1000, 'done', 0);
-      }
-
-      const result = queryPollRuns(db, { limit: 3, offset: 0 });
-      expect(result.total).toBe(10);
-      expect(result.items).toHaveLength(3);
-    });
-
-    it('returns page 2 with correct offset', () => {
-      const result = queryPollRuns(db, { limit: 3, offset: 3 });
-      expect(result.items).toHaveLength(3);
-    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].channel_id).toBe('UC1');
+    expect(rows[0].status).toBe('pending');
+    expect(rows[1].channel_id).toBe('UC2');
+    expect(rows[1].status).toBe('pending');
   });
 
-  describe('getPollRunById', () => {
-    it('returns null for nonexistent id', () => {
-      expect(getPollRunById(db, 999)).toBeNull();
-    });
+  it('skips inactive channels', () => {
+    createTopic(db, 'mtg', 'MTG', 'magic the gathering');
+    addChannel(db, 'UC1', 'Active Channel', null, 1);
+    addChannel(db, 'UC2', 'Inactive Channel', null, 1);
 
-    it('returns run with channel stats and lookback_days', () => {
-      const run = getPollRunById(db, 1);
-      expect(run).not.toBeNull();
-      expect(run!.id).toBe(1);
-      expect(run!.status).toBe('done');
-      expect(run!.new_signal_count).toBe(3);
-      expect(run!.channels_done).toBe(2);
-      expect(run!.lookback_days).toBe(3);
-    });
+    // Deactivate UC2
+    db.prepare('UPDATE channels SET active = 0 WHERE channel_id = ?').run('UC2');
+
+    const runId = db.prepare(
+      "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, 'running', 0, 2)"
+    ).run(Date.now());
+    const rid = Number(runId.lastInsertRowid);
+
+    preRegisterChannelProgress(db, rid);
+
+    const rows = db.prepare(
+      "SELECT channel_id FROM poll_run_progress WHERE poll_run_id = ?"
+    ).all(rid) as Array<{ channel_id: string }>;
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].channel_id).toBe('UC1');
   });
 
-  describe('queryPollRunProgress', () => {
-    it('returns empty array for run with no progress', () => {
-      db.prepare("INSERT INTO poll_runs (triggered_at, status) VALUES (?, ?)").run(9000, 'running');
-      const progress = queryPollRunProgress(db, 999);
-      expect(progress).toHaveLength(0);
-    });
+  it('skips channels with NULL topic_id', () => {
+    // Active channel with no topic
+    addChannel(db, 'UC1', 'No Topic Channel', null, null);
+    createTopic(db, 'mtg', 'MTG', 'magic the gathering');
+    addChannel(db, 'UC2', 'With Topic Channel', null, 1);
 
-    it('returns per-channel progress with display names', () => {
-      const progress = queryPollRunProgress(db, 1);
-      expect(progress).toHaveLength(2);
-      expect(progress[0].channel_id).toBe('UC1');
-      expect(progress[0].display_name).toBe('Channel 1');
-      expect(progress[0].status).toBe('done');
-      expect(progress[0].signals_found).toBe(2);
-    });
+    const runId = db.prepare(
+      "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, 'running', 0, 2)"
+    ).run(Date.now());
+    const rid = Number(runId.lastInsertRowid);
+
+    preRegisterChannelProgress(db, rid);
+
+    const rows = db.prepare(
+      "SELECT channel_id FROM poll_run_progress WHERE poll_run_id = ?"
+    ).all(rid) as Array<{ channel_id: string }>;
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].channel_id).toBe('UC2');
+  });
+
+  it('does nothing when no active channels exist', () => {
+    const runId = db.prepare(
+      "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, 'running', 0, 2)"
+    ).run(Date.now());
+    const rid = Number(runId.lastInsertRowid);
+
+    preRegisterChannelProgress(db, rid);
+
+    const count = db.prepare(
+      "SELECT COUNT(*) as c FROM poll_run_progress WHERE poll_run_id = ?"
+    ).get(rid) as { c: number };
+
+    expect(count.c).toBe(0);
+  });
+
+  it('sets signals_found to 0 for pending rows', () => {
+    createTopic(db, 'mtg', 'MTG', 'magic the gathering');
+    addChannel(db, 'UC1', 'Channel One', null, 1);
+
+    const runId = db.prepare(
+      "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, 'running', 0, 2)"
+    ).run(Date.now());
+    const rid = Number(runId.lastInsertRowid);
+
+    preRegisterChannelProgress(db, rid);
+
+    const row = db.prepare(
+      "SELECT signals_found, updated_at FROM poll_run_progress WHERE poll_run_id = ?"
+    ).get(rid) as { signals_found: number; updated_at: number };
+
+    expect(row.signals_found).toBe(0);
+    expect(row.updated_at).toBeTypeOf('number');
   });
 });

@@ -13,7 +13,7 @@ import { TopicManager } from './services/topic-manager';
 import { createAdminTopicsRouter } from './routes/admin-topics-router';
 import { PollQueryService } from './services/poll-query-service';
 import { createPollsRouter } from './routes/polls-router';
-import { PollTriggerService } from './services/poll-trigger-service';
+import { PollRunManager } from './poll-run-manager';
 import { createAdminPollingRouter } from './routes/admin-polling-router';
 import { createAdminRouter } from './routes/admin-router';
 
@@ -52,9 +52,12 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
     console.log(`[scheduler] Recovered ${recovered} stale run(s) on startup`);
   }
 
+  // PollRunManager — consolidated poll lifecycle manager (Issue #78)
+  const pollRunManager = new PollRunManager(useDb);
+
   // start background worker (opt-out for tests)
   if (opts.startScheduler !== false) {
-    startScheduledPolling(db);
+    startScheduledPolling(pollRunManager);
   }
 
   // redirect root
@@ -77,11 +80,10 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
   app.use('/', createPollsRouter(pollQueryService));
 
   // admin polling — mounted via router (Issue #70)
-  const pollTriggerService = new PollTriggerService(useDb);
-  app.use('/', createAdminPollingRouter(pollTriggerService));
+  app.use('/', createAdminPollingRouter(pollRunManager));
 
   // admin dashboard — mounted via router (Issue #72)
-  app.use('/', createAdminRouter(channelManager, topicManager, pollTriggerService));
+  app.use('/', createAdminRouter(channelManager, topicManager, pollRunManager));
 
   const server = app.listen(listenPort, () => {
     console.log(`Dashboard server listening on port ${listenPort}`);
