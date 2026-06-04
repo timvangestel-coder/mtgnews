@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 
-/** Insert pending progress rows for all active channels with a topic_id, so the UI can show them immediately. */
+/** Insert fetching progress rows for all active channels with a topic_id, so the UI can show them immediately. */
 export function preRegisterChannelProgress(db: Database.Database, pollRunId: number): void {
   const channels = db.prepare(
     `SELECT c.channel_id FROM channels c WHERE c.active = 1 AND c.topic_id IS NOT NULL`
@@ -13,7 +13,7 @@ export function preRegisterChannelProgress(db: Database.Database, pollRunId: num
 
   const txn = db.transaction((runId: number, rows: typeof channels) => {
     for (const ch of rows) {
-      insert.run(runId, ch.channel_id, 'pending', 0, now);
+      insert.run(runId, ch.channel_id, 'fetching', 0, now);
     }
   });
 
@@ -82,7 +82,7 @@ export function queryPollRunProgress(db: Database.Database, pollRunId: number): 
       FROM poll_run_progress prp
       LEFT JOIN channels c ON c.channel_id = prp.channel_id
       WHERE prp.poll_run_id = ?
-      ORDER BY prp.updated_at ASC`
+      ORDER BY c.display_name ASC`
   ).all(pollRunId) as Array<{
     channel_id: string;
     display_name: string | null;

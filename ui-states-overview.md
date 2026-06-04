@@ -1,6 +1,6 @@
 # UI States Overview — Poll Run Lifecycle
 
-> **Last updated:** 2026-06-03 | Updated: `pending` → `fetching`, alphabetical channel ordering, aborted run display logic
+> **Last updated:** 2026-06-03 | Issue #82 implemented: `pending` → `fetching`, alphabetical channel ordering, aborted run display logic | Issue #84 implemented: abort button converted to HTMX POST for inline widget swap (no tab reset)
 
 ---
 
@@ -119,7 +119,7 @@ htmx POST /admin/poll/trigger          ← views/admin.ejs (Polling tab)
   ├─ manager.startRun(lookbackDays)    ← poll-run-manager.ts:78
   │    │
   │    ├─ enqueuePollRun()             ← inserts row: status='running'
-  │    ├─ preRegisterChannelProgress() ← poll-runs.ts:4 — inserts 'pending' rows
+   │    ├─ preRegisterChannelProgress() ← poll-runs.ts:4 — inserts 'fetching' rows
   │    └─ workerProcessRun()           ← background async (non-blocking)
   │
   ▼
@@ -310,6 +310,8 @@ User clicks "Abort Run" at Step 5 (Channel A had 2/6 summarized, Channel B had 1
 
 **Note:** Progress rows (`signals_done`) are NOT reset by abort. They reflect work done before the abort. The UI interprets them differently based on run status (running vs aborted).
 
+**Fix in issue #83:** The worker's pool callbacks guard `incrementDone()` with `signal?.aborted` so in-flight analysis tasks that settle after abort cleanup don't inflate counters. Aborted tasks on the AbortError path skip `incrementDone()` entirely. This ensures channels whose signals were all deleted by abort correctly show "skipped" (grey) rather than a phantom "N/N" (green).
+
 ### Channel fails during polling
 
 If `pollChannel()` throws for a channel:
@@ -328,6 +330,13 @@ If `analyzeSignal()` throws (e.g., LLM endpoint down):
 - Error logged: `analyzeSignal failed for {videoId}: {message}`
 - `done` counter IS still incremented (decision from issue #80)
 - Run continues with remaining signals (no cascade failure)
+
+### Aborted analysis does NOT increment done counter (issue #83 fix)
+
+If `analyzeSignal()` is aborted mid-flight via AbortController:
+- The abort cleanup deletes the unsummarized signal from the DB
+- The pool callback detects `signal?.aborted` and skips `incrementDone()`
+- This prevents phantom counter inflation that would cause "N/N green" in the UI for channels whose signals were deleted by abort
 
 ---
 
@@ -351,6 +360,7 @@ const incrementDone = (channelId: string) => {
 **Benefits:**
 - Atomic increment + status transition
 - Failed analyses still increment counters (explicit design decision)
+- Aborted analyses do NOT increment counters (issue #83 fix — prevents phantom inflation after abort cleanup)
 - Each channel transitions to `'done'` independently when its signals are all processed
 
 ---
@@ -420,3 +430,45 @@ The worker now uses a single streaming pipeline instead of two phases:
 - **No global counters**: `signals_analyzed` and `signals_to_analyze` remain at 0 (unused)
 - **Immediate dispatch**: Analysis tasks are dispatched to the global pool as soon as each channel's signals are discovered, not batched after all channels are polled
 - **Shared concurrency**: Tasks from different channels compete for slots in the same `ConcurrencyPool(LLM_CONCURRENCY=3)`
+
+---
+
+## 11. Admin Page — Tab Navigation & Abort Behavior
+
+### Tab System (`views/admin.ejs`)
+
+Three tabs managed by Alpine.js `x-data` with `<template x-if>`:
+| Tab | Route Param | Default? |
+|-----|-------------|----------|
+| Channels | `?tab=channels` | **Yes** — defaults when no param provided |
+| Topics | `?tab=topics` | No |
+| Polling | `?tab=polling` | No |
+
+Tab buttons use `history.replaceState()` for client-side navigation only — no page reload. The server reads `req.query.tab` on full-page loads and passes it to the template for initial Alpine state.
+
+### Abort Button — Behavior (issue #84 implemented)
+
+The abort button in `_pollProgress.ejs` uses an **HTMX POST** for inline widget swap:
+```html
+<form hx-post="/admin/poll/abort/<%= state.id %>"
+      hx-target="#progress-widget" hx-swap="outerHTML"
+      hx-confirm="Abort this run? Unsummarized signals will be deleted.">
+```
+
+Server returns `res.render('admin/_pollProgress', { state, layout: false })` with the aborted RunState — same template as GET `/admin/poll/progress`. HTMX swaps it into `#progress-widget` inline. No full-page reload, tab state preserved.
+
+Error path: server renders the progress widget with an inline error banner (`<div role="alert">` with red styling) instead of redirecting with a query parameter.
+
+### Admin Operation Response Patterns
+
+| Operation | Client Mechanism | Server Response | Tab Preserved? |
+|-----------|-----------------|-----------------|----------------|
+| Add Channel | `hx-post` + `hx-swap="none"` | HX-Redirect header | ✅ Yes |
+| Remove Channel | `hx-post` + `hx-swap="none"` | HX-Redirect header | ✅ Yes |
+| Toggle Active | `hx-post` + `hx-swap="none"` | HX-Redirect header | ✅ Yes |
+| Change Topic | `hx-post` + `hx-swap="none"` | HX-Redirect header | ✅ Yes |
+| Add Topic | `hx-post` + `hx-swap="none"` | HX-Redirect header | ✅ Yes |
+| Update Topic | `hx-post` + inline render | Re-rendered row HTML | ✅ Yes |
+| Delete Topic | `hx-post` + `hx-swap="none"` | HX-Redirect header | ✅ Yes |
+| Run Poll Now | `hx-post` + target/swap | Inline widget render | ✅ Yes |
+| **Abort Run** | **`hx-post` + target/swap** | **Inline widget render** | ✅ Yes |

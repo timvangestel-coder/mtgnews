@@ -266,7 +266,7 @@ describe('signals_done tracking', () => {
 
     expect(row).toBeDefined();
     expect(row!.channel_id).toBe('UC_test');
-    expect(row!.status).toBe('pending');
+    expect(row!.status).toBe('fetching');
     expect(row!.signals_found).toBe(0);
     expect(row!.signals_done).toBe(0);
   });

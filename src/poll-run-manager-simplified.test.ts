@@ -111,8 +111,8 @@ describe('PollRunManager simplified RunState (issue #79)', () => {
   });
 
   describe('5-branch step display logic data', () => {
-    it('pending step has status "pending"', async () => {
-      // Manually insert a run with a pending progress row to test the mapping
+    it('fetching step has status "fetching"', async () => {
+      // Manually insert a run with a fetching progress row to test the mapping
       db.prepare("INSERT INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)").run(1, 'tech', 'Tech', 'technology');
       db.prepare(
         "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
@@ -124,12 +124,12 @@ describe('PollRunManager simplified RunState (issue #79)', () => {
       const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
 
       db.prepare(
-        "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, 'pending', 0, ?)"
+        "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, 'fetching', 0, ?)"
       ).run(runId, 'UC_test', Date.now());
 
       const state = manager.runState(runId);
       expect(state).not.toBeNull();
-      expect(state!.steps[0].status).toBe('pending');
+      expect(state!.steps[0].status).toBe('fetching');
     });
 
     it('done step with total=0 shows "none" semantically (total is 0)', async () => {

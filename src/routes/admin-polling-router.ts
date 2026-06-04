@@ -24,19 +24,45 @@ export function createAdminPollingRouter(manager: PollRunManager) {
     }
   });
 
-  // POST /admin/poll/abort/:id
+  // POST /admin/poll/abort/:id — HTMX inline widget swap (no redirect)
   router.post('/admin/poll/abort/:id', async (req, res) => {
     const runId = parseInt(req.params.id, 10);
-    const returnTo = req.query.return_to as string | undefined;
 
     try {
       await manager.abortRun(runId);
     } catch (err) {
-      res.redirect(`${returnTo || '/admin'}?error=${encodeURIComponent((err as Error).message)}`);
+      // Render progress widget with inline error banner instead of redirecting
+      const row = manager.currentProgress();
+      if (row) {
+        const state = manager.runState(row.run.id);
+        if (state) {
+          res.render('admin/_pollProgress', {
+            state,
+            error: (err as Error).message,
+            layout: false,
+          });
+          return;
+        }
+      }
+      // Fallback: render widget with no state and error message
+      res.render('admin/_pollProgress', {
+        state: null,
+        error: (err as Error).message,
+        layout: false,
+      });
       return;
     }
 
-    res.redirect(returnTo || '/admin');
+    // Render progress widget inline with aborted state
+    const state = manager.runState(runId);
+    if (state) {
+      res.render('admin/_pollProgress', {
+        state,
+        layout: false,
+      });
+    } else {
+      res.send('<p class="text-gray-500">No poll runs yet.</p>');
+    }
   });
 
   // GET /admin/poll/progress

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initDb } from './db/init-db';
 import { PollRunManager } from './poll-run-manager';
+import { queryPollRunProgress, preRegisterChannelProgress } from './db/poll-runs';
 
 function createTestDb() {
   const db = new Database(':memory:');
@@ -20,6 +21,95 @@ describe('PollRunManager', () => {
 
   afterAll(() => {
     db.close();
+  });
+
+  describe('fetching state', () => {
+    it('preRegisterChannelProgress inserts "fetching" status instead of "pending"', () => {
+      db.prepare("INSERT INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)").run(1, 'tech', 'Tech', 'technology');
+      db.prepare(
+        "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+      ).run('UC_test', 'Test Channel', Date.now(), 1);
+
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)"
+      ).run(Date.now());
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+      preRegisterChannelProgress(db, runId);
+
+      const row = db.prepare(
+        'SELECT status FROM poll_run_progress WHERE poll_run_id = ?'
+      ).get(runId);
+      expect(row.status).toBe('fetching');
+    });
+
+    it('runState maps "fetching" DB status to "fetching" step status', () => {
+      db.prepare("INSERT INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)").run(1, 'tech', 'Tech', 'technology');
+      db.prepare(
+        "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+      ).run('UC_test', 'Test Channel', Date.now(), 1);
+
+      // Manually insert a run with fetching progress row
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)"
+      ).run(Date.now());
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+      db.prepare(
+        "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, 'fetching', 0, ?)"
+      ).run(runId, 'UC_test', Date.now());
+
+      const state = manager.runState(runId);
+      expect(state).not.toBeNull();
+      expect(state!.steps[0].status).toBe('fetching');
+    });
+  });
+
+  describe('channel ordering', () => {
+    it('returns progress rows in alphabetical order by display_name (NULLs first)', () => {
+      // Insert channels out of alphabetical order
+      db.prepare("INSERT INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)").run(1, 'tech', 'Tech', 'technology');
+      db.prepare(
+        "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+      ).run('UC_z', 'Zen van Riel', Date.now(), 1);
+      db.prepare(
+        "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+      ).run('UC_a', 'Tech News Daily', Date.now(), 1);
+      db.prepare(
+        "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+      ).run('UC_m', 'Two Minute Papers', Date.now(), 1);
+
+      // Insert a run and pre-register progress
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)"
+      ).run(Date.now());
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+      preRegisterChannelProgress(db, runId);
+
+      const progress = queryPollRunProgress(db, runId);
+      const names = progress.map(p => p.display_name);
+      expect(names).toEqual(['Tech News Daily', 'Two Minute Papers', 'Zen van Riel']);
+    });
+
+    it('places NULL display_name first in alphabetical order', () => {
+      db.prepare("INSERT INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)").run(1, 'tech', 'Tech', 'technology');
+      // Channel with NULL display_name
+      db.prepare(
+        "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, NULL, 1, ?, ?)"
+      ).run('UC_null', Date.now(), 1);
+      db.prepare(
+        "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+      ).run('UC_a', 'Alpha Channel', Date.now(), 1);
+
+      db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)"
+      ).run(Date.now());
+      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+      preRegisterChannelProgress(db, runId);
+
+      const progress = queryPollRunProgress(db, runId);
+      // NULLs first per SQLite default ASC behavior
+      expect(progress[0].display_name).toBeNull();
+      expect(progress[1].display_name).toBe('Alpha Channel');
+    });
   });
 
   describe('startRun', () => {
@@ -66,7 +156,7 @@ describe('PollRunManager', () => {
       expect(progressRows).toHaveLength(1);
       expect((progressRows[0] as any).channel_id).toBe('UC_test');
       // Worker may have already processed the channel; status reflects final state
-      expect((progressRows[0] as any).status).toBeOneOf(['pending', 'running', 'done', 'failed']);
+      expect((progressRows[0] as any).status).toBeOneOf(['fetching', 'processing', 'done', 'failed']);
     });
 
     it('spawns worker in background (non-blocking)', async () => {

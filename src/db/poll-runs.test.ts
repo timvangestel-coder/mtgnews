@@ -41,9 +41,9 @@ describe('preRegisterChannelProgress', () => {
 
     expect(rows).toHaveLength(2);
     expect(rows[0].channel_id).toBe('UC1');
-    expect(rows[0].status).toBe('pending');
+    expect(rows[0].status).toBe('fetching');
     expect(rows[1].channel_id).toBe('UC2');
-    expect(rows[1].status).toBe('pending');
+    expect(rows[1].status).toBe('fetching');
   });
 
   it('skips inactive channels', () => {

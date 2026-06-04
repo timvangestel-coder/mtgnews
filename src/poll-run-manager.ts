@@ -10,7 +10,7 @@ export type RunId = number;
 /** Step-level progress for one channel */
 export interface PollRunStep {
   displayName: string | null;
-  status: 'pending' | 'processing' | 'done' | 'failed';
+  status: 'fetching' | 'processing' | 'done' | 'failed';
   total: number;     // signals discovered for this channel
   done: number;      // signals processed (relevant + irrelevant + failed)
 }
@@ -249,15 +249,16 @@ export class PollRunManager {
               } catch (err) {
                 const msg = (err as Error).message;
                 if (msg.includes('AbortError') || msg.includes('aborted')) {
-                  // Still increment done on abort-related errors
-                  incrementDone(channel.channel_id);
+                  // Signal was deleted by abort cleanup — don't count it
                   return;
                 }
                 console.error(`analyzeSignal failed for ${s.video_id}: ${msg}`);
               }
 
-              // Always increment done counter, even on failure
-              incrementDone(channel.channel_id);
+              // Only increment if NOT aborted (protects against late completions after abort)
+              if (!signal?.aborted) {
+                incrementDone(channel.channel_id);
+              }
             });
           }
         } else {
@@ -357,7 +358,7 @@ export class PollRunManager {
 
   private mapStepStatus(dbStatus: string): PollRunStep['status'] {
     switch (dbStatus) {
-      case 'pending': return 'pending';
+      case 'fetching': return 'fetching';
       case 'running': return 'processing';
       case 'processing': return 'processing';
       case 'done': return 'done';

@@ -2,14 +2,21 @@
   hx-get="/admin/poll/progress"
   hx-trigger="every 3s"
   hx-swap="outerHTML">
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="mb-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm" role="alert">
+      <span class="font-semibold">Error:</span> <%= error %>
+    </div>
+  <% } %>
   <% if (state && state.status === 'running') { %>
     <h3 class="font-semibold mb-2 flex items-center justify-between">
       <span>
         Run #<%= state.id %> —
         <span class="text-amber-600">running...</span>
       </span>
-      <form action="/admin/poll/abort/<%= state.id %>" method="post"
-            onsubmit="return confirm('Abort this run? Unsummarized signals will be deleted.');">
+      <form hx-post="/admin/poll/abort/<%= state.id %>"
+            hx-target="#progress-widget"
+            hx-swap="outerHTML"
+            hx-confirm="Abort this run? Unsummarized signals will be deleted.">
         <button type="submit" class="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded">
           Abort Run
         </button>
@@ -19,16 +26,16 @@
       <div class="space-y-1">
         <% state.steps.forEach(function(step) { %>
           <%
-             // 5-branch step display logic:
-             // 1. pending -> "pending" (grey)
-             // 2. processing, total > 0 -> "X/Y" (blue)
-             // 3. done, total > 0 -> "Y/Y" (green)
-             // 4. done, total = 0 -> "none" (grey)
-             // 5. failed -> "failed" (red)
+             // 5-branch step display logic for running state:
+             // 1. fetching -> "fetching" (blue)
+             // 2. failed -> "failed" (red)
+             // 3. total = 0 -> "none" (grey)
+             // 4. processing or done < total, total > 0 -> "X/Y" (blue)
+             // 5. done >= total, total > 0 -> "Y/Y" (green)
              var stepLabel, stepColor;
-             if (step.status === 'pending') {
-               stepLabel = 'pending';
-               stepColor = 'text-gray-400';
+             if (step.status === 'fetching') {
+               stepLabel = 'fetching';
+               stepColor = 'text-blue-600';
              } else if (step.status === 'failed') {
                stepLabel = 'failed';
                stepColor = 'text-red-600';
@@ -45,26 +52,68 @@
                stepColor = 'text-green-600';
              }
           %>
-         <div class="text-sm flex justify-between">
-           <span><%= step.displayName %></span>
-           <span class="<%= stepColor %>"><%= stepLabel %></span>
-         </div>
-       <% }); %>
-     </div>
-  <% } else if (state) { %>
+          <div class="text-sm flex justify-between">
+            <span><%= step.displayName %></span>
+            <span class="<%= stepColor %>"><%= stepLabel %></span>
+          </div>
+        <% }); %>
+      </div>
+  <% } else if (state && state.status === 'aborted') { %>
     <h3 class="font-semibold mb-2">
       Run #<%= state.id %> —
-      <span class="<%= state.status === 'complete' ? 'text-green-600' : state.status === 'aborted' ? 'text-amber-600' : 'text-red-600' %>"><%= state.status %></span>
+      <span class="text-amber-600">aborted</span>
     </h3>
     <div class="space-y-1">
       <% state.steps.forEach(function(step) { %>
         <%
-          // Same 5-branch logic for completed runs
+          // 5-branch step display logic for aborted state:
+          // 1. failed -> "failed" (red)
+          // 2. done === 0 (signals deleted by abort) -> "skipped" (grey)
+          // 3. 0 < done < total (partial work) -> "X/N" (amber)
+          // 4. done >= total, total > 0 (all summaries completed) -> "N/N" (green)
+          // 5. total === 0 (no signals found) -> "none" (grey)
           var stepLabel, stepColor;
-          if (step.status === 'pending') {
-            stepLabel = 'pending';
+          if (step.status === 'failed') {
+            stepLabel = 'failed';
+            stepColor = 'text-red-600';
+          } else if (step.total === 0) {
+            stepLabel = 'none';
             stepColor = 'text-gray-400';
-          } else if (step.status === 'failed') {
+          } else if (step.done === 0) {
+            // All signals were deleted by abort
+            stepLabel = 'skipped';
+            stepColor = 'text-gray-400';
+          } else if (step.done < step.total) {
+            // Partial work at abort time
+            stepLabel = step.done + '/' + step.total;
+            stepColor = 'text-amber-600';
+          } else {
+            // All summaries completed before abort
+            stepLabel = step.total + '/' + step.total;
+            stepColor = 'text-green-600';
+          }
+        %>
+        <div class="text-sm flex justify-between">
+          <span><%= step.displayName %></span>
+          <span class="<%= stepColor %>"><%= stepLabel %></span>
+        </div>
+      <% }); %>
+    </div>
+  <% } else if (state) { %>
+    <h3 class="font-semibold mb-2">
+      Run #<%= state.id %> —
+      <span class="<%= state.status === 'complete' ? 'text-green-600' : 'text-red-600' %>"><%= state.status %></span>
+    </h3>
+    <div class="space-y-1">
+      <% state.steps.forEach(function(step) { %>
+        <%
+          // 5-branch step display logic for complete/failed state:
+          // 1. failed -> "failed" (red)
+          // 2. total = 0 -> "none" (grey)
+          // 3. processing or done < total, total > 0 -> "X/Y" (blue)
+          // 4. done >= total, total > 0 -> "Y/Y" (green)
+          var stepLabel, stepColor;
+          if (step.status === 'failed') {
             stepLabel = 'failed';
             stepColor = 'text-red-600';
           } else if (step.total === 0) {

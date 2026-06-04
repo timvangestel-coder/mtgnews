@@ -123,7 +123,7 @@ describe('admin-polling-router', () => {
       db.close();
     });
 
-    it('aborts a running poll and redirects to /admin', async () => {
+    it('aborts a running poll and renders progress widget inline with aborted state', async () => {
       db.prepare("INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)").run(Date.now());
       const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
 
@@ -131,42 +131,28 @@ describe('admin-polling-router', () => {
         .post(`/admin/poll/abort/${runId}`)
         .send({});
 
-      expect(res.status).toBe(302);
-      expect(res.header.location).toBe('/admin');
+      // Inline render (no redirect) — returns the _pollProgress partial with aborted state
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBeUndefined();
+      // Response contains the progress widget HTML with aborted status
+      expect(res.text).toContain('progress-widget');
+      expect(res.text).toContain('aborted');
 
       const run = db.prepare('SELECT status FROM poll_runs WHERE id = ?').get(runId);
       expect(run.status).toBe('done-forced');
     });
 
-    it('redirects with error when run not found', async () => {
+    it('renders progress widget with inline error banner when run not found', async () => {
       const res = await request(app)
         .post('/admin/poll/abort/99999')
         .send({});
 
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain('error=');
-    });
-
-    it('respects return_to query param on success', async () => {
-      db.prepare("INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)").run(Date.now());
-      const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
-
-      const res = await request(app)
-        .post(`/admin/poll/abort/${runId}?return_to=/polls`)
-        .send({});
-
-      expect(res.status).toBe(302);
-      expect(res.header.location).toBe('/polls');
-    });
-
-    it('respects return_to query param on error', async () => {
-      const res = await request(app)
-        .post('/admin/poll/abort/99999?return_to=/polls')
-        .send({});
-
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain('error=');
-      expect(res.header.location).toContain('/polls');
+      // Inline render with error — no redirect
+      expect(res.status).toBe(200);
+      expect(res.header['hx-redirect']).toBeUndefined();
+      // Response contains the progress widget with an error banner (role="alert")
+      expect(res.text).toContain('progress-widget');
+      expect(res.text.toLowerCase()).toContain('error');
     });
   });
 
