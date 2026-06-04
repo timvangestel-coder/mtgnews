@@ -24,9 +24,8 @@ export function initDb(db: Database.Database): void {
       overall_sentiment  INTEGER,
       sentiment_label   TEXT,
       created_at        INTEGER NOT NULL,
-      processed_at      INTEGER,
-      poll_run_id       INTEGER REFERENCES poll_runs(id),
-      relevance_status  TEXT
+      processing_state  TEXT DEFAULT 'pending',
+      poll_run_id       INTEGER REFERENCES poll_runs(id)
      );
 
     CREATE TABLE IF NOT EXISTS entity_mentions (
@@ -92,9 +91,24 @@ export function initDb(db: Database.Database): void {
     db.exec('ALTER TABLE signals ADD COLUMN poll_run_id INTEGER REFERENCES poll_runs(id)');
   }
 
-  // Migration: add relevance_status to signals (issue #44)
-  if (!signalCols.includes('relevance_status')) {
-    db.exec('ALTER TABLE signals ADD COLUMN relevance_status TEXT');
+  // Issue #85/#88: Migration: add processing_state, backfill from old columns, drop old columns
+  if (!signalCols.includes('processing_state')) {
+    // Add new column
+    db.exec("ALTER TABLE signals ADD COLUMN processing_state TEXT DEFAULT 'pending'");
+
+    // Backfill: processed_at IS NOT NULL -> summarized
+    db.exec("UPDATE signals SET processing_state = 'summarized' WHERE processed_at IS NOT NULL");
+
+    // Backfill: relevance_status = 'irrelevant' -> irrelevant (overrides summarized if both set)
+    db.exec("UPDATE signals SET processing_state = 'irrelevant' WHERE relevance_status = 'irrelevant'");
+  }
+
+  // Drop old columns after migration
+  if (signalCols.includes('processed_at')) {
+    db.exec('ALTER TABLE signals DROP COLUMN processed_at');
+  }
+  if (signalCols.includes('relevance_status')) {
+    db.exec('ALTER TABLE signals DROP COLUMN relevance_status');
   }
 
   // Migration: add topic_id to channels (issue #52)

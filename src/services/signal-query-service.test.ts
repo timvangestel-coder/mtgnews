@@ -76,7 +76,7 @@ describe('SignalQueryService', () => {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(`vrel-${t}`, `UCirr${t}`, 'Relevant', `2103-12-31T00:00:00Z`, '[]', 'relevant summary', 4, Date.now());
       db.prepare(
-        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, relevance_status, created_at)
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, processing_state, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(`virr-${t}`, `UCirr${t}`, 'Irrelevant', `2103-12-30T00:00:00Z`, '[]', 'irrelevant summary', 4, 'irrelevant', Date.now());
 
@@ -90,7 +90,7 @@ describe('SignalQueryService', () => {
       const t = Date.now();
       addChannel(db, `UCirr2${t}`, 'Irr2 Channel');
       db.prepare(
-        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, relevance_status, created_at)
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, processing_state, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(`virr2-${t}`, `UCirr2${t}`, 'Irrelevant 2', `2103-12-29T00:00:00Z`, '[]', 'irrelevant summary 2', 4, 'irrelevant', Date.now());
 
@@ -98,7 +98,7 @@ describe('SignalQueryService', () => {
       // Only count signals for this channel (other tests' irrelevant signals are on different channels)
       const irrResult = service.listSignals({ channelId: `UCirr2${t}`, includeIrrelevant: true });
       expect(irrResult.total).toBe(1);
-      expect(irrResult.items[0].relevance_status).toBe('irrelevant');
+      expect(irrResult.items[0].processing_state).toBe('irrelevant');
     });
 
     it('respects pagination limit and offset', () => {

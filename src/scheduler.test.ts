@@ -106,8 +106,8 @@ describe('scheduler', () => {
       ).run('UCfake3', 'Fake Channel 3', Date.now());
 
       db.prepare(
-        "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processed_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run('vid123', 'UCfake3', 'Test Video', 'transcript', Date.now(), Date.now(), 2);
+        "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run('vid123', 'UCfake3', 'Test Video', 'transcript', Date.now(), 'summarized', 2);
 
       // Insert progress rows
       db.prepare(

@@ -1,6 +1,6 @@
 # UI States Overview — Poll Run Lifecycle
 
-> **Last updated:** 2026-06-03 | Issue #82 implemented: `pending` → `fetching`, alphabetical channel ordering, aborted run display logic | Issue #84 implemented: abort button converted to HTMX POST for inline widget swap (no tab reset)
+> **Last updated:** 2026-06-04 | Issue #85/#88 implemented: replaced `processed_at` + `relevance_status` with single `processing_state` column (`'pending'` | `'irrelevant'` | `'summarized'`) | Issue #86: extracted signal-state module for state transitions | Issue #87: abort cleanup uses signal-state helper functions | Issue #82: `pending` → `fetching`, alphabetical ordering | Issue #84: HTMX abort button
 
 ---
 
@@ -299,8 +299,8 @@ User clicks "Abort Run" at Step 5 (Channel A had 2/6 summarized, Channel B had 1
 
 **Worker:** `abortPollRun()`:
 1. Fires `AbortController` → cancels in-flight LLM calls
-2. Deletes signals where `processed_at IS NULL` (unsummarized)
-3. Sets `status='done-forced'`, counts remaining processed signals
+2. Deletes signals where `processing_state = 'pending'` (unsummarized)
+3. Sets `status='done-forced'`, counts remaining non-pending signals (`processing_state != 'pending'`)
 4. `mapStatus('done-forced')` → `'aborted'`
 
 **Aborted run display logic:** For each channel progress row at abort time:
@@ -396,6 +396,8 @@ processing → done (green)       ← All N summaries completed before abort
 
 | File | Responsibility |
 |------|---------------|
+| `src/signal-state.ts` | Signal processing state: `markSummarized()`, `markIrrelevant()`, pure predicates (`isPending`, `isIrrelevant`, `isSummarized`), abort helpers (`deletePendingForRun`, `countProcessedForRun`, `pendingSignalsForChannel`) — thin module owning all `processing_state` transitions and queries |
+| `src/llm.ts` | LLM analysis: calls analyzeSignal, persists summary/sentiment/entities inline, delegates state transitions to signal-state module |
 | `src/poll-run-manager.ts` | Core lifecycle: enqueue, streaming worker (ConcurrencyPool), abort, runState() |
 | `src/db/poll-runs.ts` | DB queries: preRegisterChannelProgress, getPollRunById, queryPollRunProgress |
 | `src/routes/admin-polling-router.ts` | HTTP: POST /trigger, GET /progress, POST /abort/:id |
@@ -408,9 +410,9 @@ processing → done (green)       ← All N summaries completed before abort
 ## 10. Known Behaviors
 
 ### Irrelevant signals count in progress
-Signals marked `relevance_status='irrelevant'` by the LLM:
+Signals marked `processing_state='irrelevant'` by the LLM:
 - DO increment per-channel `signals_done` ✓
-- Do NOT set `processed_at` (remain queryable for re-analysis)
+- Do NOT set `processing_state='summarized'` (remain `'irrelevant'`, queryable for re-analysis)
 - Display as "X/Y" in UI until all channel signals processed, then "Y/Y"
 
 ### Failed signals also count in progress

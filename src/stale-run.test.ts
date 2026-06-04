@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
 import { recoverStaleRuns } from './scheduler';
@@ -29,10 +29,10 @@ describe('recoverStaleRuns', () => {
     return Number(result.lastInsertRowid);
   }
 
-  function insertSignal(videoId: string, createdAt: number, processedAt?: number | null, pollRunId?: number | null) {
+  function insertSignal(videoId: string, createdAt: number, processingState: string = 'pending', pollRunId?: number | null) {
     db.prepare(
-      'INSERT INTO signals (video_id, channel_id, transcription, created_at, processed_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(videoId, 'UCtest', '[]', createdAt, processedAt ?? null, pollRunId ?? null);
+      "INSERT INTO signals (video_id, channel_id, transcription, created_at, processing_state, poll_run_id) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(videoId, 'UCtest', '[]', createdAt, processingState, pollRunId ?? null);
   }
 
   function insertEntityMention(signalVideoId: string) {
@@ -58,12 +58,12 @@ describe('recoverStaleRuns', () => {
     expect(runs).toHaveLength(0);
   });
 
-  it('keeps run as done-forced when processed signals > 0', () => {
+  it('keeps run as done-forced when summarized signals > 0', () => {
     const triggeredAt = Date.now();
     const runId = insertRun(triggeredAt);
 
-    // One processed signal tied to this run
-    insertSignal('v1', triggeredAt + 100, triggeredAt + 200, runId);
+    // One summarized signal tied to this run
+    insertSignal('v1', triggeredAt + 100, 'summarized', runId);
 
     const recovered = recoverStaleRuns(db);
     expect(recovered).toBe(1);
@@ -74,25 +74,25 @@ describe('recoverStaleRuns', () => {
     expect(run.new_signal_count).toBe(1);
   });
 
-  it('deletes unsummarized signals and their entity_mentions', () => {
+  it('deletes pending signals and their entity_mentions', () => {
     const triggeredAt = Date.now();
     const runId = insertRun(triggeredAt);
 
-    // One processed signal (kept)
-    insertSignal('v1', triggeredAt + 100, triggeredAt + 200, runId);
+    // One summarized signal (kept)
+    insertSignal('v1', triggeredAt + 100, 'summarized', runId);
     insertEntityMention('v1');
 
-    // Two unsummarized signals (deleted)
-    insertSignal('v2', triggeredAt + 300, null, runId);
+    // Two pending signals (deleted)
+    insertSignal('v2', triggeredAt + 300, 'pending', runId);
     insertEntityMention('v2');
-    insertSignal('v3', triggeredAt + 400, null, runId);
+    insertSignal('v3', triggeredAt + 400, 'pending', runId);
     insertEntityMention('v3');
 
     recoverStaleRuns(db);
 
-    // v1 kept (processed)
+    // v1 kept (summarized)
     expect(db.prepare('SELECT * FROM signals WHERE video_id = ?').get('v1')).toBeDefined();
-    // v2, v3 deleted (unsummarized)
+    // v2, v3 deleted (pending)
     expect(db.prepare('SELECT * FROM signals WHERE video_id = ?').get('v2')).toBeUndefined();
     expect(db.prepare('SELECT * FROM signals WHERE video_id = ?').get('v3')).toBeUndefined();
 
@@ -110,11 +110,11 @@ describe('recoverStaleRuns', () => {
   it('handles multiple stale runs in a single startup', () => {
     const t1 = Date.now();
     const r1 = insertRun(t1);
-    insertSignal('r1s1', t1 + 100, null, r1); // unsummarized -> deleted
+    insertSignal('r1s1', t1 + 100, 'pending', r1); // pending -> deleted
 
     const t2 = t1 + 500;
     const r2 = insertRun(t2);
-    insertSignal('r2s1', t2 + 100, t2 + 200, r2); // processed -> kept
+    insertSignal('r2s1', t2 + 100, 'summarized', r2); // summarized -> kept
 
     const t3 = t2 + 500;
     const r3 = insertRun(t3);
@@ -123,10 +123,10 @@ describe('recoverStaleRuns', () => {
     const recovered = recoverStaleRuns(db);
     expect(recovered).toBe(3);
 
-    // Run #1: all signals deleted, run deleted (zero processed)
+    // Run #1: all signals deleted, run deleted (zero non-pending)
     expect(db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(r1)).toBeUndefined();
 
-    // Run #2: processed signal kept, run is done-forced
+    // Run #2: summarized signal kept, run is done-forced
     const run2 = db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(r2) as any;
     expect(run2.status).toBe('done-forced');
     expect(run2.new_signal_count).toBe(1);
@@ -144,7 +144,7 @@ describe('recoverStaleRuns', () => {
       "UPDATE poll_runs SET status = 'done', completed_at = ?, new_signal_count = 2 WHERE id = ?"
     ).run(Date.now(), runId);
 
-    insertSignal('v1', triggeredAt + 100, triggeredAt + 200, runId);
+    insertSignal('v1', triggeredAt + 100, 'summarized', runId);
 
     recoverStaleRuns(db);
 
@@ -157,18 +157,18 @@ describe('recoverStaleRuns', () => {
   it('does not delete signals from other runs', () => {
     const t1 = Date.now();
     const r1 = insertRun(t1);
-    insertSignal('r1s1', t1 + 100, null, r1); // unsummarized in run #1
+    insertSignal('r1s1', t1 + 100, 'pending', r1); // pending in run #1
 
     const t2 = t1 + 500;
     const r2 = insertRun(t2);
-    insertSignal('r2s1', t2 + 100, null, r2); // unsummarized in run #2
+    insertSignal('r2s1', t2 + 100, 'pending', r2); // pending in run #2
 
     recoverStaleRuns(db);
 
     // Both runs are stale -> both recovered
-    // r1s1 deleted (run #1 had zero processed)
+    // r1s1 deleted (run #1 had zero non-pending)
     expect(db.prepare('SELECT * FROM signals WHERE video_id = ?').get('r1s1')).toBeUndefined();
-    // r2s1 deleted (run #2 had zero processed)
+    // r2s1 deleted (run #2 had zero non-pending)
     expect(db.prepare('SELECT * FROM signals WHERE video_id = ?').get('r2s1')).toBeUndefined();
   });
 
@@ -177,7 +177,7 @@ describe('recoverStaleRuns', () => {
     insertRun(triggeredAt);
 
     // Orphan signal (no poll_run_id) -> must survive
-    insertSignal('orphan', triggeredAt + 50, null, null);
+    insertSignal('orphan', triggeredAt + 50, 'pending', null);
 
     recoverStaleRuns(db);
 

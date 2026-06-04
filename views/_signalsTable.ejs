@@ -16,7 +16,7 @@
           const date = signal.published_at ? new Date(signal.published_at) : new Date();
           const dateStr = date.toLocaleDateString();
           const timeStr = date.toLocaleTimeString();
-          const isIrrelevant = signal.relevance_status === 'irrelevant';
+          const isIrrelevant = signal.processing_state === 'irrelevant';
           const summary = isIrrelevant ? '[Irrelevant]' : (signal.summary || '').substring(0, 50);
           const sentiment = signal.overall_sentiment || 3;
           const colors = ['', 'bg-red-600', 'bg-orange-500', 'bg-yellow-500', 'bg-lime-500', 'bg-green-600'];

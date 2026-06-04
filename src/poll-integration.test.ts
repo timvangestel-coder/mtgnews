@@ -50,7 +50,7 @@ describe('poll integration: full multi-channel cycle via PollRunManager', () => 
     addChannel(db, 'UC_A', 'Channel A', undefined, 1);
     addChannel(db, 'UC_B', 'Channel B', undefined, 1);
     vi.spyOn(llm, 'analyzeSignal').mockImplementation(async (database, videoId) => {
-      database.prepare('UPDATE signals SET processed_at = ? WHERE video_id = ?').run(Date.now(), videoId);
+      database.prepare("UPDATE signals SET processing_state = ? WHERE video_id = ?").run('summarized', videoId);
       return { success: true };
     });
   });

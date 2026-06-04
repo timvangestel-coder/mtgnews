@@ -109,7 +109,7 @@ describe('Schema initialization', () => {
     expect(row?.topic_id).toBeNull();
   });
 
-  it('signals table has relevance_status column (issue #44)', async () => {
+  it('signals table has processing_state column (issue #85/#88)', async () => {
     const db = createTestDb();
     await initSchema(db);
 
@@ -118,13 +118,19 @@ describe('Schema initialization', () => {
       .all() as { name: string; type: string }[];
 
     const columnMap = new Map(
-      columns.map((c) => [c.name, { type: c.type }])
+      columns.map((c) => [c.name, { type: c.type, dflt_value: c.dflt_value }])
     );
 
-    expect(columnMap.has('relevance_status')).toBe(true);
-    expect(columnMap.get('relevance_status')?.type).toBe('TEXT');
+    // processing_state must exist with DEFAULT 'pending'
+    expect(columnMap.has('processing_state')).toBe(true);
+    expect(columnMap.get('processing_state')?.type).toBe('TEXT');
+    expect(columnMap.get('processing_state')?.dflt_value).toBe("'pending'");
 
-    // Verify nullable - insert without relevance_status
+    // Old columns must NOT exist (dropped in issue #85)
+    expect(columnMap.has('processed_at')).toBe(false);
+    expect(columnMap.has('relevance_status')).toBe(false);
+
+    // Verify default value is 'pending' on insert
     db.prepare(
       `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
     ).run();
@@ -133,27 +139,127 @@ describe('Schema initialization', () => {
     ).run();
 
     const row = db
-      .prepare('SELECT relevance_status FROM signals WHERE video_id = ?')
-      .get('v1') as { relevance_status: string | null };
+      .prepare('SELECT processing_state FROM signals WHERE video_id = ?')
+      .get('v1') as { processing_state: string | null };
 
-    // Column exists, value is null (not set)
-    expect(row?.relevance_status).toBeNull();
+    expect(row?.processing_state).toBe('pending');
 
-    // Verify can update to 'relevant' and 'irrelevant'
-    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('relevant', 'v1');
-    const relevantRow = db
-      .prepare('SELECT relevance_status FROM signals WHERE video_id = ?')
-      .get('v1') as { relevance_status: string | null };
-    expect(relevantRow?.relevance_status).toBe('relevant');
+    // Verify can set to 'summarized' and 'irrelevant'
+    db.prepare('UPDATE signals SET processing_state = ? WHERE video_id = ?').run('summarized', 'v1');
+    const summarizedRow = db
+      .prepare('SELECT processing_state FROM signals WHERE video_id = ?')
+      .get('v1') as { processing_state: string | null };
+    expect(summarizedRow?.processing_state).toBe('summarized');
 
-    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v1');
+    db.prepare('UPDATE signals SET processing_state = ? WHERE video_id = ?').run('irrelevant', 'v1');
     const irrelevantRow = db
-      .prepare('SELECT relevance_status FROM signals WHERE video_id = ?')
-      .get('v1') as { relevance_status: string | null };
-    expect(irrelevantRow?.relevance_status).toBe('irrelevant');
+      .prepare('SELECT processing_state FROM signals WHERE video_id = ?')
+      .get('v1') as { processing_state: string | null };
+    expect(irrelevantRow?.processing_state).toBe('irrelevant');
   });
 
-  it('signals table has correct columns including created_at and processed_at', async () => {
+  it('migration backfills processing_state from old processed_at and relevance_status (issue #85)', async () => {
+    // Simulate an existing DB that has old columns but no processing_state
+    const db = createTestDb();
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+
+    // Create old-style schema (without processing_state)
+    db.exec(`
+      CREATE TABLE channels (
+        channel_id TEXT PRIMARY KEY,
+        display_name TEXT,
+        avatar_url TEXT,
+        active INTEGER DEFAULT 1,
+        added_at INTEGER NOT NULL,
+        topic_id INTEGER REFERENCES topics(id)
+      );
+      CREATE TABLE signals (
+        video_id TEXT PRIMARY KEY,
+        channel_id TEXT REFERENCES channels(channel_id),
+        title TEXT,
+        published_at TEXT,
+        transcription TEXT NOT NULL,
+        summary TEXT,
+        overall_sentiment INTEGER,
+        sentiment_label TEXT,
+        created_at INTEGER NOT NULL,
+        processed_at INTEGER,
+        poll_run_id INTEGER REFERENCES poll_runs(id),
+        relevance_status TEXT
+      );
+      CREATE TABLE entity_mentions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_video_id TEXT REFERENCES signals(video_id),
+        entity_name TEXT,
+        entity_type TEXT,
+        sentiment TEXT
+      );
+      CREATE TABLE poll_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        triggered_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        new_signal_count INTEGER DEFAULT 0,
+        completed_at INTEGER,
+        lookback_days INTEGER DEFAULT 2,
+        abort_time INTEGER,
+        phase TEXT DEFAULT 'channel_polling',
+        signals_analyzed INTEGER DEFAULT 0
+      );
+      CREATE TABLE poll_run_progress (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poll_run_id INTEGER REFERENCES poll_runs(id),
+        channel_id TEXT,
+        status TEXT NOT NULL,
+        signals_found INTEGER DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE topics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE NOT NULL,
+        short_name TEXT NOT NULL,
+        filter_text TEXT NOT NULL
+      );
+    `);
+
+    // Insert test data with old columns
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
+    ).run();
+    // Signal with processed_at set -> should become 'summarized'
+    db.prepare(
+      `INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processed_at) VALUES ('v1', 'UC1', 'Test', '[]', 1700000000, 1700000100)`
+    ).run();
+    // Signal with relevance_status='irrelevant' -> should become 'irrelevant'
+    db.prepare(
+      `INSERT INTO signals (video_id, channel_id, title, transcription, created_at, relevance_status) VALUES ('v2', 'UC1', 'Test', '[]', 1700000000, 'irrelevant')`
+    ).run();
+    // Signal with neither -> should become 'pending'
+    db.prepare(
+      `INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES ('v3', 'UC1', 'Test', '[]', 1700000000)`
+    ).run();
+
+    // Now run initDb (which applies migrations)
+    await initSchema(db);
+
+    // Verify backfill worked
+    const v1 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1') as { processing_state: string };
+    expect(v1.processing_state).toBe('summarized');
+
+    const v2 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v2') as { processing_state: string };
+    expect(v2.processing_state).toBe('irrelevant');
+
+    const v3 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v3') as { processing_state: string };
+    expect(v3.processing_state).toBe('pending');
+
+    // Old columns should be dropped
+    const columns = db.prepare("PRAGMA table_info(signals)").all() as Array<{ name: string }>;
+    const colNames = columns.map((c) => c.name);
+    expect(colNames).not.toContain('processed_at');
+    expect(colNames).not.toContain('relevance_status');
+  });
+
+  it('signals table has correct columns including created_at and processing_state', async () => {
     const db = createTestDb();
     await initSchema(db);
 
@@ -185,8 +291,9 @@ describe('Schema initialization', () => {
     expect(columnMap.has('created_at')).toBe(true);
     expect(columnMap.get('created_at')?.type).toBe('INTEGER');
     expect(columnMap.get('created_at')?.notnull).toBe(1);
-    expect(columnMap.has('processed_at')).toBe(true);
-    expect(columnMap.get('processed_at')?.type).toBe('INTEGER');
+    // processed_at removed in issue #85, replaced by processing_state
+    expect(columnMap.has('processing_state')).toBe(true);
+    expect(columnMap.get('processing_state')?.type).toBe('TEXT');
   });
 
   it('entity_mentions table has correct columns', async () => {

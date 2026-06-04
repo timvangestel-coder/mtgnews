@@ -174,10 +174,10 @@ describe('query', () => {
     }
   });
 
-  // -- Relevance filter (Issue #47) --
-  it('default (no includeIrrelevant) excludes signals with relevance_status=irrelevant', () => {
+  // -- Relevance filter (Issue #47, migrated to processing_state in #88) --
+  it('default (no includeIrrelevant) excludes signals with processing_state=irrelevant', () => {
     // Mark v3 as irrelevant
-    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v3');
+    db.prepare("UPDATE signals SET processing_state = ? WHERE video_id = ?").run('irrelevant', 'v3');
 
     const result = querySignals(db);
     const ids = result.items.map((s: any) => s.video_id);
@@ -186,7 +186,7 @@ describe('query', () => {
   });
 
   it('includeIrrelevant: true includes irrelevant signals', () => {
-    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v3');
+    db.prepare("UPDATE signals SET processing_state = ? WHERE video_id = ?").run('irrelevant', 'v3');
 
     const result = querySignals(db, { includeIrrelevant: true });
     const ids = result.items.map((s: any) => s.video_id);
@@ -195,7 +195,7 @@ describe('query', () => {
   });
 
   it('includeIrrelevant: false excludes irrelevant signals (explicit)', () => {
-    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v3');
+    db.prepare("UPDATE signals SET processing_state = ? WHERE video_id = ?").run('irrelevant', 'v3');
 
     const result = querySignals(db, { includeIrrelevant: false });
     const ids = result.items.map((s: any) => s.video_id);
@@ -204,8 +204,8 @@ describe('query', () => {
   });
 
   it('includeIrrelevant works with channel filter combined', () => {
-    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v2'); // UC1 signal
-    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v3'); // UC2 signal
+    db.prepare("UPDATE signals SET processing_state = ? WHERE video_id = ?").run('irrelevant', 'v2'); // UC1 signal
+    db.prepare("UPDATE signals SET processing_state = ? WHERE video_id = ?").run('irrelevant', 'v3'); // UC2 signal
 
     // Default: exclude irrelevant, filter by UC1 -> should get v5, v1 (v2 excluded)
     const result = querySignals(db, { channelId: 'UC1' });
@@ -220,17 +220,17 @@ describe('query', () => {
     expect(result2.total).toBe(3);
   });
 
-  it('signals with relevance_status=irrelevant return correct status in row', () => {
-    db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?').run('irrelevant', 'v4');
+  it('signals with processing_state=irrelevant return correct state in row', () => {
+    db.prepare("UPDATE signals SET processing_state = ? WHERE video_id = ?").run('irrelevant', 'v4');
 
     const result = querySignals(db, { includeIrrelevant: true });
     const v4Row = result.items.find((s: any) => s.video_id === 'v4');
     expect(v4Row).toBeDefined();
-    expect(v4Row!.relevance_status).toBe('irrelevant');
+    expect(v4Row!.processing_state).toBe('irrelevant');
   });
 
-  it('signals with NULL relevance_status are always included', () => {
-    // v1-v5 all have NULL relevance_status by default
+  it('signals with default processing_state=pending are always included', () => {
+    // v1-v5 all have processing_state='pending' by default
     const result = querySignals(db);
     expect(result.total).toBe(5);
   });

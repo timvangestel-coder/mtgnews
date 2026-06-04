@@ -3,6 +3,7 @@ import { listActiveChannels } from './db/watchlist';
 import { pollChannel, PollOptions } from './poll';
 import { analyzeSignal, getLlmConfig } from './llm';
 import { preRegisterChannelProgress, getPollRunById, queryPollRunProgress, PollRunRow, PollRunProgressRow } from './db/poll-runs';
+import { deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } from './signal-state';
 
 /** Unique identifier for a poll run */
 export type RunId = number;
@@ -237,9 +238,7 @@ export class PollRunManager {
           // Write progress only after signals discovered
           upsertProgress(channel.channel_id, 'processing', result.newSignals);
 
-          const newSignals = this.db.prepare(
-            'SELECT video_id FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processed_at IS NULL'
-          ).all(channel.channel_id, runId) as { video_id: string }[];
+          const newSignals = pendingSignalsForChannel(this.db, channel.channel_id, runId);
 
           // Dispatch analysis tasks immediately to global pool
           for (const s of newSignals) {
@@ -315,30 +314,16 @@ export class PollRunManager {
 
     // Use explicit transaction for atomicity
     const txn = this.db.transaction((rid: number, at: number) => {
-      // Delete entity_mentions for unsummarized signals in this run
-      this.db.prepare(`
-        DELETE FROM entity_mentions WHERE signal_video_id IN (
-          SELECT video_id FROM signals
-          WHERE poll_run_id = ? AND processed_at IS NULL
-        )
-      `).run(rid);
-
-      // Delete unsummarized signals by FK
-      this.db.prepare(`
-        DELETE FROM signals
-        WHERE poll_run_id = ? AND processed_at IS NULL
-      `).run(rid);
+      // Delete pending signals and their entity_mentions using signal-state module
+      deletePendingForRun(this.db, rid);
 
       // Count remaining processed signals from this run
-      const row = this.db.prepare(`
-        SELECT COUNT(*) as cnt FROM signals
-        WHERE poll_run_id = ? AND processed_at IS NOT NULL
-      `).get(rid) as { cnt: number };
+      const processedCount = countProcessedForRun(this.db, rid);
 
       // Always keep the run row so the UI can display "done-forced" status
       this.db.prepare(`
         UPDATE poll_runs SET status = 'done-forced', new_signal_count = ?, abort_time = ? WHERE id = ?
-      `).run(row.cnt, at, rid);
+      `).run(processedCount, at, rid);
     });
 
     txn(runId, abortTime);

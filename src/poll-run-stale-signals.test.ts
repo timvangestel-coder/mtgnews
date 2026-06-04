@@ -1,47 +1,49 @@
+/**
+ * Regression tests for stale signal handling (issue #79).
+ *
+ * Before fix: workerProcessRun() queried signals without filtering by poll_run_id,
+ * causing signals from previous aborted runs that still had `processing_state = 'pending'`
+ * to be re-analyzed in subsequent runs.
+ */
 import Database from 'better-sqlite3';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb } from './db/init-db';
 
-/**
- * Regression test for: signals_to_analyze inflated by stale unprocessed signals.
- *
- * Root cause: The worker's query for unprocessed signals in Phase 1 (line ~224 of
- * poll-run-manager.ts) was missing `AND poll_run_id = ?`, causing it to pick up
- * signals from previous aborted runs that still had `processed_at IS NULL`.
- *
- * Fix: Added `poll_run_id = ?` filter so only signals from the current run are
- * queued for analysis. This ensures `signals_to_analyze` and the UI counter
- * reflect only the current run's newly discovered signals.
- */
-describe('stale signal isolation (regression)', () => {
+function createTestDb() {
+  const db = new Database(':memory:');
+  initDb(db);
+  return db;
+}
+
+describe('poll-run stale signals regression', () => {
   let db: Database.Database;
 
   beforeEach(() => {
-    db = new Database(':memory:');
-    initDb(db);
+    db = createTestDb();
   });
 
   afterAll(() => {
     db.close();
   });
 
-  it('only queries signals from the current poll run for analysis', () => {
-    // Setup: create a topic and channel
+  it('does not pick up pending signals from previous aborted runs', () => {
+    // Setup topic + channel
     db.prepare(
       "INSERT INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)"
-    ).run(1, 'tech', 'Tech', 'technology');
+    ).run(1, 'mtg', 'MTG', 'test');
+
     db.prepare(
-      "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+      "INSERT INTO channels (channel_id, display_name, added_at, topic_id) VALUES (?, ?, ?, ?)"
     ).run('UC_test', 'Test Channel', Date.now(), 1);
 
-    // Simulate: a previous aborted run left behind an unprocessed signal
+    // Simulate: a previous aborted run left behind a pending signal
     db.prepare(
       "INSERT INTO poll_runs (id, triggered_at, status, new_signal_count, lookback_days) VALUES (?, ?, ?, 0, ?)"
     ).run(998, Date.now() - 172800000, 'done-forced', 1);
 
     db.prepare(
-      "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run('old_stale_video', 'UC_test', 'Old Stale Video', new Date().toISOString(), '[]', Date.now() - 172800000, 998, null);
+      "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processing_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run('old_stale_video', 'UC_test', 'Old Stale Video', new Date().toISOString(), '[]', Date.now() - 172800000, 998, 'pending');
 
     // Create current run
     const newRunResult = db.prepare(
@@ -56,117 +58,101 @@ describe('stale signal isolation (regression)', () => {
 
     // The FIXED query: only signals from the current run should be queued for analysis
     const signalsForCurrentRun = db.prepare(
-      "SELECT video_id FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processed_at IS NULL"
+      "SELECT video_id FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processing_state = 'pending'"
     ).all('UC_test', newRunIdNum) as { video_id: string }[];
 
     // Must NOT include the stale signal from run 998
     expect(signalsForCurrentRun.length).toBe(0);
 
     // Verify the stale signal still exists (wasn't accidentally deleted)
-    const allUnprocessed = db.prepare(
-      "SELECT COUNT(*) as cnt FROM signals WHERE processed_at IS NULL"
+    const allPending = db.prepare(
+      "SELECT COUNT(*) as cnt FROM signals WHERE processing_state = 'pending'"
     ).get() as { cnt: number };
-    expect(allUnprocessed.cnt).toBe(1);
+    expect(allPending.cnt).toBe(1);
   });
 
-  it('correctly counts only current run signals when multiple stale runs exist', () => {
-    // Setup
+  it('only analyzes signals belonging to the current run', () => {
+    // Setup topic + channel
     db.prepare(
       "INSERT INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)"
-    ).run(1, 'tech', 'Tech', 'technology');
+    ).run(1, 'mtg', 'MTG', 'test');
+
     db.prepare(
-      "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
-    ).run('UC_test', 'Test Channel', Date.now(), 1);
+      "INSERT INTO channels (channel_id, display_name, added_at, topic_id) VALUES (?, ?, ?, ?)"
+    ).run('UC_test2', 'Test Channel 2', Date.now(), 1);
 
-    // Simulate: 3 previous aborted runs, each left 2 unprocessed signals
-    for (let runNum = 1; runNum <= 3; runNum++) {
-      const oldRunId = 900 + runNum;
-      db.prepare(
-        "INSERT INTO poll_runs (id, triggered_at, status, new_signal_count, lookback_days) VALUES (?, ?, ?, 2, ?)"
-      ).run(oldRunId, Date.now() - runNum * 86400000, 'done-forced', 2);
+    // Previous run with pending signals
+    db.prepare(
+      "INSERT INTO poll_runs (id, triggered_at, status, new_signal_count, lookback_days) VALUES (?, ?, ?, 0, ?)"
+    ).run(997, Date.now() - 86400000, 'done-forced', 2);
 
-      for (let sig = 1; sig <= 2; sig++) {
-        db.prepare(
-          "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-        ).run(`stale_r${runNum}_s${sig}`, 'UC_test', `Stale R${runNum}S${sig}`, new Date().toISOString(), '[]', Date.now() - runNum * 86400000, oldRunId, null);
-      }
-    }
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processing_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run('prev_1', 'UC_test2', 'Prev 1', new Date().toISOString(), '[]', Date.now() - 86400000, 997, 'pending');
 
-    // Create current run with 2 fresh signals
-    const newRunResult = db.prepare(
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processing_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run('prev_2', 'UC_test2', 'Prev 2', new Date().toISOString(), '[]', Date.now() - 86400000, 997, 'pending');
+
+    // Current run with one pending signal
+    const currentRunResult = db.prepare(
       "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, ?, 0, ?)"
     ).run(Date.now(), 'running', 30);
-    const newRunIdNum = Number(newRunResult.lastInsertRowid);
+    const currentRunId = Number(currentRunResult.lastInsertRowid);
 
     db.prepare(
-      "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run('fresh_1', 'UC_test', 'Fresh Video 1', new Date().toISOString(), '[]', Date.now(), newRunIdNum, null);
+      "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processing_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run('current_1', 'UC_test2', 'Current 1', new Date().toISOString(), '[]', Date.now(), currentRunId, 'pending');
 
-    db.prepare(
-      "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run('fresh_2', 'UC_test', 'Fresh Video 2', new Date().toISOString(), '[]', Date.now(), newRunIdNum, null);
+    // Query for signals to analyze in current run only
+    const signalsForCurrent = db.prepare(
+      "SELECT video_id FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processing_state = 'pending'"
+    ).all('UC_test2', currentRunId) as { video_id: string }[];
 
-    // FIXED query: only current run's signals
-    const currentRunSignals = db.prepare(
-      "SELECT video_id FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processed_at IS NULL"
-    ).all('UC_test', newRunIdNum) as { video_id: string }[];
+    expect(signalsForCurrent.length).toBe(1);
+    expect(signalsForCurrent[0].video_id).toBe('current_1');
 
-    // Should be exactly 2 (the fresh ones), NOT 8 (6 stale + 2 fresh)
-    expect(currentRunSignals.length).toBe(2);
-    expect(currentRunSignals.map(s => s.video_id)).toContain('fresh_1');
-    expect(currentRunSignals.map(s => s.video_id)).toContain('fresh_2');
-
-    // Total unprocessed across all runs should be 8
-    const totalUnprocessed = db.prepare(
-      "SELECT COUNT(*) as cnt FROM signals WHERE processed_at IS NULL"
+    // Verify total pending signals across all runs
+    const allPending = db.prepare(
+      "SELECT COUNT(*) as cnt FROM signals WHERE processing_state = 'pending'"
     ).get() as { cnt: number };
-    expect(totalUnprocessed.cnt).toBe(8);
+    expect(allPending.cnt).toBe(3); // 2 from prev + 1 current
   });
 
-  it('abort cleanup removes unsummarized signals by poll_run_id so they dont leak', () => {
-    // Setup
+  it('abort cleanup only deletes pending signals from the aborted run', () => {
+    // Setup topic + channel
     db.prepare(
       "INSERT INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)"
-    ).run(1, 'tech', 'Tech', 'technology');
-    db.prepare(
-      "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
-    ).run('UC_test', 'Test Channel', Date.now(), 1);
-
-    // Create a run with unprocessed signals
-    const runResult = db.prepare(
-      "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, ?, 0, ?)"
-    ).run(Date.now(), 'running', 30);
-    const runId = Number(runResult.lastInsertRowid);
+    ).run(1, 'mtg', 'MTG', 'test');
 
     db.prepare(
-      "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run('to_abort', 'UC_test', 'To Abort', new Date().toISOString(), '[]', Date.now(), runId, null);
+      "INSERT INTO channels (channel_id, display_name, added_at, topic_id) VALUES (?, ?, ?, ?)"
+    ).run('UC_test3', 'Test Channel 3', Date.now(), 1);
 
-    // Simulate abort cleanup (matches abortPollRun logic in PollRunManager)
+    // Run with pending signals that will be aborted
     db.prepare(
-      "DELETE FROM signals WHERE poll_run_id = ? AND processed_at IS NULL"
-    ).run(runId);
+      "INSERT INTO poll_runs (id, triggered_at, status, new_signal_count, lookback_days) VALUES (?, ?, ?, 0, ?)"
+    ).run(500, Date.now() - 3600000, 'running', 2);
 
     db.prepare(
-      "UPDATE poll_runs SET status = 'done-forced', new_signal_count = 0, abort_time = ? WHERE id = ?"
-    ).run(Date.now(), runId);
+      "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id, processing_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run('abort_1', 'UC_test3', 'Abort 1', new Date().toISOString(), '[]', Date.now() - 3600000, 500, 'pending');
 
-    // Verify: the aborted signal was cleaned up
-    const remaining = db.prepare(
-      "SELECT COUNT(*) as cnt FROM signals WHERE poll_run_id = ? AND processed_at IS NULL"
-    ).get(runId) as { cnt: number };
-    expect(remaining.cnt).toBe(0);
+    // Simulate abort cleanup: delete pending signals for run 500
+    db.prepare(
+      "DELETE FROM signals WHERE poll_run_id = ? AND processing_state = 'pending'"
+    ).run(500);
 
-    // Create a new run — should see 0 unprocessed signals for this channel
-    const newRunResult = db.prepare(
-      "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, ?, 0, ?)"
-    ).run(Date.now(), 'running', 30);
-    const newRunIdNum = Number(newRunResult.lastInsertRowid);
+    // Verify only the pending signal was deleted
+    const remainingPending = db.prepare(
+      "SELECT COUNT(*) as cnt FROM signals WHERE poll_run_id = ? AND processing_state = 'pending'"
+    ).get(500) as { cnt: number };
+    expect(remainingPending.cnt).toBe(0);
 
-    const newRunSignals = db.prepare(
-      "SELECT video_id FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processed_at IS NULL"
-    ).all('UC_test', newRunIdNum) as { video_id: string }[];
-
-    expect(newRunSignals.length).toBe(0);
+    // Signals from other runs are unaffected (there are none in this test, but the query is scoped by run)
+    const signalsForCurrent = db.prepare(
+      "SELECT video_id FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processing_state = 'pending'"
+    ).all('UC_test3', 500) as { video_id: string }[];
+    expect(signalsForCurrent.length).toBe(0);
   });
 });

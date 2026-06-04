@@ -218,7 +218,7 @@ describe('llm', () => {
       expect(prompt).toContain('Only Modern format.');
     });
 
-    it('relevant:false -> sets irrelevant status without processed_at, skips summary/sentiment/entities', async () => {
+    it('relevant:false -> sets processing_state=irrelevant, skips summary/sentiment/entities', async () => {
       const db = createTestDb();
       insertChannel(db, 'UCtest');
       insertSignal(db, 'v-irrel', 'text');
@@ -228,9 +228,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-irrel', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT relevance_status, processed_at, summary FROM signals WHERE video_id = ?').get('v-irrel');
-      expect(sig.relevance_status).toBe('irrelevant');
-      expect(sig.processed_at).toBeNull(); // Don't mark as processed so summarize button stays visible
+      const sig = db.prepare('SELECT processing_state, summary FROM signals WHERE video_id = ?').get('v-irrel');
+      expect(sig.processing_state).toBe('irrelevant');
       expect(sig.summary).toBeNull();
     });
 
@@ -244,8 +243,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-backcompat', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT relevance_status FROM signals WHERE video_id = ?').get('v-backcompat');
-      expect(sig.relevance_status).toBe('relevant');
+      const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-backcompat');
+      expect(sig.processing_state).toBe('summarized');
     });
 
     it('prompt instructs minimal JSON when irrelevant', async () => {
@@ -273,8 +272,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-min-irr', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT relevance_status, summary FROM signals WHERE video_id = ?').get('v-min-irr');
-      expect(sig.relevance_status).toBe('irrelevant');
+      const sig = db.prepare('SELECT processing_state, summary FROM signals WHERE video_id = ?').get('v-min-irr');
+      expect(sig.processing_state).toBe('irrelevant');
       expect(sig.summary).toBeNull();
     });
 
@@ -303,8 +302,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-nofilter', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT relevance_status FROM signals WHERE video_id = ?').get('v-nofilter');
-      expect(sig.relevance_status).toBe('relevant');
+      const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-nofilter');
+      expect(sig.processing_state).toBe('summarized');
     });
 
     it('handles LLM response with prose reasoning before trailing JSON', async () => {
@@ -339,9 +338,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-irr-prose', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT relevance_status, processed_at FROM signals WHERE video_id = ?').get('v-irr-prose');
-      expect(sig.relevance_status).toBe('irrelevant');
-      expect(sig.processed_at).toBeNull(); // Don't mark as processed so summarize button stays visible
+      const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-irr-prose');
+      expect(sig.processing_state).toBe('irrelevant');
     });
 
     it('returns descriptive error for unexpected response structure', async () => {

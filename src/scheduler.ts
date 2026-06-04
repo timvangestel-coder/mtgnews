@@ -12,8 +12,8 @@ let _disposable: cron.ScheduledTask | null = null;
  * caused by server shutdown mid-execution.
  *
  * For each stale run:
- * - Delete entity_mentions for unsummarized signals
- * - Delete unsummarized signals (processed_at IS NULL) by poll_run_id FK
+ * - Delete entity_mentions for pending signals
+ * - Delete pending signals (processing_state = 'pending') by poll_run_id FK
  * - Count remaining processed signals
  * - If processed > 0: set status='done-forced', completed_at, new_signal_count
  * - If processed == 0: delete the run row entirely (no ghost entries)
@@ -30,24 +30,24 @@ export function recoverStaleRuns(db: Database.Database): number {
   }
 
   const txn = db.transaction((runId: number) => {
-    // Delete entity_mentions for unsummarized signals in this run
+    // Delete entity_mentions for pending signals in this run
     db.prepare(`
       DELETE FROM entity_mentions WHERE signal_video_id IN (
         SELECT video_id FROM signals
-        WHERE poll_run_id = ? AND processed_at IS NULL
+        WHERE poll_run_id = ? AND processing_state = 'pending'
       )
     `).run(runId);
 
-    // Delete unsummarized signals by FK
+    // Delete pending signals by FK
     db.prepare(`
       DELETE FROM signals
-      WHERE poll_run_id = ? AND processed_at IS NULL
+      WHERE poll_run_id = ? AND processing_state = 'pending'
     `).run(runId);
 
     // Count remaining processed signals from this run
     const row = db.prepare(`
       SELECT COUNT(*) as cnt FROM signals
-      WHERE poll_run_id = ? AND processed_at IS NOT NULL
+      WHERE poll_run_id = ? AND processing_state != 'pending'
     `).get(runId) as { cnt: number };
 
     if (row.cnt > 0) {

@@ -78,7 +78,7 @@ describe('Signals Router', () => {
       const t = Date.now();
       addChannel(db, `UCirrR${t}`, 'Irr Router Ch');
       db.prepare(
-        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, relevance_status, created_at)
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, processing_state, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(`virrR-${t}`, `UCirrR${t}`, 'Irrelevant R', `2103-12-30T00:00:00Z`, '[]', 'irrelevant r summary', 4, 'irrelevant', Date.now());
 

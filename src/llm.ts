@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { fetchWithRetry } from './http-retry';
 import { buildMergedPrompt } from './prompt-builder';
+import { markSummarized, markIrrelevant } from './signal-state';
 
 export interface LlmConfig {
   endpoint: string;
@@ -140,9 +141,8 @@ export async function analyzeSignal(
     const isRelevant = analysis.relevant !== false;
 
     if (!isRelevant) {
-      // Don't set processed_at for irrelevant signals — keep the summarize button visible.
-      db.prepare('UPDATE signals SET relevance_status = ? WHERE video_id = ?')
-        .run('irrelevant', videoId);
+      // Set processing_state to irrelevant — keep the summarize button visible.
+      markIrrelevant(db, videoId);
       return { success: true };
     }
 
@@ -151,9 +151,11 @@ export async function analyzeSignal(
     const entities = analysis.entities;
 
     db.prepare(`
-      UPDATE signals SET summary = ?, overall_sentiment = ?, sentiment_label = ?, processed_at = ?, relevance_status = ?
+      UPDATE signals SET summary = ?, overall_sentiment = ?, sentiment_label = ?
       WHERE video_id = ?
-    `).run(summaryDisplay, clampedScore, analysis.overall_sentiment.label, Date.now(), 'relevant', videoId);
+    `).run(summaryDisplay, clampedScore, analysis.overall_sentiment.label, videoId);
+
+    markSummarized(db, videoId);
 
     db.prepare('DELETE FROM entity_mentions WHERE signal_video_id = ?').run(videoId);
 
