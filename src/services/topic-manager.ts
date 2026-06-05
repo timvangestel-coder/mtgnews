@@ -13,8 +13,8 @@ export class TopicManager {
     return { ...topic, channel_count: row.c };
   }
 
-  create(key: string, shortName: string, filterText: string): void {
-    dbCreateTopic(this.db, key, shortName, filterText);
+  create(key: string, shortName: string, filterText: string, summaryPrompt?: string | null): void {
+    dbCreateTopic(this.db, key, shortName, filterText, summaryPrompt);
   }
 
   update(id: number, opts: UpdateTopicOptions): void {
@@ -27,7 +27,7 @@ export class TopicManager {
 
   listWithCounts(): TopicWithCount[] {
     return this.db.prepare(`
-      SELECT t.id, t.key, t.short_name, t.filter_text,
+      SELECT t.id, t.key, t.short_name, t.filter_text, t.summary_prompt,
              COUNT(c.channel_id) AS channel_count
       FROM topics t
       LEFT JOIN channels c ON c.topic_id = t.id

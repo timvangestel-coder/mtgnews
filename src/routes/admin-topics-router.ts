@@ -11,6 +11,7 @@ export function createAdminTopicsRouter(service: TopicManager) {
     const key = req.body.key as string;
     const shortName = req.body.short_name as string;
     const filterText = req.body.filter_text as string;
+    const summaryPrompt = req.body.summary_prompt as string | undefined;
 
     if (!key) {
       res.status(400).send('key required');
@@ -18,7 +19,7 @@ export function createAdminTopicsRouter(service: TopicManager) {
     }
 
     try {
-      service.create(key, shortName || '', filterText || '');
+      service.create(key, shortName || '', filterText || '', summaryPrompt || null);
     } catch (err) {
       const msg = (err as Error).message || '';
       if (msg.includes('UNIQUE constraint failed') || msg.includes('duplicate key')) {
@@ -43,6 +44,7 @@ export function createAdminTopicsRouter(service: TopicManager) {
     if (req.body.key !== undefined) opts.key = req.body.key as string;
     if (req.body.short_name !== undefined) opts.short_name = req.body.short_name as string;
     if (req.body.filter_text !== undefined) opts.filter_text = req.body.filter_text as string;
+    if (req.body.summary_prompt !== undefined) opts.summary_prompt = req.body.summary_prompt as string || null;
 
     service.update(id, opts);
 

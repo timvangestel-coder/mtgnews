@@ -30,6 +30,27 @@ describe('TopicManager', () => {
       expect(found!.filter_text).toBe('filter text');
     });
 
+    it('creates a topic with summary_prompt', () => {
+      const t = Date.now();
+      const prompt = 'Custom template: {TRANSCRIPTION}';
+      manager.create(`prompt-${t}`, `Prompt Topic ${t}`, 'filter', prompt);
+
+      const topics = manager.listWithCounts();
+      const found = topics.find((tp) => tp.key === `prompt-${t}`);
+      expect(found).toBeDefined();
+      expect(found!.summary_prompt).toBe(prompt);
+    });
+
+    it('creates a topic with NULL summary_prompt when not provided', () => {
+      const t = Date.now();
+      manager.create(`no-prompt-${t}`, `No Prompt ${t}`, 'filter');
+
+      const topics = manager.listWithCounts();
+      const found = topics.find((tp) => tp.key === `no-prompt-${t}`);
+      expect(found).toBeDefined();
+      expect(found!.summary_prompt).toBeNull();
+    });
+
     it('throws on duplicate key', () => {
       const t = Date.now();
       manager.create(`unique-${t}`, 'First', '');
@@ -50,6 +71,28 @@ describe('TopicManager', () => {
       expect(updated!.key).toBe(`upd-${t}-new`);
       expect(updated!.short_name).toBe('After');
       expect(updated!.filter_text).toBe('new');
+    });
+
+    it('updates summary_prompt', () => {
+      const t = Date.now();
+      dbCreateTopic(db, `updprompt-${t}`, 'Prompt Update', 'old filter');
+      const topic = listTopics(db).find((tp) => tp.key === `updprompt-${t}`)!;
+
+      manager.update(topic.id, { summary_prompt: 'New custom template' });
+
+      const updated = getTopicById(db, topic.id);
+      expect(updated!.summary_prompt).toBe('New custom template');
+    });
+
+    it('sets summary_prompt to null', () => {
+      const t = Date.now();
+      manager.create(`nullprompt-${t}`, 'Null Prompt', 'filter', 'existing prompt');
+      const topic = listTopics(db).find((tp) => tp.key === `nullprompt-${t}`)!;
+
+      manager.update(topic.id, { summary_prompt: null });
+
+      const updated = getTopicById(db, topic.id);
+      expect(updated!.summary_prompt).toBeNull();
     });
 
     it('updates only provided fields', () => {

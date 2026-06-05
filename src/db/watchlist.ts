@@ -20,12 +20,14 @@ export interface TopicRow {
   key: string;
   short_name: string;
   filter_text: string;
+  summary_prompt: string | null;
 }
 
 export interface UpdateTopicOptions {
   key?: string;
   short_name?: string;
   filter_text?: string;
+  summary_prompt?: string | null;
 }
 
 export interface TopicWithCount extends TopicRow {
@@ -73,13 +75,13 @@ export function getAdminData(db: Database.Database): AdminData {
   `).all();
 
   const topics: TopicWithCount[] = db.prepare(`
-    SELECT t.id, t.key, t.short_name, t.filter_text,
+    SELECT t.id, t.key, t.short_name, t.filter_text, t.summary_prompt,
            COUNT(c.channel_id) AS channel_count
     FROM topics t
     LEFT JOIN channels c ON c.topic_id = t.id
     GROUP BY t.id
     ORDER BY t.id ASC
-  `).all();
+  `).all() as TopicWithCount[];
 
   return { channels, topics };
 }
@@ -140,20 +142,20 @@ export function getChannelLastPollDate(db: Database.Database, channelId: string)
 
 /* ── Topic CRUD ── */
 
-export function createTopic(db: Database.Database, key: string, shortName: string, filterText: string): void {
+export function createTopic(db: Database.Database, key: string, shortName: string, filterText: string, summaryPrompt?: string | null): void {
   db.prepare(
-    `INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)`
-  ).run(key, shortName, filterText);
+    `INSERT INTO topics (key, short_name, filter_text, summary_prompt) VALUES (?, ?, ?, ?)`
+  ).run(key, shortName, filterText, summaryPrompt ?? null);
 }
 
 export function listTopics(db: Database.Database): TopicRow[] {
   return db.prepare(
-    `SELECT t.id, t.key, t.short_name, t.filter_text FROM topics t ORDER BY t.id ASC`
-  ).all();
+    `SELECT t.id, t.key, t.short_name, t.filter_text, t.summary_prompt FROM topics t ORDER BY t.id ASC`
+  ).all() as TopicRow[];
 }
 
 export function getTopicById(db: Database.Database, id: number): TopicRow | undefined {
-  const row = db.prepare('SELECT id, key, short_name, filter_text FROM topics WHERE id = ?').get(id);
+  const row = db.prepare('SELECT id, key, short_name, filter_text, summary_prompt FROM topics WHERE id = ?').get(id);
   return (row as TopicRow) ?? undefined;
 }
 
@@ -172,6 +174,10 @@ export function updateTopic(db: Database.Database, id: number, opts: UpdateTopic
   if (opts.filter_text !== undefined) {
     parts.push('filter_text = ?');
     values.push(opts.filter_text);
+  }
+  if (opts.summary_prompt !== undefined) {
+    parts.push('summary_prompt = ?');
+    values.push(opts.summary_prompt ?? null);
   }
 
   if (parts.length === 0) return;

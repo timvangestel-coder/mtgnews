@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { fetchWithRetry } from './http-retry';
-import { buildMergedPrompt } from './prompt-builder';
+import { assemble } from './prompt-assembler';
+import { resolveSignalContext } from './signal-context';
 import { markSummarized, markIrrelevant } from './signal-state';
 
 export interface LlmConfig {
@@ -31,20 +32,6 @@ interface MergedAnalysisResponse {
   relevant?: boolean;
 }
 
-function extractTranscriptionText(transcription: string): string {
-  try {
-    const segments = JSON.parse(transcription);
-    if (Array.isArray(segments)) {
-      if (segments[0]?.time !== undefined) {
-        return segments.map((s: any) => `[T:${Math.floor(s.time / 1000)}] ${s.text}`).join(' ');
-      }
-      return segments.map((s: any) => `[T:${Math.floor(s.start / 1000)}] ${s.text}`).join(' ');
-    }
-  } catch {
-    // plain text transcription
-  }
-  return transcription;
-}
 
 function extractTrailingJson(content: string): string {
   // LLM always outputs [prose reasoning] + [JSON object at end].
@@ -112,26 +99,19 @@ export async function analyzeSignal(
   signal?: AbortSignal
 ): Promise<AnalysisResult> {
   try {
-    const sigRow = db.prepare('SELECT transcription FROM signals WHERE video_id = ?').get(videoId);
-    if (!sigRow) {
-      return { success: false, error: `Signal ${videoId} not found` };
+    // Resolve signal context using single joined query (issue #100)
+    let context;
+    try {
+      context = resolveSignalContext(videoId, db);
+    } catch (e: any) {
+      return { success: false, error: e.message || `Signal ${videoId} not found` };
     }
 
-    const transcriptionText = extractTranscriptionText((sigRow as any).transcription as string);
-
-    // Fetch channel topic filter_text (issue #52)
-    const sigFull = db.prepare('SELECT channel_id FROM signals WHERE video_id = ?').get(videoId) as { channel_id: string } | undefined;
-    let filterText: string | undefined;
-    if (sigFull?.channel_id) {
-      const chRow = db.prepare('SELECT topic_id FROM channels WHERE channel_id = ?').get(sigFull.channel_id) as { topic_id?: number | null } | undefined;
-      if (chRow?.topic_id) {
-        const topicRow = db.prepare('SELECT filter_text FROM topics WHERE id = ?').get(chRow.topic_id) as { filter_text?: string } | undefined;
-        filterText = topicRow?.filter_text || undefined;
-      }
-    }
+    // Assemble prompt using PromptAssembler (issue #100)
+    const prompt = assemble(context);
 
     const analysisContent = await callLlmWithRetry(
-      config.endpoint, config.model, buildMergedPrompt(transcriptionText, filterText), 'analysis', videoId, signal
+      config.endpoint, config.model, prompt, 'analysis', videoId, signal
     );
 
     // LLM always outputs [prose reasoning] + [JSON object at end].

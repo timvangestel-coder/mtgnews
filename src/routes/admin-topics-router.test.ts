@@ -3,7 +3,7 @@ import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDb } from '../db/init-db';
-import { createTopic as dbCreateTopic, listTopics, addChannel } from '../db/watchlist';
+import { createTopic as dbCreateTopic, listTopics, getTopicById, addChannel } from '../db/watchlist';
 import { TopicManager } from '../services/topic-manager';
 import { createAdminTopicsRouter } from './admin-topics-router';
 
@@ -82,6 +82,31 @@ describe('admin-topics-router', () => {
       expect(res.status).toBe(400);
       expect(res.text).toContain('Duplicate');
     });
+
+    it('saves summary_prompt on create', async () => {
+      const t = Date.now();
+      const prompt = `Custom template ${t}`;
+      const res = await request(app)
+        .post('/admin/topics')
+        .set('HX-Request', 'true')
+        .send({ key: `prompt-create-${t}`, short_name: `Prompt Create ${t}`, filter_text: 'f', summary_prompt: prompt });
+
+      expect(res.status).toBe(200);
+      const found = listTopics(db).find((tp) => tp.key === `prompt-create-${t}`);
+      expect(found!.summary_prompt).toBe(prompt);
+    });
+
+    it('saves NULL summary_prompt when field not provided', async () => {
+      const t = Date.now();
+      const res = await request(app)
+        .post('/admin/topics')
+        .set('HX-Request', 'true')
+        .send({ key: `no-prompt-create-${t}`, short_name: `No Prompt ${t}` });
+
+      expect(res.status).toBe(200);
+      const found = listTopics(db).find((tp) => tp.key === `no-prompt-create-${t}`);
+      expect(found!.summary_prompt).toBeNull();
+    });
   });
 
   describe('POST /admin/topics/update', () => {
@@ -144,6 +169,36 @@ describe('admin-topics-router', () => {
 
       expect(res.status).toBe(200);
       expect(res.text).toContain('1');
+    });
+
+    it('updates summary_prompt via HTMX request', async () => {
+      const t = Date.now();
+      dbCreateTopic(db, `update-prompt-${t}`, 'Before Prompt', '');
+      const topic = listTopics(db).find((tp) => tp.key === `update-prompt-${t}`)!;
+
+      const res = await request(app)
+        .post('/admin/topics/update')
+        .set('HX-Request', 'true')
+        .send({ id: String(topic.id), summary_prompt: 'Updated template' });
+
+      expect(res.status).toBe(200);
+      const updated = getTopicById(db, topic.id);
+      expect(updated!.summary_prompt).toBe('Updated template');
+    });
+
+    it('sets summary_prompt to null when empty string sent', async () => {
+      const t = Date.now();
+      dbCreateTopic(db, `nullify-prompt-${t}`, 'Nullify Prompt', '', 'existing prompt');
+      const topic = listTopics(db).find((tp) => tp.key === `nullify-prompt-${t}`)!;
+
+      const res = await request(app)
+        .post('/admin/topics/update')
+        .set('HX-Request', 'true')
+        .send({ id: String(topic.id), summary_prompt: '' });
+
+      expect(res.status).toBe(200);
+      const updated = getTopicById(db, topic.id);
+      expect(updated!.summary_prompt).toBeNull();
     });
   });
 

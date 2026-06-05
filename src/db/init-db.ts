@@ -57,12 +57,13 @@ export function initDb(db: Database.Database): void {
        updated_at    INTEGER NOT NULL
      );
 
-     CREATE TABLE IF NOT EXISTS topics (
-       id          INTEGER PRIMARY KEY AUTOINCREMENT,
-       key         TEXT UNIQUE NOT NULL,
-       short_name  TEXT NOT NULL,
-       filter_text TEXT NOT NULL
-     );
+      CREATE TABLE IF NOT EXISTS topics (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        key           TEXT UNIQUE NOT NULL,
+        short_name    TEXT NOT NULL,
+        filter_text   TEXT NOT NULL,
+        summary_prompt TEXT
+      );
    `);
 
   // Migration: add missing columns for existing databases
@@ -136,10 +137,17 @@ export function initDb(db: Database.Database): void {
      db.exec('ALTER TABLE poll_runs ADD COLUMN signals_to_analyze INTEGER DEFAULT 0');
    }
 
-   // Migration: add signals_done to poll_run_progress (tracks how many signals per channel have been summarized)
-   const progressRows = db.pragma('table_info(poll_run_progress)') as Array<{ name: string }>;
-   const progressCols = progressRows.map((r) => r.name);
-   if (!progressCols.includes('signals_done')) {
-     db.exec('ALTER TABLE poll_run_progress ADD COLUMN signals_done INTEGER DEFAULT 0');
-   }
+    // Migration: add signals_done to poll_run_progress (tracks how many signals per channel have been summarized)
+    const progressRows = db.pragma('table_info(poll_run_progress)') as Array<{ name: string }>;
+    const progressCols = progressRows.map((r) => r.name);
+    if (!progressCols.includes('signals_done')) {
+      db.exec('ALTER TABLE poll_run_progress ADD COLUMN signals_done INTEGER DEFAULT 0');
+    }
+
+    // Issue #98: Migration: add summary_prompt to topics (nullable TEXT for per-topic prompt templates)
+    const topicRows = db.pragma('table_info(topics)') as Array<{ name: string }>;
+    const topicCols = topicRows.map((r) => r.name);
+    if (!topicCols.includes('summary_prompt')) {
+      db.exec('ALTER TABLE topics ADD COLUMN summary_prompt TEXT');
+    }
 }
