@@ -16,6 +16,7 @@ import { createPollsRouter } from './routes/polls-router';
 import { PollRunManager } from './poll-run-manager';
 import { createAdminPollingRouter } from './routes/admin-polling-router';
 import { createAdminRouter } from './routes/admin-router';
+import { createAdminSettingsRouter } from './routes/admin-settings-router';
 
 export interface ServerOptions {
   port?: number;
@@ -82,8 +83,11 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
   // admin polling — mounted via router (Issue #70)
   app.use('/', createAdminPollingRouter(pollRunManager));
 
+  // admin settings — mounted via router (Issue #103)
+  app.use('/', createAdminSettingsRouter(useDb));
+
   // admin dashboard — mounted via router (Issue #72)
-  app.use('/', createAdminRouter(channelManager, topicManager, pollRunManager));
+  app.use('/', createAdminRouter(channelManager, topicManager, pollRunManager, useDb));
 
   const server = app.listen(listenPort, () => {
     console.log(`Dashboard server listening on port ${listenPort}`);

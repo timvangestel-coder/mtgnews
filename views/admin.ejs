@@ -124,6 +124,28 @@
     <div x-init="htmx.process($el)">
       <h3 class="text-xl font-semibold mb-2">Topics</h3>
 
+      <!-- Global Default Prompt Editor -->
+      <div class="mb-6">
+        <h4 class="text-lg font-medium mb-2">Global Default Prompt</h4>
+        <p class="text-sm text-gray-500 mb-2">
+          Sets the default prompt template for all topics that do not have a custom prompt configured.
+          <% if (defaultPrompt === null || defaultPrompt === undefined) { %>
+            Currently using compiled default (no DB override set).
+          <% } else { %>
+            Custom global prompt is active.
+          <% } %>
+        </p>
+        <form hx-post="/admin/settings/default-prompt" hx-swap="none" class="flex flex-col gap-2 max-w-3xl">
+          <textarea name="prompt" rows="8"
+              class="px-3 py-2 border rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Leave empty to use compiled default template"><%= defaultPrompt || '' %></textarea>
+          <div class="flex gap-2 items-center">
+            <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Save</button>
+            <span class="text-xs text-gray-400">Setting empty clears the override and falls back to compiled default.</span>
+          </div>
+        </form>
+      </div>
+
       <!-- Add Topic Form -->
       <div class="mb-6" x-data="">
         <h4 class="text-lg font-medium mb-2">Add Topic</h4>

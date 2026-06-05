@@ -150,4 +150,12 @@ export function initDb(db: Database.Database): void {
     if (!topicCols.includes('summary_prompt')) {
       db.exec('ALTER TABLE topics ADD COLUMN summary_prompt TEXT');
     }
+
+    // Issue #102: app_settings key/value table for runtime-configurable global defaults
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `);
 }

@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import Database from 'better-sqlite3';
+import { getAppSetting } from '../db/app-settings';
 import { ChannelManager } from '../services/channel-manager';
 import { TopicManager } from '../services/topic-manager';
 import { PollRunManager } from '../poll-run-manager';
@@ -7,6 +9,7 @@ export function createAdminRouter(
   channelManager: ChannelManager,
   topicManager: TopicManager,
   pollRunManager: PollRunManager,
+  db: Database.Database,
 ) {
   const router = Router();
 
@@ -24,6 +27,8 @@ export function createAdminRouter(
 
     const tab = req.query.tab as string | undefined;
 
+    const defaultPrompt = getAppSetting(db, 'default_summary_prompt');
+
     res.render('admin', {
       activePage: 'admin',
       title: 'Admin Panel',
@@ -31,6 +36,7 @@ export function createAdminRouter(
       topics,
       currentRunState,
       tab,
+      defaultPrompt,
     });
   });
 

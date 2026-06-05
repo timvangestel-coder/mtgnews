@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDb } from './db/init-db';
 import { resolveSignalContext } from './signal-context';
+import { setAppSetting } from './db/app-settings';
 
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');
@@ -113,6 +114,63 @@ describe('resolveSignalContext (issue #98)', () => {
     expect(context.transcriptionJson).toBe('{"raw":true}');
     expect(context.topicId).toBe(2);
     expect(context.filterText).toBe('AI content');
+    expect(context.summaryPrompt).toBeNull();
+  });
+});
+
+describe('resolveSignalContext three-tier resolution (issue #102)', () => {
+  function seedDbWithNoTopicPrompt(db: Database.Database): void {
+    // Topic with NULL summary_prompt
+    db.prepare(
+      `INSERT INTO topics (key, short_name, filter_text) VALUES ('mtg', 'MTG', 'Magic cards')`
+    ).run();
+
+    // Channel linked to topic
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at, topic_id) VALUES ('UC_mtg', 'MTG Channel', 1700000000, 1)`
+    ).run();
+
+    // Signal
+    db.prepare(
+      `INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES ('v_1', 'UC_mtg', 'Video', '{}', 1700000000)`
+    ).run();
+  }
+
+  it('tier 1: topic summary_prompt takes priority over DB global default', () => {
+    const db = createTestDb();
+    seedDbWithNoTopicPrompt(db);
+
+    // Set a DB global default
+    setAppSetting(db, 'default_summary_prompt', 'DB global prompt');
+
+    // Now set a topic-level override
+    db.prepare("UPDATE topics SET summary_prompt = 'Topic override' WHERE id = 1").run();
+
+    const context = resolveSignalContext('v_1', db);
+
+    expect(context.summaryPrompt).toBe('Topic override');
+  });
+
+  it('tier 2: DB global default used when topic summary_prompt is NULL', () => {
+    const db = createTestDb();
+    seedDbWithNoTopicPrompt(db);
+
+    // Set a DB global default
+    setAppSetting(db, 'default_summary_prompt', 'DB global prompt');
+
+    const context = resolveSignalContext('v_1', db);
+
+    expect(context.summaryPrompt).toBe('DB global prompt');
+  });
+
+  it('tier 3: null returned when both topic and DB are empty (code fallback for PromptAssembler)', () => {
+    const db = createTestDb();
+    seedDbWithNoTopicPrompt(db);
+
+    // Do NOT set a DB global default
+
+    const context = resolveSignalContext('v_1', db);
+
     expect(context.summaryPrompt).toBeNull();
   });
 });

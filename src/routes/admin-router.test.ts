@@ -25,7 +25,7 @@ function createTestApp() {
   app.set('layout extractStyles', true);
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use('/', createAdminRouter(channelManager, topicManager, pollRunManager));
+  app.use('/', createAdminRouter(channelManager, topicManager, pollRunManager, db));
 
   return { app, db };
 }

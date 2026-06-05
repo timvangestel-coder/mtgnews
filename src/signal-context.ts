@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { getAppSetting } from './db/app-settings';
 
 export interface SignalContext {
   transcriptionJson: string;
@@ -22,11 +23,15 @@ export function resolveSignalContext(videoId: string, db: Database.Database): Si
     throw new Error(`Signal ${videoId} not found`);
   }
 
-  // Channels without a topic still work: empty filter, no custom prompt
+  // Three-tier resolution: topic override → DB global default → null (PromptAssembler code fallback)
+  const summaryPrompt = row.summary_prompt
+    ?? getAppSetting(db, 'default_summary_prompt')
+    ?? null;
+
   return {
     transcriptionJson: row.transcription,
     topicId: row.topic_id ?? 0,
     filterText: row.filter_text ?? '',
-    summaryPrompt: row.summary_prompt ?? null,
+    summaryPrompt,
   };
 }
