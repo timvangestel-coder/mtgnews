@@ -1,16 +1,10 @@
 import Database from 'better-sqlite3';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { initDb } from './db/init-db';
 import { addChannel, createTopic } from './db/watchlist';
 import { PollRunManager } from './poll-run-manager';
 import * as llm from './llm';
 import * as pollMod from './poll';
-
-function createTestDb() {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
+import { createTestDb } from '../tests/fixtures/test-db';
 
 function makeXml(videoId: string, title: string, daysAgo: number) {
   const published = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();

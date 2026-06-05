@@ -4,6 +4,7 @@ import { pollChannel, PollOptions } from './poll';
 import { analyzeSignal, getLlmConfig } from './llm';
 import { preRegisterChannelProgress, getPollRunById, queryPollRunProgress, PollRunRow, PollRunProgressRow } from './db/poll-runs';
 import { deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } from './signal-state';
+import { ConcurrencyPool } from './concurrency-pool';
 
 /** Unique identifier for a poll run */
 export type RunId = number;
@@ -33,41 +34,6 @@ export interface CurrentProgressResult {
 interface ActiveRunEntry {
   controller: AbortController;
   worker: Promise<void>;
-}
-
-/**
- * ConcurrencyPool — limits parallel task execution with a drain() method.
- * Tasks are dispatched via run() and drain() waits for all to complete.
- */
-class ConcurrencyPool {
-  private running = new Set<Promise<void>>();
-  private concurrency: number;
-
-  constructor(concurrency: number) {
-    this.concurrency = concurrency;
-  }
-
-  /** Dispatch a task to the pool. Returns immediately. */
-  run(fn: () => Promise<void>): void {
-    const p = (async () => {
-      try {
-        await fn();
-      } finally {
-        this.running.delete(p);
-      }
-    })();
-    this.running.add(p);
-
-    // If we're at concurrency limit, wait for one to finish before returning
-    if (this.running.size >= this.concurrency) {
-      Promise.race(this.running).catch(() => {});
-    }
-  }
-
-  /** Wait for all dispatched tasks to complete. */
-  async drain(): Promise<void> {
-    await Promise.all(Array.from(this.running));
-  }
 }
 
 /**

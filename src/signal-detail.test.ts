@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
 
 // -- getSignalById --
@@ -15,11 +14,7 @@ import { injectTimestampAnchors } from './signal-detail';
 // -- formatTranscriptionHtml --
 import { formatTranscriptionHtml } from './signal-detail';
 
-function createTestDb() {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
+import { createTestDb } from '../tests/fixtures/test-db';
 
 describe('signal-detail', () => {
   let db: Database.Database;

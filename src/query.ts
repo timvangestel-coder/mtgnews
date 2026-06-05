@@ -43,20 +43,6 @@ export interface EntityTrending {
 const DEFAULT_LIMIT = 25;
 const DEFAULT_OFFSET = 0;
 
-// Map sentiment text to numeric for averaging
-function sentimentToNumber(s: string): number {
-  switch (s.toLowerCase()) {
-    case 'positive':
-      return 3;
-    case 'neutral':
-      return 2;
-    case 'negative':
-      return 1;
-    default:
-      return 0;
-  }
-}
-
 export function querySignals(db: Database.Database, filters: QueryFilters = {}): QueryResult {
   const offset = filters.offset ?? DEFAULT_OFFSET;
   const limit = filters.limit ?? DEFAULT_LIMIT;

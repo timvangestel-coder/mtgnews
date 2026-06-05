@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { initDb } from './db/init-db';
 import { analyzeSignal, LlmConfig, getLlmConfig } from './llm';
+import { createTestDb, seedChannel, seedSignal } from '../tests/fixtures/test-db';
 
 const mockFetch = vi.fn();
 const originalFetch = global.fetch;
@@ -14,27 +14,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.stubGlobal('fetch', originalFetch);
 });
-
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
-
-function insertChannel(db: Database.Database, channelId: string, topicId?: number) {
-  if (topicId !== undefined) {
-    db.prepare('INSERT INTO channels (channel_id, display_name, added_at, topic_id) VALUES (?, ?, ?, ?)')
-      .run(channelId, 'Test Channel', Date.now(), topicId);
-  } else {
-    db.prepare('INSERT INTO channels (channel_id, display_name, added_at) VALUES (?, ?, ?)')
-      .run(channelId, 'Test Channel', Date.now());
-  }
-}
-
-function insertSignal(db: Database.Database, videoId: string, transcription: string) {
-  db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(videoId, 'UCtest', 'Test Video', transcription, Date.now());
-}
 
 function mockMergedResponse(json: Record<string, unknown>) {
   mockFetch.mockResolvedValueOnce({
@@ -78,8 +57,8 @@ describe('llm', () => {
   describe('analyzeSignal', () => {
     it('makes one LLM call, persists summary/sentiment/entities to db', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v1', 'this is a test video about mtg');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v1', 'this is a test video about mtg');
 
       mockMergedResponse({
         summary: 'Video discusses MTG topics',
@@ -113,12 +92,12 @@ describe('llm', () => {
 
     it('formats grouped transcription with [T:ss] timestamps', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
+      seedChannel(db, 'UCtest');
       const transcription = JSON.stringify([
         { time: 0, text: 'hello world mtg news today' },
         { time: 10000, text: 'kaldra is great' },
       ]);
-      insertSignal(db, 'v2', transcription);
+      seedSignal(db, 'v2', transcription);
 
       mockMergedResponse({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] });
 
@@ -131,8 +110,8 @@ describe('llm', () => {
 
     it('clamps sentiment score to 1-5 range', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v3', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v3', 'text');
 
       mockMergedResponse({ summary: 's', takeaways: [], overall_sentiment: { score: 10, label: 'Positive' }, entities: [] });
 
@@ -144,8 +123,8 @@ describe('llm', () => {
 
     it('persists multiple entity mentions with correct types', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v4', 'transcription about cards');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v4', 'transcription about cards');
 
       mockMergedResponse({
         summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [
@@ -164,8 +143,8 @@ describe('llm', () => {
 
     it('returns failure when LLM HTTP call fails', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v5', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v5', 'text');
 
       mockFetch.mockResolvedValueOnce({ ok: false, status: 500 } as any);
 
@@ -180,8 +159,8 @@ describe('llm', () => {
 
     it('returns failure when LLM returns malformed JSON', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v6', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v6', 'text');
 
       mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [{ message: { content: 'not json' } }] }) as any });
 
@@ -191,8 +170,8 @@ describe('llm', () => {
 
     it('uses correct endpoint and model in fetch call', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v7', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v7', 'text');
 
       mockMergedResponse({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] });
 
@@ -206,7 +185,7 @@ describe('llm', () => {
     it('injects channel topic filter_text into prompt', async () => {
       const db = createTestDb();
       db.prepare('INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)').run('modern', 'Modern', 'Only Modern format.');
-      insertChannel(db, 'UCfilter', 1);
+      seedChannel(db, 'UCfilter', 1);
       db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES (?, ?, ?, ?, ?)')
         .run('v-filter', 'UCfilter', 'Test', 'some text', Date.now());
 
@@ -220,8 +199,8 @@ describe('llm', () => {
 
     it('relevant:false -> sets processing_state=irrelevant, skips summary/sentiment/entities', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v-irrel', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-irrel', 'text');
 
       mockMergedResponse({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [], relevant: false });
 
@@ -235,8 +214,8 @@ describe('llm', () => {
 
     it('missing relevant field -> backward compat, treated as relevant', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v-backcompat', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-backcompat', 'text');
 
       mockMergedResponse({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] });
 
@@ -250,7 +229,7 @@ describe('llm', () => {
     it('prompt instructs minimal JSON when irrelevant', async () => {
       const db = createTestDb();
       db.prepare('INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)').run('mtg', 'MTG', 'Must be about MTG.');
-      insertChannel(db, 'UCfilter', 1);
+      seedChannel(db, 'UCfilter', 1);
       db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES (?, ?, ?, ?, ?)')
         .run('v-minimal', 'UCfilter', 'Test', 'text', Date.now());
 
@@ -264,8 +243,8 @@ describe('llm', () => {
 
     it('accepts minimal { relevant: false } response', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v-min-irr', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-min-irr', 'text');
 
       mockMergedResponse({ relevant: false });
 
@@ -279,8 +258,8 @@ describe('llm', () => {
 
     it('prompt uses generic role "You are a content analyst"', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v-role', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-role', 'text');
 
       mockMergedResponse({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] });
 
@@ -293,7 +272,7 @@ describe('llm', () => {
 
     it('channel with no topic_id processes correctly', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCnofilter');
+      seedChannel(db, 'UCnofilter');
       db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES (?, ?, ?, ?, ?)')
         .run('v-nofilter', 'UCnofilter', 'Test', 'text', Date.now());
 
@@ -308,8 +287,8 @@ describe('llm', () => {
 
     it('handles LLM response with prose reasoning before trailing JSON', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v-prose', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-prose', 'text');
 
       // Exact format: long prose reasoning (with braces scattered in text) + JSON at end
       mockFetch.mockResolvedValueOnce({
@@ -326,8 +305,8 @@ describe('llm', () => {
 
     it('handles LLM response with prose before minimal irrelevant JSON', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v-irr-prose', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-irr-prose', 'text');
 
       // Exact format: long reasoning that mentions {"relevant": false} in text + actual JSON at end
       mockFetch.mockResolvedValueOnce({
@@ -344,8 +323,8 @@ describe('llm', () => {
 
     it('returns descriptive error for unexpected response structure', async () => {
       const db = createTestDb();
-      insertChannel(db, 'UCtest');
-      insertSignal(db, 'v-struct', 'text');
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-struct', 'text');
 
       mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [] }) as any });
 

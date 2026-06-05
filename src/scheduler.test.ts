@@ -1,8 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { initDb } from './db/init-db';
 import { recoverStaleRuns, startScheduledPolling, stopScheduledPolling } from './scheduler';
 import { PollRunManager } from './poll-run-manager';
+import { createTestDb } from '../tests/fixtures/test-db';
 
 // vi.mock hoists to top -> define mock fn inside factory
 vi.mock('node-cron', () => {
@@ -16,12 +16,6 @@ vi.mock('node-cron', () => {
     },
   };
 });
-
-function createTestDb() {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
 
 describe('scheduler', () => {
   let db: Database.Database;

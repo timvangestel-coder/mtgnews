@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { initDb } from './init-db';
 import {
   addChannel,
   removeChannel,
@@ -17,12 +16,7 @@ import {
   listActiveChannels,
   getAdminData,
 } from './watchlist';
-
-function createTestDb() {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
+import { createTestDb } from '../../tests/fixtures/test-db';
 
 describe('watchlist module', () => {
   let db: Database.Database;

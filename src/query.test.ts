@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
 import { createTopic, listTopics } from './db/watchlist';
 import {
@@ -10,12 +9,7 @@ import {
   querySignals,
   getEntityTrending,
 } from './query';
-
-function createTestDb() {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
+import { createTestDb } from '../tests/fixtures/test-db';
 
 function insertSignal(
   db: Database.Database,

@@ -1,26 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { initDb } from './db/init-db';
 import { markSummarized, markIrrelevant, isPending, isIrrelevant, isSummarized, deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } from './signal-state';
-
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
-
-function insertChannel(db: Database.Database, channelId: string) {
-  db.prepare('INSERT INTO channels (channel_id, display_name, added_at) VALUES (?, ?, ?)')
-    .run(channelId, 'Test Channel', Date.now());
-}
-
-function insertSignal(db: Database.Database, videoId: string, ensureChannel = true) {
-  if (ensureChannel) {
-    insertChannel(db, 'UCtest');
-  }
-  db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(videoId, 'UCtest', 'Test Video', 'transcription text', Date.now());
-}
+import { createTestDb, seedChannel, seedSignal } from '../tests/fixtures/test-db';
 
 describe('signal-state predicates', () => {
   it('isPending returns true for pending state', () => {
@@ -54,7 +35,8 @@ describe('signal-state predicates', () => {
 describe('markIrrelevant', () => {
   it('sets processing_state to irrelevant for the given video_id', () => {
     const db = createTestDb();
-    insertSignal(db, 'v1');
+    seedChannel(db, 'UCtest');
+    seedSignal(db, 'v1', 'transcription text');
 
     markIrrelevant(db, 'v1');
 
@@ -64,8 +46,9 @@ describe('markIrrelevant', () => {
 
   it('does not affect other signals', () => {
     const db = createTestDb();
-    insertSignal(db, 'v1', true);
-    insertSignal(db, 'v2', false);
+    seedChannel(db, 'UCtest');
+    seedSignal(db, 'v1', 'transcription text');
+    seedSignal(db, 'v2', 'transcription text');
 
     markIrrelevant(db, 'v1');
 
@@ -77,7 +60,8 @@ describe('markIrrelevant', () => {
 describe('markSummarized', () => {
   it('sets processing_state to summarized for the given video_id', () => {
     const db = createTestDb();
-    insertSignal(db, 'v1');
+    seedChannel(db, 'UCtest');
+    seedSignal(db, 'v1', 'transcription text');
 
     markSummarized(db, 'v1');
 
@@ -87,8 +71,9 @@ describe('markSummarized', () => {
 
   it('does not affect other signals', () => {
     const db = createTestDb();
-    insertSignal(db, 'v1', true);
-    insertSignal(db, 'v2', false);
+    seedChannel(db, 'UCtest');
+    seedSignal(db, 'v1', 'transcription text');
+    seedSignal(db, 'v2', 'transcription text');
 
     markSummarized(db, 'v1');
 
@@ -106,7 +91,7 @@ function insertPollRun(db: Database.Database): number {
 describe('deletePendingForRun', () => {
   it('deletes pending signals and their entity_mentions for a given runId', () => {
     const db = createTestDb();
-    insertChannel(db, 'UCtest');
+    seedChannel(db, 'UCtest');
     const runId = insertPollRun(db);
     // Insert a pending signal with an entity_mention
     db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?)')
@@ -132,7 +117,7 @@ describe('deletePendingForRun', () => {
 
   it('does not affect signals from other runs', () => {
     const db = createTestDb();
-    insertChannel(db, 'UCtest');
+    seedChannel(db, 'UCtest');
     const runIdA = insertPollRun(db);
     const runIdB = insertPollRun(db);
     // Pending signal in run A (different run)
@@ -146,7 +131,7 @@ describe('deletePendingForRun', () => {
 
   it('handles runId with no pending signals gracefully', () => {
     const db = createTestDb();
-    insertChannel(db, 'UCtest');
+    seedChannel(db, 'UCtest');
     const runId = insertPollRun(db);
     db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at, poll_run_id, processing_state) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run('v20', 'UCtest', 'Summarized Only', 'transcription', Date.now(), runId, 'summarized');
@@ -161,7 +146,7 @@ describe('deletePendingForRun', () => {
 describe('countProcessedForRun', () => {
   it('counts non-pending signals for a given runId', () => {
     const db = createTestDb();
-    insertChannel(db, 'UCtest');
+    seedChannel(db, 'UCtest');
     const runId = insertPollRun(db);
     // Pending signal (should NOT be counted)
     db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?)')
@@ -189,7 +174,7 @@ describe('countProcessedForRun', () => {
 
   it('does not count signals from other runs', () => {
     const db = createTestDb();
-    insertChannel(db, 'UCtest');
+    seedChannel(db, 'UCtest');
     const runIdA = insertPollRun(db);
     // Signal in run A only
     db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at, poll_run_id, processing_state) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -204,7 +189,7 @@ describe('countProcessedForRun', () => {
 describe('pendingSignalsForChannel', () => {
   it('returns pending signals for a given channel and runId', () => {
     const db = createTestDb();
-    insertChannel(db, 'UCtest');
+    seedChannel(db, 'UCtest');
     const runId = insertPollRun(db);
     // Pending signal (should be returned)
     db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?)')
@@ -224,7 +209,7 @@ describe('pendingSignalsForChannel', () => {
 
   it('returns empty array when no pending signals for the channel', () => {
     const db = createTestDb();
-    insertChannel(db, 'UCtest');
+    seedChannel(db, 'UCtest');
     const runId = insertPollRun(db);
     db.prepare('INSERT INTO signals (video_id, channel_id, title, transcription, created_at, poll_run_id, processing_state) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run('v1', 'UCtest', 'Summarized Only', 'transcription', Date.now(), runId, 'summarized');
@@ -236,8 +221,8 @@ describe('pendingSignalsForChannel', () => {
 
   it('does not return signals from other channels or runs', () => {
     const db = createTestDb();
-    insertChannel(db, 'UCtest');
-    insertChannel(db, 'UCother');
+    seedChannel(db, 'UCtest');
+    seedChannel(db, 'UCother');
     const runIdA = insertPollRun(db);
     const runIdB = insertPollRun(db);
     // Pending in different channel (should NOT be returned)

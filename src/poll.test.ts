@@ -1,16 +1,10 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { initDb } from './db/init-db';
 import { addChannel } from './db/watchlist';
 import { RssCandidate } from './rss-discovery';
 import { TranscriptionSegment } from './transcription';
 import { ingestSignal, IngestResult, pollChannel } from './poll';
-
-function createTestDb() {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
+import { createTestDb } from '../tests/fixtures/test-db';
 
 const SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">

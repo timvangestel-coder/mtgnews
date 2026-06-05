@@ -27,6 +27,12 @@ export function parseRssFeed(xml: string): RssCandidate[] {
   while ((match = entryRegex.exec(xml)) !== null) {
     const entryXml = match[1];
 
+    // Skip YouTube Shorts: entries with /shorts/ in the link href
+    const linkMatch = /<link[^>]*href="([^"]+)"/.exec(entryXml);
+    if (linkMatch && linkMatch[1].includes('/shorts/')) {
+      continue;
+    }
+
     const idMatch = /<id>yt:video:([^<]+)<\/id>/.exec(entryXml);
     const titleMatch = /<title>([^<]+)<\/title>/.exec(entryXml);
     const publishedMatch = /<published>([^<]+)<\/published>/.exec(entryXml);
@@ -42,6 +48,30 @@ export function parseRssFeed(xml: string): RssCandidate[] {
   }
 
   return entries;
+}
+
+/**
+ * Extract video IDs from YouTube Shorts entries in an RSS feed.
+ * Used by the cleanup script to identify Shorts for deletion.
+ */
+export function extractShortsVideoIds(xml: string): string[] {
+  const ids: string[] = [];
+  const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = entryRegex.exec(xml)) !== null) {
+    const entryXml = match[1];
+
+    const linkMatch = /<link[^>]*href="([^"]+)"/.exec(entryXml);
+    if (linkMatch && linkMatch[1].includes('/shorts/')) {
+      const idMatch = /<id>yt:video:([^<]+)<\/id>/.exec(entryXml);
+      if (idMatch) {
+        ids.push(idMatch[1]);
+      }
+    }
+  }
+
+  return ids;
 }
 
 export function parseChannelInfo(xml: string): ChannelInfo | null {
@@ -208,9 +238,13 @@ export async function discoverCandidates(
   return { candidates, duplicateCount, fetchErrors };
 }
 
-export async function fetchChannelInfo(channelId: string): Promise<ChannelInfo | null> {
+export async function fetchChannelInfo(
+  channelId: string,
+  options: DiscoveryOptions = {}
+): Promise<ChannelInfo | null> {
   try {
-    const xml = await fetchRssSync(channelId);
+    const fetchFn = options.fetchRss || fetchRssSync;
+    const xml = await fetchFn(channelId);
     return parseChannelInfo(xml);
   } catch {
     return null;

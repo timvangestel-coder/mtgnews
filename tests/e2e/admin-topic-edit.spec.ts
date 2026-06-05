@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/server-fixture';
 
 test.describe('Admin Topic Inline Edit', () => {
-  test('should show console errors when editing a topic', async ({ page }) => {
+  test('should show console errors when editing a topic', async ({ page, baseUrl }) => {
     const consoleLogs: string[] = [];
     const browserErrors: string[] = [];
 
@@ -9,7 +9,7 @@ test.describe('Admin Topic Inline Edit', () => {
     page.on('pageerror', err => browserErrors.push(err.message));
 
     // Go to admin topics tab
-    await page.goto('http://localhost:3000/admin?tab=topics');
+    await page.goto(`${baseUrl}/admin?tab=topics`);
     await page.waitForTimeout(1000); // Wait for Alpine.js to initialize
 
     console.log('=== Console Logs ===');

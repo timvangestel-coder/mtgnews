@@ -51,8 +51,8 @@ test.describe('Admin Panel', () => {
     const widget = page.locator('#progress-widget');
     await expect(widget).toBeVisible();
 
-    // No poll run seeded -> "No active poll run." message
-    await expect(page.locator('text=No active poll run.')).toBeVisible();
+    // No poll run seeded -> "No poll runs yet." message
+    await expect(page.locator('text=No poll runs yet.')).toBeVisible();
   });
 
   test('run poll button is visible', async ({ page, baseUrl }) => {
@@ -236,10 +236,10 @@ test.describe('Admin Panel', () => {
       // Default is Channels tab — click to confirm
       await page.click('button:has-text("Channels")');
 
-      // Toggle first channel's checkbox
+      // Toggle first channel's checkbox (use force:true to bypass sr-only + overlay div pointer intercept)
       const firstToggle = page.locator('.bg-gray-50.rounded').first().locator('input[type="checkbox"]');
       if (await firstToggle.isChecked()) {
-        await firstToggle.click();
+        await firstToggle.click({ force: true });
       }
       await page.waitForTimeout(500);
 

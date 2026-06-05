@@ -1,14 +1,8 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { initDb } from './init-db';
 import { addChannel, createTopic } from './watchlist';
 import { preRegisterChannelProgress } from './poll-runs';
-
-function createTestDb() {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
+import { createTestDb } from '../../tests/fixtures/test-db';
 
 describe('preRegisterChannelProgress', () => {
   let db: Database.Database;

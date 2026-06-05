@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { initDb } from './db/init-db';
 
 vi.mock('./llm', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./llm')>();
@@ -30,12 +29,7 @@ vi.mock('./poll', async (importOriginal) => {
 
 // Re-import after mocking so mocked dependencies are used
 const { PollRunManager } = await import('./poll-run-manager');
-
-function createTestDb() {
-  const db = new Database(':memory:');
-  initDb(db);
-  return db;
-}
+import { createTestDb } from '../tests/fixtures/test-db';
 
 describe('done counter incremented on analysis failure', () => {
   let db: Database.Database;
