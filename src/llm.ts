@@ -9,6 +9,109 @@ export interface LlmConfig {
   model: string;
 }
 
+export interface LlmCallOptions {
+  abortSignal?: AbortSignal;
+}
+
+const MAX_RETRIES = 1;
+const FETCH_TIMEOUT_MS = 300_000; // 5 minutes
+
+/**
+ * Sync LLM call — returns the full content string.
+ * Uses fetchWithRetry for resilient HTTP with retry + timeout.
+ */
+export async function callLlmSync(
+  config: LlmConfig,
+  prompt: string,
+  options?: LlmCallOptions
+): Promise<string> {
+  const response = await fetchWithRetry(config.endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
+
+  if (!response.ok) {
+    throw new Error(`LLM sync HTTP ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  if (!data.choices?.[0]?.message?.content) {
+    throw new Error('LLM sync returned unexpected response structure');
+  }
+
+  return data.choices[0].message.content;
+}
+
+/**
+ * Streaming LLM call — yields token chunks via Server-Sent Events.
+ * Uses fetchWithRetry to obtain the response, then consumes the ReadableStream.
+ */
+export async function* callLlmStream(
+  config: LlmConfig,
+  prompt: string,
+  options?: LlmCallOptions
+): AsyncGenerator<string> {
+  const response = await fetchWithRetry(config.endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [{ role: 'user', content: prompt }],
+      stream: true,
+    }),
+  }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
+
+  if (!response.ok) {
+    throw new Error(`LLM stream HTTP ${response.status} ${response.statusText}`);
+  }
+
+  if (!response.body) {
+    throw new Error('LLM stream response has no body');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE lines from buffer
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // keep incomplete line in buffer
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data: ')) continue;
+
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') return;
+
+        try {
+          const parsed = JSON.parse(data);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) {
+            yield content;
+          }
+        } catch {
+          // skip malformed SSE data lines
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:1234/v1/chat/completions';
 const DEFAULT_MODEL = 'qwen/qwen3.6-27b';
 
@@ -54,9 +157,7 @@ function clampScore(score: number): number {
   return Math.max(1, Math.min(5, Math.round(score)));
 }
 
-const MAX_RETRIES = 1;
-const FETCH_TIMEOUT_MS = 300_000; // 5 minutes
-
+/** @internal — wraps callLlmSync with domain-specific error context for analyzeSignal */
 async function callLlmWithRetry(
   endpoint: string,
   model: string,
@@ -66,23 +167,7 @@ async function callLlmWithRetry(
   signal?: AbortSignal
 ): Promise<string> {
   try {
-    const response = await fetchWithRetry(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
-    }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: signal });
-
-    if (!response.ok) {
-      throw new Error(`LLM ${callName} HTTP ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-
-    if (!data.choices?.[0]?.message?.content) {
-      throw new Error(`LLM ${callName} returned unexpected response structure`);
-    }
-
-    return data.choices[0].message.content;
+    return await callLlmSync({ endpoint, model }, prompt, { abortSignal: signal });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     if (err.name === 'AbortError') {

@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review — MTGNews Signal Chat Feature</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <header class="border-b border-slate-200 pb-6">
+        <h1 class="text-3xl font-serif font-bold text-slate-900">Architecture Review — MTGNews</h1>
+        <p class="text-sm text-slate-500 mt-1">Signal Chat Feature · 2026-06-05</p>
+        <div class="flex gap-4 mt-4 text-xs uppercase tracking-wider">
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-slate-800"></span> Module</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-8 border-t-2 border-dashed border-slate-400"></span> Seam</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-8 border-t-2 border-red-600"></span> Leakage</span>
+          <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-emerald-600"></span> Deep module</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-10">
+
+        <!-- CANDIDATE 1: Split LLM Module -->
+        <article class="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+          <div class="flex items-start justify-between">
+            <h2 class="text-xl font-bold">Split LLM Module — Streaming Seam</h2>
+            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">Strong</span>
+          </div>
+          <p class="font-mono text-sm text-slate-600">src/llm.ts · src/http-retry.ts</p>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2 font-semibold">Before — shallow</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[Route Handler] --> B[analyzeSignal()]
+                  B --> C[callLlmWithRetry()]
+                  C --> D[fetchWithRetry()]
+                  D --> E[Response.json()]
+                  E --> F["DB write (inside llm.ts)"]
+                  classDef leak stroke:#dc2626,stroke-width:2px,color:#dc2626;
+                  class B,F leak
+              </pre>
+            </div>
+            <div class="rounded-lg border-2 border-emerald-500 bg-emerald-50/30 p-3">
+              <p class="text-xs uppercase tracking-wider text-emerald-700 mb-2 font-semibold">After — deepened</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[Route Handler] --> B["llm.ts (deep)"]
+                  B --> C1[analyzeSignal()]
+                  B --> C2[chatStream()]
+                  C1 --> D[HttpSyncAdapter]
+                  C2 --> E[HttpStreamAdapter]
+                  D --> F[fetchWithRetry]
+                  E --> G[fetchAsStream]
+                  style B fill:#0f172a,color:#fff,stroke:#0f172a
+              </pre>
+            </div>
+          </div>
+
+          <p><strong class="font-semibold">Problem:</strong> <code>llm.ts</code> is shallow — the interface (<code>analyzeSignal(db, videoId, config)</code>) exposes implementation details (DB writes inside the LLM call). No seam for streaming. Chat feature would duplicate or monkey-patch this module.</p>
+          <p><strong class="font-semibold">Solution:</strong> Extract an HTTP adapter interface behind a seam: one sync adapter (<code>fetchWithRetry → .json()</code>) for analysis, one stream adapter (<code>fetchAsStream → AsyncGenerator<string></code>) for chat. DB writes move out of <code>llm.ts</code> into the caller (service layer).</p>
+
+          <ul class="space-y-1 text-sm">
+            <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">●</span><span><strong>Locality:</strong> LLM HTTP logic concentrates in one module — sync + stream variants side by side</span></li>
+            <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">●</span><span><strong>Leverage:</strong> Two adapters at the seam = real seam. Tests can inject mock adapter without mocking fetch</span></li>
+            <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">●</span><span><strong>Interface shrinks:</strong> callers receive typed results or streams — no DB coupling leaks through</span></li>
+          </ul>
+        </article>
+
+        <!-- CANDIDATE 2: Prompt Assembler Extension -->
+        <article class="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+          <div class="flex items-start justify-between">
+            <h2 class="text-xl font-bold">Extend PromptAssembler — Chat Template Seam</h2>
+            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+          </div>
+          <p class="font-mono text-sm text-slate-600">src/prompt-assembler.ts · src/db/app-settings.ts</p>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2 font-semibold">Before — single purpose</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[SignalContext] --> B["assemble()"]
+                  B --> C["{TRANSCRIPTION} + {FILTER_TEXT}"]
+                  C --> D[Summary Prompt]
+              </pre>
+            </div>
+            <div class="rounded-lg border-2 border-emerald-500 bg-emerald-50/30 p-3">
+              <p class="text-xs uppercase tracking-wider text-emerald-700 mb-2 font-semibold">After — polymorphic</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[SignalContext] --> B["assemble()"]
+                  C[ChatContext] --> D["assembleChat()"]
+                  B --> E["{TRANSCRIPTION} + {FILTER_TEXT}"]
+                  D --> F["{SUMMARY} + {HISTORY} + {QUESTION}"]
+                  style B fill:#1e293b,color:#fff,stroke:#1e293b
+                  style D fill:#1e293b,color:#fff,stroke:#1e293b
+              </pre>
+            </div>
+          </div>
+
+          <p><strong class="font-semibold">Problem:</strong> PromptAssembler is clean but single-purpose. Chat needs its own prompt template with different placeholders (<code>{SUMMARY}</code>, <code>{HISTORY}</code>, <code>{QUESTION}</code>). Adding a sibling function keeps the module deep — one interface for all prompt rendering.</p>
+          <p><strong class="font-semibold">Solution:</strong> Add <code>assembleChat(chatContext)</code> alongside <code>assemble(signalContext)</code>. Both use the same three-tier resolution chain (topic override → DB default → compiled fallback). Chat template stored in <code>app_settings.chat_prompt_template</code>.</p>
+
+          <ul class="space-y-1 text-sm">
+            <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">●</span><span><strong>Locality:</strong> All prompt rendering in one module — no template logic scattered across route handlers</span></li>
+            <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">●</span><span><strong>Leverage:</strong> Same three-tier resolution pattern reused for chat — one config mechanism, two prompt types</span></li>
+          </ul>
+        </article>
+
+        <!-- CANDIDATE 3: Service Layer Deepening -->
+        <article class="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+          <div class="flex items-start justify-between">
+            <h2 class="text-xl font-bold">Deepen Service Layer — Chat Manager</h2>
+            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800">Strong</span>
+          </div>
+          <p class="font-mono text-sm text-slate-600">src/services/signal-query-service.ts · src/routes/signals-router.ts</p>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2 font-semibold">Before — thin wrapper</p>
+              <pre class="mermaid">
+                flowchart TD
+                  A[Route Handler] --> B["SignalQueryService.summarizeSignal()"]
+                  B --> C["getLlmConfig()"]
+                  B --> D["analyzeSignal(db, videoId, config)"]
+                  style B fill:#f1f5f9,color:#64748b,stroke-dasharray: 4 4
+              </pre>
+            </div>
+            <div class="rounded-lg border-2 border-emerald-500 bg-emerald-50/30 p-3">
+              <p class="text-xs uppercase tracking-wider text-emerald-700 mb-2 font-semibold">After — Manager absorbs orchestration</p>
+              <pre class="mermaid">
+                flowchart TD
+                  A[Route Handler] --> B["ChatManager.ask()"]
+                  B --> C["resolveSignalContext()"]
+                  B --> D["getChatHistory()"]
+                  B --> E["assemblePrompt()"]
+                  B --> F["streamLlm() → persist"]
+                  style B fill:#0f172a,color:#fff,stroke:#0f172a
+              </pre>
+            </div>
+          </div>
+
+          <p><strong class="font-semibold">Problem:</strong> Current service layer is shallow — <code>SignalQueryService.summarizeSignal()</code> is a 3-line pass-through calling <code>analyzeSignal()</code> directly. The route handler + service together hold the orchestration logic, but neither owns it fully.</p>
+          <p><strong class="font-semibold">Solution:</strong> Create <code>ChatManager</code> following the existing naming convention (<code>-Manager</code> suffix for write/CRUD). The manager absorbs full orchestration: resolve context → fetch history → assemble prompt → stream LLM → persist answer. Route handler becomes a thin 5-line delegate.</p>
+
+          <ul class="space-y-1 text-sm">
+            <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">●</span><span><strong>Deletion test:</strong> deleting the manager would scatter orchestration across route + LLM module — it earns its keep</span></li>
+            <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">●</span><span><strong>Locality:</strong> chat bugs concentrate in one module instead of spanning route → service → LLM → DB</span></li>
+            <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">●</span><span><strong>Leverage:</strong> single test surface: test the manager with in-memory SQLite + mock stream adapter</span></li>
+          </ul>
+        </article>
+
+        <!-- CANDIDATE 4: DB Schema Module -->
+        <article class="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+          <div class="flex items-start justify-between">
+            <h2 class="text-xl font-bold">DB Init — Table Registration Seam</h2>
+            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-slate-100 text-slate-600">Speculative</span>
+          </div>
+          <p class="font-mono text-sm text-slate-600">src/db/init-db.ts</p>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2 font-semibold">Before — monolithic init</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[init-db.ts] -->|"CREATE TABLE signals"| B[(SQLite)]
+                  A -->|"CREATE TABLE channels"| B
+                  A -->|"CREATE TABLE topics"| B
+                  A -->|"CREATE TABLE ... 8 more"| B
+              </pre>
+            </div>
+            <div class="rounded-lg border-2 border-slate-400 bg-slate-50 p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2 font-semibold">After — registry pattern</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[init-db.ts] -->|"register()"| B["Schema Registry"]
+                  C[signals schema] -.-> B
+                  D[channels schema] -.-> B
+                  E["chat schema (new)"] -.-> B
+                  B -->|"CREATE all"| F[(SQLite)]
+              </pre>
+            </div>
+          </div>
+
+          <p><strong class="font-semibold">Problem:</strong> <code>init-db.ts</code> is a monolithic pass-through — every new table requires editing the same file. No seam for feature-scoped schema registration.</p>
+          <p><strong class="font-semibold">Solution:</strong> Introduce a simple registry: each domain module exports its DDL, init collects and runs all. Adding <code>signal_chat</code> becomes a one-file change in the chat module rather than editing the shared init.</p>
+
+          <ul class="space-y-1 text-sm">
+            <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">●</span><span><strong>Locality:</strong> chat schema lives next to chat code — not buried in a shared init file</span></li>
+            <li class="flex items-start gap-2"><span class="text-slate-400 mt-0.5">○</span><span>Low priority for greenfield project with stable schema — defer until table count grows</span></li>
+          </ul>
+        </article>
+
+      </section>
+
+      <section id="top-recommendation" class="bg-slate-800 text-white rounded-xl p-6 space-y-3">
+        <h2 class="text-lg font-bold uppercase tracking-wider">Top Recommendation</h2>
+        <p class="text-xl"><a href="#candidates" class="underline decoration-emerald-400 hover:no-underline">Split LLM Module — Streaming Seam</a></p>
+        <p class="text-slate-300">This is the foundation for the chat feature. Without a streaming seam in the LLM module, every other piece (ChatManager, PromptAssembler extension) has to work around the sync-only constraint. Deepening this module first creates the adapters that everything else plugs into — it's the highest-leverage change.</p>
+      </section>
+
+    </main>
+  </body>
+</html>

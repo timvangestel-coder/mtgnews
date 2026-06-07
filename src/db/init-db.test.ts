@@ -457,6 +457,136 @@ describe('Schema initialization', () => {
     }).toThrow();
   });
 
+  // Issue #106: signal_chat table for threaded Q&A per Signal
+  it('signal_chat table exists after init (issue #106)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+      )
+      .all() as { name: string }[];
+
+    const tableNames = tables.map((t) => t.name);
+    expect(tableNames).toContain('signal_chat');
+  });
+
+  it('signal_chat table has correct schema (issue #106)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(signal_chat)")
+      .all() as Array<{ name: string; type: string; notnull: number; dflt_value: string | null }>;
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type, notnull: c.notnull, dflt_value: c.dflt_value }])
+    );
+
+    // id INTEGER PRIMARY KEY AUTOINCREMENT
+    expect(columnMap.has('id')).toBe(true);
+    expect(columnMap.get('id')?.type).toBe('INTEGER');
+
+    // signal_video_id TEXT NOT NULL REFERENCES signals(video_id)
+    expect(columnMap.has('signal_video_id')).toBe(true);
+    expect(columnMap.get('signal_video_id')?.type).toBe('TEXT');
+    expect(columnMap.get('signal_video_id')?.notnull).toBe(1);
+
+    // question TEXT NOT NULL
+    expect(columnMap.has('question')).toBe(true);
+    expect(columnMap.get('question')?.type).toBe('TEXT');
+    expect(columnMap.get('question')?.notnull).toBe(1);
+
+    // answer TEXT NOT NULL
+    expect(columnMap.has('answer')).toBe(true);
+    expect(columnMap.get('answer')?.type).toBe('TEXT');
+    expect(columnMap.get('answer')?.notnull).toBe(1);
+
+    // created_at DEFAULT datetime('now')
+    expect(columnMap.has('created_at')).toBe(true);
+    expect(columnMap.get('created_at')?.dflt_value).toContain("datetime('now')");
+  });
+
+  it('signal_chat enforces foreign key to signals(video_id) (issue #106)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    // Insert a channel and signal first
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
+    ).run();
+    db.prepare(
+      `INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES ('v1', 'UC1', 'Test', '[]', 1700000000)`
+    ).run();
+
+    // Insert with valid signal_video_id should succeed
+    db.prepare(
+      `INSERT INTO signal_chat (signal_video_id, question, answer) VALUES ('v1', 'What card?', 'Karn Liberated')`
+    ).run();
+
+    const row = db.prepare('SELECT * FROM signal_chat WHERE id = 1').get();
+    expect(row).toBeDefined();
+    expect((row as { signal_video_id: string }).signal_video_id).toBe('v1');
+    expect((row as { question: string }).question).toBe('What card?');
+    expect((row as { answer: string }).answer).toBe('Karn Liberated');
+
+    // Insert with nonexistent video_id should throw (FK enforced)
+    expect(() => {
+      db.prepare(
+        `INSERT INTO signal_chat (signal_video_id, question, answer) VALUES ('nonexistent', 'Q', 'A')`
+      ).run();
+    }).toThrow();
+  });
+
+  it('signal_chat created_at defaults to current datetime (issue #106)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
+    ).run();
+    db.prepare(
+      `INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES ('v1', 'UC1', 'Test', '[]', 1700000000)`
+    ).run();
+
+    db.prepare(
+      `INSERT INTO signal_chat (signal_video_id, question, answer) VALUES ('v1', 'Q', 'A')`
+    ).run();
+
+    const row = db.prepare('SELECT created_at FROM signal_chat WHERE id = 1').get() as { created_at: string };
+    expect(row?.created_at).toBeDefined();
+    // Should be a valid ISO-ish datetime string (YYYY-MM-DD HH:MM:SS)
+    expect(row?.created_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  });
+
+  it('signal_chat allows multiple independent Q&A pairs per signal (issue #106)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
+    ).run();
+    db.prepare(
+      `INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES ('v1', 'UC1', 'Test', '[]', 1700000000)`
+    ).run();
+
+    db.prepare(
+      `INSERT INTO signal_chat (signal_video_id, question, answer) VALUES ('v1', 'Q1', 'A1')`
+    ).run();
+    db.prepare(
+      `INSERT INTO signal_chat (signal_video_id, question, answer) VALUES ('v1', 'Q2', 'A2')`
+    ).run();
+
+    const count = db.prepare('SELECT COUNT(*) as cnt FROM signal_chat WHERE signal_video_id = ?').get('v1');
+    expect((count as { cnt: number }).cnt).toBe(2);
+
+    // Delete one row independently
+    db.prepare('DELETE FROM signal_chat WHERE id = 1').run();
+    const countAfter = db.prepare('SELECT COUNT(*) as cnt FROM signal_chat WHERE signal_video_id = ?').get('v1');
+    expect((countAfter as { cnt: number }).cnt).toBe(1);
+  });
+
   it('allows valid inserts into all tables', async () => {
     const db = createTestDb();
     await initSchema(db);

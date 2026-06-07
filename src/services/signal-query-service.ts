@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { querySignals, QueryFilters, SignalRow } from '../query';
-import { getSignalById, injectTimestampAnchors, formatTranscriptionHtml } from '../signal-detail';
+import { getSignalById, formatTranscriptionHtml } from '../signal-detail';
+import { TimestampFormatter } from '../timestamp-formatter';
 import { analyzeSignal, getLlmConfig, AnalysisResult } from '../llm';
 import { getChannelsWithTopics } from '../db/watchlist';
 
@@ -51,7 +52,7 @@ export class SignalQueryService {
 
     const channels = getChannelsWithTopics(this.db);
     const channel = channels.find((c: any) => c.channel_id === signal.channel_id);
-    const summaryHtml = signal.summary ? injectTimestampAnchors(signal.summary) : '';
+    const summaryHtml = signal.summary ? TimestampFormatter.format(signal.summary) : '';
     const transcriptionHtml = formatTranscriptionHtml(signal.transcription);
 
     return { signal, channel, summaryHtml, transcriptionHtml };

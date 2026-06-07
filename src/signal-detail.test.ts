@@ -8,9 +8,6 @@ import { getSignalById } from './signal-detail';
 // -- escapeHtml --
 import { escapeHtml } from './signal-detail';
 
-// -- injectTimestampAnchors --
-import { injectTimestampAnchors } from './signal-detail';
-
 // -- formatTranscriptionHtml --
 import { formatTranscriptionHtml } from './signal-detail';
 
@@ -63,51 +60,6 @@ describe('signal-detail', () => {
 
     it('leaves normal text unchanged', () => {
       expect(escapeHtml('safe text [T:45]')).toBe('safe text [T:45]');
-    });
-  });
-
-  // -- injectTimestampAnchors --
-  describe('injectTimestampAnchors', () => {
-    it('converts [T:ss] to [MM:SS] anchor links with millisecond IDs', () => {
-      const input = 'Key point [T:45] and another [T:120] done';
-      const result = injectTimestampAnchors(input);
-      // LLM seconds converted to millisecond anchor IDs
-      expect(result).toContain('href="#t-45000"');
-      expect(result).toContain('[00:45]');
-      expect(result).toContain('href="#t-120000"');
-      expect(result).toContain('[02:00]');
-    });
-
-    it('produces pill badge classes on timestamp anchors', () => {
-      const input = 'Key point [T:45] here';
-      const result = injectTimestampAnchors(input);
-      expect(result).toContain('bg-indigo-100');
-      expect(result).toContain('text-indigo-700');
-      expect(result).toContain('px-2');
-      expect(result).toContain('py-0.5');
-      expect(result).toContain('rounded');
-    });
-
-    it('anchor href uses #t-{ms} format', () => {
-      const input = 'Point [T:45] and [T:90]';
-      const result = injectTimestampAnchors(input);
-      // 45 seconds = 45000ms
-      expect(result).toContain('href="#t-45000"');
-      // 90 seconds = 90000ms
-      expect(result).toContain('href="#t-90000"');
-    });
-
-    it('leaves text without timestamps unchanged', () => {
-      const input = 'no timestamps here';
-      expect(injectTimestampAnchors(input)).toBe(input);
-    });
-
-    it('html-escapes text before injecting anchors', () => {
-      const input = 'bad <b>html</b> [T:10]';
-      const result = injectTimestampAnchors(input);
-      expect(result).not.toContain('<b>');
-      expect(result).toContain('\u0026lt;b\u0026gt;');
-      expect(result).toContain('[00:10]');
     });
   });
 

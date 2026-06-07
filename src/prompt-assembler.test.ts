@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { assemble, formatTranscription, defaultPromptTemplate } from './prompt-assembler';
+import { assemble, assembleChat, formatTranscription, defaultPromptTemplate, defaultChatPromptTemplate } from './prompt-assembler';
 import type { SignalContext } from './signal-context';
+import type { ChatContext } from './prompt-assembler';
 
 function makeContext(overrides: Partial<SignalContext> = {}): SignalContext {
   return {
@@ -81,6 +82,154 @@ describe('assemble is pure', () => {
 
     const a = assemble(context);
     const b = assemble(context);
+
+    expect(a).toBe(b);
+  });
+});
+
+describe('defaultChatPromptTemplate', () => {
+  it('returns a template with chat XML placeholder tags', () => {
+    const template = defaultChatPromptTemplate();
+    expect(template).toContain('{TRANSCRIPTION}');
+    expect(template).toContain('{SUMMARY}');
+    expect(template).toContain('{HISTORY}');
+    expect(template).toContain('{QUESTION}');
+  });
+
+  it('includes analyst role instruction', () => {
+    const template = defaultChatPromptTemplate();
+    expect(template.toLowerCase()).toContain('analyst');
+  });
+
+  it('includes timestamp format instructions', () => {
+    const template = defaultChatPromptTemplate();
+    expect(template).toContain('T:ss');
+  });
+});
+
+describe('assembleChat with empty history', () => {
+  it('renders chat prompt with transcription, summary, and question', () => {
+    const context: ChatContext = {
+      transcriptionJson: JSON.stringify([{ time: 10000, text: 'mtg update' }]),
+      summary: 'A video about MTG updates',
+      history: [],
+      question: 'What sets were mentioned?',
+    };
+
+    const result = assembleChat(context);
+
+    expect(result).toContain('[T:10] mtg update');
+    expect(result).toContain('A video about MTG updates');
+    expect(result).toContain('What sets were mentioned?');
+  });
+
+  it('omits history section when history is empty', () => {
+    const context: ChatContext = {
+      transcriptionJson: 'plain text',
+      summary: 'summary',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context);
+
+    expect(result).not.toContain('<exchange>');
+  });
+});
+
+describe('assembleChat with multiple history exchanges', () => {
+  it('formats each exchange as nested XML blocks', () => {
+    const context: ChatContext = {
+      transcriptionJson: 'transcript',
+      summary: 'summary text',
+      history: [
+        { question: 'First question', answer: 'First answer' },
+        { question: 'Second question', answer: 'Second answer' },
+      ],
+      question: 'Third question',
+    };
+
+    const result = assembleChat(context);
+
+    expect(result).toContain('<exchange>');
+    expect(result).toContain('<question>First question</question>');
+    expect(result).toContain('<answer>First answer</answer>');
+    expect(result).toContain('<question>Second question</question>');
+    expect(result).toContain('<answer>Second answer</answer>');
+    // Current question is NOT in history section
+    expect(result).toContain('Third question');
+  });
+
+  it('renders exchanges in order', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [
+        { question: 'Q1', answer: 'A1' },
+        { question: 'Q2', answer: 'A2' },
+        { question: 'Q3', answer: 'A3' },
+      ],
+      question: 'Q4',
+    };
+
+    const result = assembleChat(context);
+
+    const q1Index = result.indexOf('Q1');
+    const q2Index = result.indexOf('Q2');
+    const q3Index = result.indexOf('Q3');
+
+    expect(q1Index).toBeLessThan(q2Index);
+    expect(q2Index).toBeLessThan(q3Index);
+  });
+});
+
+describe('assembleChat with custom template', () => {
+  it('uses custom template when provided', () => {
+    const context: ChatContext = {
+      transcriptionJson: 'data',
+      summary: 'sum',
+      history: [],
+      question: 'q?',
+    };
+
+    const customTemplate = 'CUSTOM: {TRANSCRIPTION} | {SUMMARY} | {QUESTION}';
+    const result = assembleChat(context, customTemplate);
+
+    expect(result).toContain('CUSTOM:');
+    expect(result).toContain('data');
+    expect(result).toContain('sum');
+    expect(result).toContain('q?');
+  });
+
+  it('replaces all placeholders in custom template', () => {
+    const context: ChatContext = {
+      transcriptionJson: 'trans',
+      summary: 'summ',
+      history: [{ question: 'hq', answer: 'ha' }],
+      question: 'final q',
+    };
+
+    const customTemplate = '{TRANSCRIPTION}{SUMMARY}{HISTORY}{QUESTION}';
+    const result = assembleChat(context, customTemplate);
+
+    expect(result).not.toContain('{TRANSCRIPTION}');
+    expect(result).not.toContain('{SUMMARY}');
+    expect(result).not.toContain('{HISTORY}');
+    expect(result).not.toContain('{QUESTION}');
+  });
+});
+
+describe('assembleChat is pure', () => {
+  it('returns same output for same input with no side effects', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [],
+      question: 'q',
+    };
+
+    const a = assembleChat(context);
+    const b = assembleChat(context);
 
     expect(a).toBe(b);
   });

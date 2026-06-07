@@ -1,5 +1,13 @@
 import type { SignalContext } from './signal-context';
 
+export interface ChatContext {
+  transcriptionJson: string;
+  summary: string;
+  filterText?: string;
+  history: Array<{ question: string; answer: string }>;
+  question: string;
+}
+
 /**
  * Formats raw transcription JSON into timestamped text.
  * e.g. `[T:45] hello world [T:92] mtg news`
@@ -77,4 +85,58 @@ export function assemble(context: SignalContext): string {
   return template
     .replace(/{TRANSCRIPTION}/g, transcriptionText)
     .replace(/{FILTER_TEXT}/g, context.filterText);
+}
+
+/**
+ * Default chat prompt template with XML placeholder tags.
+ * Uses generic analyst role — domain scoping via filter_text if provided.
+ */
+export function defaultChatPromptTemplate(): string {
+  return `You are a content analyst. Answer the user's question based on the video transcription and summary provided.
+
+<filter_text>{FILTER_TEXT}</filter_text>
+
+Use timestamps in "T:ss" format (ss = seconds as integer) when referencing specific parts of the video.
+
+<transcription>{TRANSCRIPTION}</transcription>
+
+<summary>{SUMMARY}</summary>
+
+{HISTORY}
+
+<question>{QUESTION}</question>`;
+}
+
+/**
+ * Formats history exchanges into nested XML blocks.
+ */
+function formatHistory(history: Array<{ question: string; answer: string }>): string {
+  if (history.length === 0) return '';
+
+  const exchanges = history.map((h) => {
+    return `  <exchange>
+    <question>${h.question}</question>
+    <answer>${h.answer}</answer>
+  </exchange>`;
+  }).join('\n');
+
+  return `<history>\n${exchanges}\n</history>`;
+}
+
+/**
+ * Assembles a chat prompt from a ChatContext.
+ * Pure function: ChatContext → string. No DB access, no side effects.
+ * Three-tier template resolution: customTemplate → defaultChatPromptTemplate()
+ */
+export function assembleChat(context: ChatContext, customTemplate?: string): string {
+  const template = customTemplate ?? defaultChatPromptTemplate();
+  const transcriptionText = formatTranscription(context.transcriptionJson);
+  const historyText = formatHistory(context.history);
+
+  return template
+    .replace(/{FILTER_TEXT}/g, context.filterText || '')
+    .replace(/{TRANSCRIPTION}/g, transcriptionText)
+    .replace(/{SUMMARY}/g, context.summary)
+    .replace(/{HISTORY}/g, historyText)
+    .replace(/{QUESTION}/g, context.question);
 }

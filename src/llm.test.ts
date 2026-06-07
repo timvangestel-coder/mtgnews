@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { analyzeSignal, LlmConfig, getLlmConfig } from './llm';
+import { analyzeSignal, callLlmSync, callLlmStream, LlmConfig, getLlmConfig } from './llm';
 import { createTestDb, seedChannel, seedSignal } from '../tests/fixtures/test-db';
 
 const mockFetch = vi.fn();
@@ -28,6 +28,120 @@ const config: LlmConfig = {
 };
 
 describe('llm', () => {
+  describe('callLlmSync', () => {
+    it('returns full content string from LLM via sync request', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ choices: [{ message: { content: 'Hello world' } }] }),
+      } as any);
+
+      const result = await callLlmSync(config, 'test prompt');
+
+      expect(result).toBe('Hello world');
+      expect(mockFetch).toHaveBeenCalledWith(config.endpoint, expect.any(Object));
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body.model).toBe(config.model);
+      expect(body.messages).toEqual([{ role: 'user', content: 'test prompt' }]);
+      expect(body.stream).toBeFalsy();
+    });
+
+    it('throws on HTTP error response', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' } as any);
+
+      await expect(callLlmSync(config, 'prompt')).rejects.toThrow('LLM sync HTTP 500 Internal Server Error');
+    });
+
+    it('throws on unexpected response structure', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [] }) } as any);
+
+      await expect(callLlmSync(config, 'prompt')).rejects.toThrow('unexpected response structure');
+    });
+
+    it('supports abortSignal for cancellation', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      mockFetch.mockImplementation(() => {
+        throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
+      });
+
+      await expect(callLlmSync(config, 'prompt', { abortSignal: controller.signal }))
+        .rejects.toThrow(/timed out|abort/i);
+    });
+  });
+
+  describe('callLlmStream', () => {
+    function mockSseResponse(chunks: string[]) {
+      const encoder = new TextEncoder();
+      let index = 0;
+
+      const readable = new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) {
+            controller.enqueue(encoder.encode(chunk));
+            index++;
+          }
+          controller.close();
+        },
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        body: readable,
+      } as any);
+    }
+
+    it('yields token chunks via streaming', async () => {
+      mockSseResponse([
+        'data: {"choices":[{"delta":{"content":"Hello "}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"world"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ]);
+
+      const chunks = [];
+      for await (const token of callLlmStream(config, 'test prompt')) {
+        chunks.push(token);
+      }
+
+      expect(chunks).toEqual(['Hello ', 'world']);
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body.stream).toBe(true);
+    });
+
+    it('throws on HTTP error response', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as any);
+
+      const gen = callLlmStream(config, 'prompt');
+      let error;
+      try {
+        await gen.next();
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeDefined();
+      expect((error as Error).message).toContain('HTTP 503');
+    });
+
+    it('supports abortSignal for cancellation', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      mockFetch.mockImplementation(() => {
+        throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
+      });
+
+      const gen = callLlmStream(config, 'prompt', { abortSignal: controller.signal });
+      let error;
+      try {
+        await gen.next();
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeDefined();
+      expect((error as Error).message.toLowerCase()).toMatch(/abort/i);
+    });
+  });
+
   describe('getLlmConfig', () => {
     it('reads LLM_ENDPOINT and LLM_MODEL from process.env', () => {
       const origE = process.env.LLM_ENDPOINT;

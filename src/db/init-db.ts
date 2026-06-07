@@ -151,11 +151,22 @@ export function initDb(db: Database.Database): void {
       db.exec('ALTER TABLE topics ADD COLUMN summary_prompt TEXT');
     }
 
-    // Issue #102: app_settings key/value table for runtime-configurable global defaults
+     // Issue #102: app_settings key/value table for runtime-configurable global defaults
     db.exec(`
       CREATE TABLE IF NOT EXISTS app_settings (
         key   TEXT PRIMARY KEY,
         value TEXT
+      )
+    `);
+
+    // Issue #106: signal_chat table for threaded Q&A per Signal
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS signal_chat (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_video_id TEXT NOT NULL REFERENCES signals(video_id),
+        question        TEXT NOT NULL,
+        answer          TEXT NOT NULL,
+        created_at      TEXT DEFAULT (datetime('now'))
       )
     `);
 }
