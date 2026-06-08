@@ -257,5 +257,37 @@ welcome<c> back</c><00:00:01.500> to the show
       expect(segments).toHaveLength(1);
       expect(segments[0].text).toBe('welcome to the show');
     });
+
+    it('decodes HTML entities from VTT captions (speaker markers)', async () => {
+      // YouTube encodes speaker change markers >> as >> in VTT
+      const amp = String.fromCharCode(38);
+      const vttWithEntities = `WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+Hello everyone ${amp}gt;${amp}gt; Pretty good, how are you?
+`;
+
+      mockSpawn.mockImplementation(() => {
+        const stream = {
+          stdout: { on: () => stream },
+          stderr: { on: () => stream },
+          on: (event: string, cb: (data: Buffer | number) => void) => {
+            if (event === 'close') cb(0);
+            return stream;
+          },
+        };
+        return stream as any;
+      });
+
+      mockReaddirSync.mockReturnValue(['mtgnews_sub_entity123.en.vtt']);
+      mockReadFileSync.mockReturnValue(vttWithEntities);
+      mockUnlinkSync.mockReturnValue();
+
+      const segments = await extractCaptions('entity123');
+
+      expect(segments).toHaveLength(1);
+      // >> must be decoded to >> — not left as raw entity strings
+      expect(segments[0].text).toBe('Hello everyone >> Pretty good, how are you?');
+    });
   });
 });

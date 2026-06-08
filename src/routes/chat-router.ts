@@ -3,6 +3,11 @@ import { ChatManager, ChatMessage } from '../services/chat-manager';
 import { ChatQueue } from '../chat-queue';
 import { TimestampFormatter } from '../timestamp-formatter';
 
+function formatAnswer(answer: string | null | undefined): string {
+  if (!answer) return '';
+  return TimestampFormatter.format(answer);
+}
+
 export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue) {
   const router = Router();
 
@@ -21,7 +26,7 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
     if (chatQueue) {
       try {
         const id = chatQueue.enqueue(signalVideoId, question);
-        res.json({ id, status: 'pending' });
+        res.json({ id: Number(id), status: 'pending' });
       } catch (error: unknown) {
         const err = error as Error;
         if (err.message?.includes('not found')) {
@@ -110,7 +115,7 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
       res.render('_chatAnswerStatus', {
         id,
         status: info.status,
-        answer: info.answer ?? '',
+        answer: formatAnswer(info.answer),
         layout: false,
       });
     } else {
@@ -138,8 +143,14 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
       }
     }
 
+    // Transform answers: convert Markdown to HTML so views render formatted content
+    const messagesWithHtml = messages.map((msg) => ({
+      ...msg,
+      answerHtml: formatAnswer(msg.answer),
+    }));
+
     res.render('_chatHistory', {
-      messages,
+      messages: messagesWithHtml,
       statusMap,
       layout: false,
     });

@@ -5,24 +5,13 @@ import { analyzeSignal, getLlmConfig } from './llm';
 import { preRegisterChannelProgress, getPollRunById, queryPollRunProgress, PollRunRow, PollRunProgressRow } from './db/poll-runs';
 import { deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } from './signal-state';
 import { ConcurrencyPool } from './concurrency-pool';
+import { mapStatus, mapStepStatus, type RunState, type PollRunStep } from './utils/poll-run-view-model';
 
 /** Unique identifier for a poll run */
 export type RunId = number;
 
-/** Step-level progress for one channel */
-export interface PollRunStep {
-  displayName: string | null;
-  status: 'fetching' | 'processing' | 'done' | 'failed';
-  total: number;     // signals discovered for this channel
-  done: number;      // signals processed (relevant + irrelevant + failed)
-}
-
-/** View model representing the full state of a poll run */
-export interface RunState {
-  id: RunId;
-  status: 'running' | 'complete' | 'failed' | 'aborted';
-  steps: PollRunStep[];
-}
+// Re-export view model types for consumers of this module
+export { RunState, PollRunStep } from './utils/poll-run-view-model';
 
 /** Legacy-compatible progress result */
 export interface CurrentProgressResult {
@@ -89,14 +78,14 @@ export class PollRunManager {
     const progress = queryPollRunProgress(this.db, runId);
     const steps: PollRunStep[] = progress.map((p) => ({
       displayName: p.display_name,
-      status: this.mapStepStatus(p.status),
+      status: mapStepStatus(p.status),
       total: p.signals_found,
       done: p.signalsDone,
     }));
 
     return {
       id: run.id,
-      status: this.mapStatus(run.status),
+      status: mapStatus(run.status),
       steps,
     };
   }
@@ -298,26 +287,4 @@ export class PollRunManager {
     txn(runId, abortTime);
   }
 
-  // ── Internal: Status mapping ───────────────────────────────────────
-
-  private mapStatus(dbStatus: string): RunState['status'] {
-    switch (dbStatus) {
-      case 'running': return 'running';
-      case 'done': return 'complete';
-      case 'done-forced': return 'aborted';
-      case 'failed': return 'failed';
-      default: return 'failed';
-    }
-  }
-
-  private mapStepStatus(dbStatus: string): PollRunStep['status'] {
-    switch (dbStatus) {
-      case 'fetching': return 'fetching';
-      case 'running': return 'processing';
-      case 'processing': return 'processing';
-      case 'done': return 'done';
-      case 'failed': return 'failed';
-      default: return 'done';
-    }
-  }
 }

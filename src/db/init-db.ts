@@ -165,13 +165,37 @@ export function initDb(db: Database.Database): void {
     }
 
     // Issue #106: signal_chat table for threaded Q&A per Signal
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS signal_chat (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        signal_video_id TEXT NOT NULL REFERENCES signals(video_id),
-        question        TEXT NOT NULL,
-        answer          TEXT,
-        created_at      TEXT DEFAULT (datetime('now'))
-      )
-    `);
+   db.exec(`
+     CREATE TABLE IF NOT EXISTS signal_chat (
+       id              INTEGER PRIMARY KEY AUTOINCREMENT,
+       signal_video_id TEXT NOT NULL REFERENCES signals(video_id),
+       question        TEXT NOT NULL,
+       answer          TEXT,
+       created_at      TEXT DEFAULT (datetime('now'))
+     )
+   `);
+
+   // Issue #120: Migration — fix answer column to be nullable for async processing
+   // The original table may have been created with answer TEXT NOT NULL.
+   // SQLite cannot ALTER COLUMN, so we recreate the table if needed.
+   const chatRows = db.pragma('table_info(signal_chat)') as Array<{ name: string; notnull: number }>;
+   const answerCol = chatRows.find((r) => r.name === 'answer');
+   if (answerCol && answerCol.notnull === 1) {
+     // Recreate table with nullable answer column
+     db.exec('ALTER TABLE signal_chat RENAME TO signal_chat_old');
+     db.exec(`
+       CREATE TABLE signal_chat (
+         id              INTEGER PRIMARY KEY AUTOINCREMENT,
+         signal_video_id TEXT NOT NULL REFERENCES signals(video_id),
+         question        TEXT NOT NULL,
+         answer          TEXT,
+         created_at      TEXT DEFAULT (datetime('now'))
+       )
+     `);
+     db.exec(`
+       INSERT INTO signal_chat (id, signal_video_id, question, answer, created_at)
+       SELECT id, signal_video_id, question, answer, created_at FROM signal_chat_old
+     `);
+     db.exec('DROP TABLE signal_chat_old');
+   }
 }

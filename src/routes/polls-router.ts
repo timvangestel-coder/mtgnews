@@ -1,8 +1,15 @@
 import { Router } from 'express';
 import { PollQueryService } from '../services/poll-query-service';
+import { stepDisplay } from '../utils/poll-run-view-model';
 
 export function createPollsRouter(service: PollQueryService) {
   const router = Router();
+
+  // Register stepDisplay as an Express view helper via res.locals
+  router.use((req, res, next) => {
+    res.locals.stepDisplay = stepDisplay;
+    next();
+  });
 
   // GET /polls — run history list
   router.get('/polls', (req, res) => {
@@ -36,6 +43,21 @@ export function createPollsRouter(service: PollQueryService) {
       title: `Run #${id} Detail`,
       run: detail.run,
       progress: detail.progress,
+      state: detail.state,
+    });
+  });
+
+  // GET /polls/:id/progress — per-run progress fragment for HTMX polling
+  router.get('/polls/:id/progress', (req, res) => {
+    const runId = parseInt(req.params.id, 10);
+    const state = service.getRunState(runId);
+
+    const progressUrl = `/polls/${runId}/progress`;
+
+    res.render('admin/_pollProgress', {
+      layout: false,
+      state,
+      progressUrl,
     });
   });
 

@@ -1,6 +1,6 @@
+<% var progressUrl = typeof progressUrl !== 'undefined' ? progressUrl : '/admin/poll/progress'; %>
 <div id="progress-widget" class="mb-6 p-4 bg-gray-50 rounded"
-  hx-get="/admin/poll/progress"
-  hx-trigger="every 3s"
+  <% if (state && state.status === 'running') { %>hx-get="<%= progressUrl %>" hx-trigger="every 3s"<% } else { %>hx-get="<%= progressUrl %>"<% } %>
   hx-swap="outerHTML">
   <% if (typeof error !== 'undefined' && error) { %>
     <div class="mb-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm" role="alert">

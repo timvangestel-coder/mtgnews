@@ -25,52 +25,7 @@
 
 </div>
 
-<h3 class="text-xl font-semibold mb-2">Channel Breakdown</h3>
-
-<div class="overflow-x-auto">
-  <table class="min-w-full divide-y divide-gray-200">
-    <thead class="bg-gray-50">
-      <tr>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Channel</th>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Signals Found</th>
-        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Processed At</th>
-      </tr>
-    </thead>
-    <tbody class="bg-white divide-y divide-gray-200">
-      <% progress.forEach(function(p) { %>
-        <tr>
-          <td class="px-4 py-2 whitespace-nowrap text-sm">
-            <%= p.display_name || p.channel_id %>
-          </td>
-          <td class="px-4 py-2 whitespace-nowrap text-sm">
-            <% if (p.signals_found === 0 && p.status !== 'failed' && p.status !== 'pending' && p.status !== 'running') { %>
-              <span class="px-2 py-1 text-xs font-semibold text-gray-600 bg-gray-200 rounded">none</span>
-            <% } else if (p.status === 'done') { %>
-              <span class="px-2 py-1 text-xs font-semibold text-white bg-green-600 rounded">done</span>
-            <% } else if (p.status === 'failed') { %>
-              <span class="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded">failed</span>
-            <% } else if (p.status === 'skipped') { %>
-              <span class="px-2 py-1 text-xs font-semibold text-white bg-gray-500 rounded">skipped</span>
-            <% } else { %>
-              <span class="px-2 py-1 text-xs font-semibold text-white bg-amber-500 rounded"><%= p.status %></span>
-            <% } %>
-          </td>
-          <td class="px-4 py-2 whitespace-nowrap text-sm">
-            <%= p.signals_found %>
-          </td>
-          <td class="px-4 py-2 whitespace-nowrap text-sm">
-            <%= new Date(p.updated_at).toLocaleString() %>
-          </td>
-        </tr>
-      <% }); %>
-    </tbody>
-  </table>
-</div>
-
-<% if (progress.length === 0) { %>
-  <p class="text-gray-500 mt-4">No channel progress recorded for this run.</p>
-<% } %>
+<%- include('admin/_pollProgress', { state: state, progressUrl: '/polls/' + run.id + '/progress' }) %>
 
 <div class="mt-6">
   <a href="/polls" class="text-blue-600 hover:underline">&larr; Back to Run History</a>

@@ -28,6 +28,20 @@ export interface TranscriptionOptions {
 }
 
 /**
+ * Decode HTML entities commonly found in YouTube VTT captions.
+ * YouTube encodes speaker markers (>>) as >> and other chars similarly.
+ */
+function decodeVttEntities(text: string): string {
+    const amp = String.fromCharCode(38);  // &
+    return text
+        .replace(new RegExp(amp + 'gt;', 'g'), '>')
+        .replace(new RegExp(amp + 'lt;', 'g'), '<')
+        .replace(new RegExp(amp + 'amp;', 'g'), '&')
+        .replace(new RegExp(amp + 'quot;', 'g'), '"')
+        .replace(new RegExp(amp + '#39;', 'g'), "'");
+}
+
+/**
  * Parse a WebVTT subtitle string into TranscriptionSegment[].
  * VTT timestamp format: HH:MM:SS.mmm or MM:SS.mmm
  */
@@ -60,7 +74,10 @@ function parseVtt(vttContent: string): TranscriptionSegment[] {
 
       const rawText = textParts.join(' ').trim();
       // Strip YouTube VTT markup: <c>...</c> cue styles, <nnn> timing markers
-      const text = rawText.replace(/<c[^>]*>.*?<\/c>|<c[^>]*\/>|<\d+:\d+:\d+[.,]\d+>/g, '').replace(/\s+/g, ' ').trim();
+      let text = rawText.replace(/<c[^>]*>.*?<\/c>|<c[^>]*\/>|<\d+:\d+:\d+[.,]\d+>/g, '');
+      // Decode HTML entities from VTT (YouTube encodes >> as \u0026gt; for speaker markers)
+      text = decodeVttEntities(text);
+      text = text.replace(/\s+/g, ' ').trim();
       if (text && isFinite(start) && isFinite(end)) {
         segments.push({ text, start, end });
       }
