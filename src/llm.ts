@@ -128,6 +128,7 @@ export interface AnalysisResult {
 }
 
 interface MergedAnalysisResponse {
+  title?: string;
   summary: string;
   takeaways: Array<{ text: string; timestamp: string }>;
   overall_sentiment: { score: number; label: string };
@@ -214,11 +215,12 @@ export async function analyzeSignal(
     const summaryDisplay = [analysis.summary, ...analysis.takeaways.map((t) => `${t.timestamp} ${t.text}`)].join('\n');
     const clampedScore = clampScore(analysis.overall_sentiment.score);
     const entities = analysis.entities;
+    const generatedTitle = analysis.title ? analysis.title.substring(0, 100) : null;
 
     db.prepare(`
-      UPDATE signals SET summary = ?, overall_sentiment = ?, sentiment_label = ?
+      UPDATE signals SET summary = ?, overall_sentiment = ?, sentiment_label = ?, generated_title = ?
       WHERE video_id = ?
-    `).run(summaryDisplay, clampedScore, analysis.overall_sentiment.label, videoId);
+    `).run(summaryDisplay, clampedScore, analysis.overall_sentiment.label, generatedTitle, videoId);
 
     markSummarized(db, videoId);
 

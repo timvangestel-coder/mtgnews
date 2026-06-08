@@ -42,6 +42,7 @@ IMPORTANT: If content is NOT relevant, return ONLY {"relevant": false} without g
 
 Return ONLY valid JSON with this structure:
 {
+  "title": "A concise title capturing the main topic, max 100 characters",
   "summary": "A concise 2-3 sentence summary of the relevant content",
   "takeaways": [
     { "text": "Key takeaway description", "timestamp": "T:ss" }

@@ -49,7 +49,10 @@ interface ActiveRunEntry {
 export class PollRunManager {
   private activeRuns = new Map<RunId, ActiveRunEntry>();
 
-  constructor(private db: Database.Database) {}
+  constructor(
+    private db: Database.Database,
+    private pool?: ConcurrencyPool
+  ) {}
 
   /** Expose the database instance for external worker spawning (compatibility). */
   get database(): Database.Database {
@@ -149,8 +152,8 @@ export class PollRunManager {
 
     const llmConfig = getLlmConfig();
 
-    // Global concurrency pool for analysis tasks — shared across all channels
-    const pool = new ConcurrencyPool(concurrency);
+    // Use external pool if provided, otherwise create internal one
+    const taskPool = this.pool ?? new ConcurrencyPool(concurrency);
 
     // Helper: upsert a progress row
     const upsertProgress = (channelId: string, status: string, signalsFound: number) => {
@@ -206,9 +209,9 @@ export class PollRunManager {
 
           const newSignals = pendingSignalsForChannel(this.db, channel.channel_id, runId);
 
-          // Dispatch analysis tasks immediately to global pool
+           // Dispatch analysis tasks immediately to pool
           for (const s of newSignals) {
-            pool.run(async () => {
+            taskPool.run(async () => {
               try {
                 await analyzeSignal(this.db, s.video_id, llmConfig, signal);
               } catch (err) {
@@ -236,7 +239,7 @@ export class PollRunManager {
     }
 
     // Wait for all in-flight analysis tasks to complete
-    await pool.drain();
+    await taskPool.drain();
 
     // Check if aborted before marking done
     if (signal?.aborted) {

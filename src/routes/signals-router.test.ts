@@ -71,7 +71,7 @@ describe('Signals Router', () => {
 
       const resp = await request(httpServer).get(`/signals?channelId=UCrouter${t}&htmx=true`);
       expect(resp.status).toBe(200);
-      expect(resp.text).toContain('router summary');
+      expect(resp.text).toContain('Router Video');
     });
 
     it('respects showIrrelevant query param', async () => {
@@ -85,7 +85,7 @@ describe('Signals Router', () => {
       // Without showIrrelevant
       const resp1 = await request(httpServer).get(`/signals?channelId=UCirrR${t}&htmx=true`);
       expect(resp1.status).toBe(200);
-      expect(resp1.text).not.toContain('irrelevant r summary');
+      expect(resp1.text).not.toContain('Irrelevant R');
 
       // With showIrrelevant=true
       const resp2 = await request(httpServer).get(`/signals?channelId=UCirrR${t}&showIrrelevant=true&htmx=true`);

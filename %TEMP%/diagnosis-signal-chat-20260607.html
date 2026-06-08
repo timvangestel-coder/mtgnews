@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagnosis: Signal Detail Chat Button - 3rd Attempt</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({startOnLoad:true, theme:'dark'});</script>
+</head>
+<body class="bg-gray-950 text-gray-100 p-8 max-w-4xl mx-auto">
+
+<h1 class="text-3xl font-bold mb-2">Diagnosis: Signal Detail Chat Button Bug</h3>
+<p class="text-gray-400 mb-6">3rd attempt &middot; Architecture-informed diagnosis &middot; 2026-06-07</p>
+
+<hr class="border-gray-700 my-6"/>
+
+<!-- Symptom -->
+<h2 class="text-xl font-bold mb-3">Symptom (from browser console log)</h2>
+<div class="bg-gray-900 rounded p-4 text-sm font-mono mb-6 overflow-x-auto">
+<pre class="text-red-400">Alpine Expression Error: __signalDetail is not defined
+Expression: "__signalDetail('gkDqbvMnMHI')"
+
+Alpine Expression Error: viewState is not defined
+Expression: "viewState === 'summary' ? ..."
+
+Alpine Expression Error: chatOpen is not defined
+Expression: "chatOpen ? 'pointer-events-auto' : ..."
+
+Uncaught ReferenceError: toggleChat is not defined
+[Alpine] toggleChat</pre>
+</div>
+
+<!-- Architecture Context -->
+<h2 class="text-xl font-bold mb-3">Architecture Context</h2>
+<div class="mb-6">
+<p class="mb-3">The <strong>view rendering seam</strong> between EJS templates and Alpine.js has a critical module:</p>
+<ul class="list-disc pl-6 space-y-1 text-sm">
+<li><code>signal-detail.ejs</code> defines <code>window.__signalDetail()</code> in an <strong>inline</strong> <code><script></code> block (lines 1-215)</li>
+<li><code>server.ts</code> configures <code>express-ejs-layouts</code> with <code>layout extractScripts: true</code></li>
+<li><code>layout.ejs</code> renders extracted scripts via <code><%- scripts %></code> before Alpine.js loads</li>
+<li>Attempt 1's fix added the <code><% if (typeof scripts !== 'undefined') { %><%- scripts %><% } %></code> block to layout.ejs</li>
+</ul>
+</div>
+
+<!-- Root Cause -->
+<h2 class="text-xl font-bold mb-3 text-red-400">&crarr; ROOT CAUSE: extractScripts only extracts EXTERNAL scripts, not INLINE scripts</h2>
+<div class="bg-red-950/50 border border-red-800 rounded p-4 mb-6">
+<p class="mb-2"><strong>The <code>express-ejs-layouts</code> <code>extractScripts: true</code> option only extracts <code><script src="..."></code> tags (external script references). It does NOT extract inline <code><script>...</script></code> blocks.</strong></p>
+<p class="text-sm text-red-300">This means the <code>window.__signalDetail = function() {...}</code> definition stays inside <code><%- body %></code>, embedded in the rendered HTML. It never gets hoisted to the <code>scripts</code> variable that layout.ejs renders before Alpine.js.</p>
+</div>
+
+<!-- Sequence Diagram -->
+<h2 class="text-xl font-bold mb-3">Execution Sequence (Current - Broken)</h2>
+<div class="bg-gray-900 rounded p-4 mb-6 overflow-x-auto">
+<pre class="mermaid">sequenceDiagram
+    participant Browser
+    participant EJS as express-ejs-layouts
+    participant Layout as layout.ejs
+    participant Body as signal-detail.ejs (body)
+    participant Alpine as Alpine.js
+
+    Browser->>EJS: Render /signals/:id
+    EJS->>Body: Extract scripts? NO - inline script stays in body
+    EJS->>Layout: render with body content (includes inline script + HTML)
+    Layout->>Browser: <%- body %> (HTML with x-data="__signalDetail(...)")
+    Note over Browser: inline script is INSIDE body DOM
+    Layout->>Alpine: <script defer src=alpine>
+    Alpine-->>Alpine: waits for document parse complete
+    Alpine->>Browser: Initialize - scan for x-data
+    Browser-->>Alpine: found x-data="__signalDetail('...')"
+    Alpine->>Alpine: Evaluate __signalDetail(...)
+    Alpine-->>Browser: ❌ ReferenceError: __signalDetail is not defined
+    Note over Browser: The inline script runs AFTER body parses<br/>but Alpine defer also waits for parse complete<br/>Order is NOT guaranteed</pre>
+</div>
+
+<!-- Why Attempt 1 Failed -->
+<h2 class="text-xl font-bold mb-3">Why Attempt 1's Fix Didn't Work</h2>
+<div class="bg-yellow-950/50 border border-yellow-800 rounded p-4 mb-6 text-sm">
+<p>The fix added <code><%- scripts %></code> rendering to layout.ejs, which is correct for <strong>external</strong> script extraction. But since the inline <code><script></code> block in signal-detail.ejs was NEVER extracted (it stays in body), the <code>scripts</code> variable is either <code>undefined</code> or empty for this page.</p>
+<p class="mt-2">Even if it were somehow extracted, there's a deeper issue: Alpine.js loads with <code>defer</code>, meaning it executes after document parsing. The inline script inside the body also runs during/after parsing. The relative ordering between an inline script in the body and a deferred external script is NOT what we need.</p>
+</div>
+
+<!-- Hypotheses -->
+<h2 class="text-xl font-bold mb-3">Ranked Hypotheses</h2>
+
+<div class="space-y-4 mb-6">
+  <!-- H1 -->
+  <div class="border border-red-700 rounded p-4 bg-red-950/30">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="bg-red-600 text-white text-xs font-bold px-2 py-1 rounded">#1</span>
+      <strong>INLINE SCRIPT NEVER EXTRACTED — scripts variable is undefined/empty</strong>
+    </div>
+    <p class="text-sm mb-2"><em>Prediction:</em> If I add debug logging to the layout, <code>scripts</code> will be undefined or empty when rendering signal-detail.ejs. The inline script stays in the body HTML and runs at DOM parsing time, but Alpine.js with defer also waits for parse complete — creating a race condition.</p>
+    <p class="text-sm text-red-300"><em>Falsifiable:</em> Add <code><% console.log('scripts defined:', typeof scripts !== 'undefined', 'length:', scripts ? scripts.length : 0) %></code> to layout.ejs and check server logs.</p>
+    <span class="inline-block mt-2 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded">MOST LIKELY</span>
+  </div>
+
+  <!-- H2 -->
+  <div class="border border-yellow-700 rounded p-4 bg-yellow-950/30">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="bg-yellow-600 text-white text-xs font-bold px-2 py-1 rounded">#2</span>
+      <strong>DEFER RACE CONDITION — inline script runs AFTER Alpine initializes</strong>
+    </div>
+    <p class="text-sm mb-2"><em>Prediction:</em> Even if the inline script IS in the correct DOM position (before the Alpine defer tag), Alpine's initialization happens on <code>DOMContentLoaded</code>. If the browser parses the body, encounters the inline script, then loads Alpine with defer — both fire after parse complete. But Alpine might initialize before the inline script's function definition is hoisted to window scope.</p>
+    <p class="text-sm text-yellow-300"><em>Falsifiable:</em> Move the Alpine script from defer to synchronous (remove defer). If the bug disappears, this hypothesis is confirmed.</p>
+  </div>
+
+  <!-- H3 -->
+  <div class="border border-gray-700 rounded p-4 bg-gray-950/30">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="bg-gray-600 text-white text-xs font-bold px-2 py-1 rounded">#3</span>
+      <strong>x-data evaluation happens BEFORE inline script execution in DOM order</strong>
+    </div>
+    <p class="text-sm mb-2"><em>Prediction:</em> The inline script appears at the TOP of signal-detail.ejs (lines 1-215), before the HTML with x-data. But when express-ejs-layouts renders, the body content gets injected as a single block. Alpine scans the DOM tree after initialization — not in document order. So even though the script tag comes first in the source, Alpine's mutation observer might process elements before the script runs.</p>
+  </div>
+</div>
+
+<!-- Proposed Fix -->
+<h2 class="text-xl font-bold mb-3">Proposed Fix: Eliminate the Global Function Dependency</h2>
+<div class="bg-green-950/50 border border-green-800 rounded p-4 mb-6">
+<p class="mb-3"><strong>The deepening opportunity:</strong> Instead of relying on a global function that must be defined before Alpine initializes, pass the videoId as data and use an inline Alpine object. This removes the fragile dependency entirely.</p>
+
+<h3 class="font-bold text-green-400 mb-2">Option A: Inline x-data with videoId parameter (Simplest)</h3>
+<p class="text-sm mb-3">Replace <code>x-data="__signalDetail('...')"</code> with an inline Alpine object that receives the videoId via a data attribute. Move the JS logic from the global function into the inline object.</p>
+
+<h3 class="font-bold text-green-400 mb-2 mt-4">Option B: Use x-init to set up state (Cleanest)</h3>
+<p class="text-sm mb-3">Keep a single inline <code>x-data</code> object on the root element. Use <code>x-init</code> to read the videoId from a data attribute and initialize. No global function needed.</p>
+
+<h3 class="font-bold text-green-400 mb-2 mt-4">Option C: Load Alpine synchronously (Quick fix)</h3>
+<p class="text-sm mb-3">Remove <code>defer</code> from the Alpine script tag and place it BEFORE <code><%- body %></code>. This guarantees Alpine loads before any inline scripts run. But this is a bandaid — doesn't solve the architectural shallowness.</p>
+
+<div class="mt-4 p-3 bg-green-900/50 rounded">
+<p class="text-sm"><strong>Recommendation: Option B</strong> — It eliminates the seam entirely. The Alpine component becomes self-contained in the template. No global functions, no extraction dependency, no timing issues.</p>
+</div>
+</div>
+
+<!-- Before/After -->
+<h2 class="text-xl font-bold mb-3">Before / After Architecture</h2>
+<div class="grid grid-cols-2 gap-4 mb-6">
+  <div class="bg-red-950/30 border border-red-800 rounded p-4">
+    <h3 class="font-bold text-red-400 mb-2">BEFORE (shallow seam)</h3>
+<pre class="text-xs font-mono">signal-detail.ejs
+  ┌─ inline <script>
+  │   window.__signalDetail = fn
+  └─ HTML with x-data="__signalDetail(...)"
+
+layout.ejs
+  ┌─ <%- body %> (contains both script + HTML)
+  ├─ <%- scripts %> (EMPTY - inline not extracted)
+  └─ Alpine.js defer (races with inline script)</pre>
+    <p class="text-xs text-red-300 mt-2">Fragile: depends on extraction that never happens</p>
+  </div>
+  <div class="bg-green-950/30 border border-green-800 rounded p-4">
+    <h3 class="font-bold text-green-400 mb-2">AFTER (deepened module)</h3>
+<pre class="text-xs font-mono">signal-detail.ejs
+  └─ HTML with x-data="{...}" 
+     + data-video-id="..." attribute
+     + all logic self-contained
+
+layout.ejs
+  ┌─ <%- body %> (self-contained Alpine component)
+  └─ Alpine.js defer (no dependency on globals)</pre>
+    <p class="text-xs text-green-300 mt-2">Robust: no global functions, no extraction needed</p>
+  </div>
+</div>
+
+<hr class="border-gray-700 my-6"/>
+<p class="text-xs text-gray-500">Generated 2026-06-07 &middot; Diagnosis for signal detail chat button bug (3rd attempt)</p>
+
+</body>
+</html>

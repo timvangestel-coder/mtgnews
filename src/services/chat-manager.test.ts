@@ -1,169 +1,104 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import { initDb } from '../db/init-db';
+
+// Mock LLM module — both callLlmSync and callLlmStream
+const mockCallLlmSync = vi.fn().mockResolvedValue('test answer');
+vi.mock('../llm', () => ({
+  callLlmStream: async function* (_config: unknown, _prompt: unknown) {
+    yield 'token';
+  },
+  get callLlmSync() {
+    return mockCallLlmSync;
+  },
+}));
+
 import { ChatManager } from './chat-manager';
-import * as llm from '../llm';
 
-const mockFetch = vi.fn();
-const originalFetch = global.fetch;
+let db: Database.Database;
+let chatManager: ChatManager;
 
-beforeEach(() => {
-  vi.stubGlobal('fetch', mockFetch);
-  mockFetch.mockReset();
-});
+function insertSignal(videoId: string) {
+  db.prepare(
+    `INSERT INTO channels (channel_id, display_name, added_at) VALUES (?, ?, ?)`
+  ).run(videoId + '_ch', 'Test Channel', Date.now());
 
-afterEach(() => {
-  vi.stubGlobal('fetch', originalFetch);
-});
-
-function makeDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.exec(`
-    CREATE TABLE topics (id INTEGER PRIMARY KEY, filter_text TEXT);
-    CREATE TABLE channels (channel_id INTEGER PRIMARY KEY, topic_id INTEGER);
-    CREATE TABLE signals (
-      rowid INTEGER PRIMARY KEY,
-      video_id TEXT UNIQUE,
-      channel_id INTEGER,
-      transcription TEXT,
-      summary TEXT
-    );
-    CREATE TABLE signal_chat (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      signal_video_id TEXT,
-      question TEXT,
-      answer TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-  `);
-  return db;
+  db.prepare(
+    `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(videoId, videoId + '_ch', 'Test Signal', '2103-12-31T00:00:00Z', '[]', 'test summary', 4, Date.now());
 }
 
-function seedSignal(db: Database.Database, videoId: string) {
-  db.prepare("INSERT INTO topics (id, filter_text) VALUES (?, ?)").run(1, 'Magic');
-  db.prepare("INSERT INTO channels (channel_id, topic_id) VALUES (?, ?)").run(1, 1);
-  db.prepare("INSERT INTO signals (video_id, channel_id, transcription, summary) VALUES (?, ?, ?, ?)")
-    .run(videoId, 1, JSON.stringify([{ time: 45000, text: 'hello world' }]), 'A test video');
-}
+describe('ChatManager two-phase persist', () => {
+  beforeAll(() => {
+    db = new Database(':memory:');
+    initDb(db);
+    insertSignal('video-1');
 
-function mockSseResponse(chunks: string[]) {
-  const encoder = new TextEncoder();
-  const readable = new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) {
-        controller.enqueue(encoder.encode(chunk));
-      }
-      controller.close();
-    },
+    chatManager = new ChatManager(db, { endpoint: 'http://localhost:1234/v1/chat/completions', model: 'test' });
   });
 
-  mockFetch.mockResolvedValueOnce({
-    ok: true,
-    body: readable,
-  } as Response);
-}
-
-function sseChunk(content: string): string {
-  return `data: {"choices":[{"delta":{"content":"${content}"}}]}\n\n`;
-}
-
-const config: llm.LlmConfig = {
-  endpoint: 'http://127.0.0.1:1234/v1/chat/completions',
-  model: 'test-model',
-};
-
-describe('ChatManager', () => {
-  let db: Database.Database;
-
-  beforeEach(() => {
-    db = makeDb();
-    seedSignal(db, 'vid-1');
-  });
-
-  afterEach(() => {
+  afterAll(() => {
     db.close();
   });
 
-  describe('ask() with transform', () => {
-    it('applies transform to persisted answer after stream completes', async () => {
-      const transform = vi.fn((t: string) => t.toUpperCase());
-      mockSseResponse([sseChunk('T:45 mentioned '), sseChunk('in video'), 'data: [DONE]\n\n']);
+  describe('submit()', () => {
+    it('inserts row with answer=NULL and returns question ID', () => {
+      const id = chatManager.submit('video-1', 'What is MTG?');
+      expect(id).toBeTypeOf('number');
+      expect(id).toBeGreaterThan(0);
 
-      const manager = new ChatManager(db, config);
-      const stream = manager.ask('vid-1', 'what time?', transform);
-
-      for await (const _ of stream) { /* consume */ }
-
-      // Transform was called
-      expect(transform).toHaveBeenCalled();
-
-      // Persisted answer is transformed
-      const row = db.prepare('SELECT answer FROM signal_chat ORDER BY id DESC LIMIT 1').get() as { answer: string };
-      expect(row.answer).toBe('T:45 MENTIONED IN VIDEO');
+      const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(id);
+      expect(row).toBeDefined();
+      // @ts-expect-error — answer column can be null
+      expect(row.answer).toBeNull();
     });
 
-    it('yields raw tokens during streaming (transform only applied post-stream)', async () => {
-      const transform = vi.fn((t: string) => t.toUpperCase());
-      mockSseResponse([sseChunk('hello '), sseChunk('world'), 'data: [DONE]\n\n']);
-
-      const manager = new ChatManager(db, config);
-      const stream = manager.ask('vid-1', 'q?', transform);
-
-      const yielded: string[] = [];
-      for await (const token of stream) {
-        yielded.push(token);
-      }
-
-      // Tokens pass through unchanged during streaming
-      expect(yielded.join('')).toBe('hello world');
-
-      // But persisted answer is transformed
-      const row = db.prepare('SELECT answer FROM signal_chat ORDER BY id DESC LIMIT 1').get() as { answer: string };
-      expect(row.answer).toBe('HELLO WORLD');
-    });
-
-    it('skips transform when not provided', async () => {
-      mockSseResponse([sseChunk('raw '), sseChunk('token'), 'data: [DONE]\n\n']);
-
-      const manager = new ChatManager(db, config);
-      const stream = manager.ask('vid-1', 'q?');
-
-      const yielded: string[] = [];
-      for await (const token of stream) {
-        yielded.push(token);
-      }
-
-      // No transform — raw tokens passed through
-      expect(yielded.join('')).toBe('raw token');
-
-      const row = db.prepare('SELECT answer FROM signal_chat ORDER BY id DESC LIMIT 1').get() as { answer: string };
-      expect(row.answer).toBe('raw token');
-    });
-
-    it('does not persist transformed answer when stream errors', async () => {
-      const transform = vi.fn((t: string) => t.toUpperCase());
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Server Error' } as Response);
-
-      const manager = new ChatManager(db, config);
-      const stream = manager.ask('vid-1', 'q?', transform);
-
-      await expect(async () => {
-        for await (const _ of stream) { /* consume */ }
-      }).rejects.toThrow();
-
-      // No rows inserted on error
-      const count = db.prepare('SELECT COUNT(*) AS c FROM signal_chat').get() as { c: number };
-      expect(count.c).toBe(0);
+    it('throws when signal not found', () => {
+      expect(() => chatManager.submit('nonexistent', 'hi')).toThrow();
     });
   });
 
-  describe('ask() validation', () => {
-    it('throws when signal not found', async () => {
-      const manager = new ChatManager(db, config);
-      const stream = manager.ask('missing', 'q?');
+  describe('process()', () => {
+    beforeEach(() => {
+      mockCallLlmSync.mockClear().mockResolvedValue('test answer');
+    });
 
-      await expect(async () => {
-        for await (const _ of stream) { /* consume */ }
-      }).rejects.toThrow('Signal missing not found');
+    it('updates answer on successful LLM call', async () => {
+      const id = chatManager.submit('video-1', 'Process me?');
+      expect(id).toBeTypeOf('number');
+
+      await chatManager.process(id);
+
+      const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(id) as { answer: string | null };
+      expect(row.answer).toBe('test answer');
+    });
+
+    it('leaves answer=NULL when LLM call fails', async () => {
+      mockCallLlmSync.mockRejectedValueOnce(new Error('LLM failed'));
+
+      const id = chatManager.submit('video-1', 'Fail me?');
+      await expect(chatManager.process(id)).rejects.toThrow('LLM failed');
+
+      const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(id) as { answer: string | null };
+      // @ts-expect-error — answer can be null
+      expect(row.answer).toBeNull();
+    });
+  });
+
+  describe('getHistory() and delete()', () => {
+    it('getHistory returns rows including NULL answers', () => {
+      chatManager.submit('video-1', 'Pending question?');
+      const history = chatManager.getHistory('video-1');
+      const pending = history.find((h) => h.question === 'Pending question?');
+      expect(pending).toBeDefined();
+    });
+
+    it('delete removes a row', () => {
+      const id = chatManager.submit('video-1', 'Delete me?');
+      chatManager.delete(id);
+      const remaining = db.prepare('SELECT COUNT(*) as cnt FROM signal_chat WHERE id = ?').get(id);
+      expect((remaining as { cnt: number }).cnt).toBe(0);
     });
   });
 });

@@ -3,7 +3,7 @@ import { SignalRow } from './query';
 
 export function getSignalById(db: Database.Database, videoId: string): SignalRow | null {
   const row = db.prepare(
-    'SELECT video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, sentiment_label, created_at, processing_state FROM signals WHERE video_id = ?'
+    'SELECT video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, sentiment_label, created_at, processing_state, generated_title FROM signals WHERE video_id = ?'
   ).get(videoId) as SignalRow | undefined;
   return row ?? null;
 }

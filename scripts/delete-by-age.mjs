@@ -37,6 +37,16 @@ if (!execute) {
   for (const s of toDelete) {
     console.log(`  ${s.video_id} | published: ${s.published_at} | run: ${s.poll_run_id ?? 'null'} | ${s.title}`);
   }
+  // Report Q&A entries that would be deleted
+  const chatCounts = [];
+  for (const s of toDelete) {
+    const row = db.prepare('SELECT COUNT(*) as cnt FROM signal_chat WHERE signal_video_id = ?').get(s.video_id);
+    if (row.cnt > 0) chatCounts.push(`${s.video_id}: ${row.cnt} Q&A`);
+  }
+  if (chatCounts.length > 0) {
+    console.log(`\nWould delete signal_chat entries for: ${chatCounts.join(', ')}`);
+  }
+
   if (affectedRunIds.length > 0) {
     console.log(`\nWould recalculate counters for poll_run(s): ${affectedRunIds.join(', ')}`);
   }
@@ -50,13 +60,16 @@ console.log(`Deleting ${toDelete.length} signal(s)...`);
 
 const videoIds = toDelete.map(s => s.video_id);
 
-// Delete entity_mentions first (cascade)
+// Delete signal_chat entries first (foreign key: signal_chat.signal_video_id → signals.video_id)
+db.prepare('DELETE FROM signal_chat WHERE signal_video_id IN (' + videoIds.map(() => '?').join(',') + ')').run(...videoIds);
+
+// Delete entity_mentions (foreign key: entity_mentions.signal_video_id → signals.video_id)
 db.prepare('DELETE FROM entity_mentions WHERE signal_video_id IN (' + videoIds.map(() => '?').join(',') + ')').run(...videoIds);
 
 // Delete signals
 db.prepare('DELETE FROM signals WHERE video_id IN (' + videoIds.map(() => '?').join(',') + ')').run(...videoIds);
 
-console.log(`Deleted ${toDelete.length} signal(s) and associated entity_mentions.`);
+console.log(`Deleted ${toDelete.length} signal(s) and associated signal_chat entries + entity_mentions.`);
 
 // Recalculate poll_runs.new_signal_count from remaining signals
 for (const runId of affectedRunIds) {

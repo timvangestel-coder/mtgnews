@@ -1,275 +1,215 @@
-<div class="max-w-3xl mx-auto relative" x-data="{
-  viewState: 'summary',
-  highlighted: null,
-  chatOpen: false,
-  chatInput: '',
-  historyLoaded: false,
-  signalVideoId: '<%= signal.video_id %>',
+<div class="max-w-3xl mx-auto relative"
+     data-video-id="<%= signal.video_id %>"
+     x-data="{
+       viewState: 'summary',
+       highlighted: null,
+       chatOpen: false,
+       chatInput: '',
+       historyLoaded: false,
+       signalVideoId: '',
 
-  toggleChat() {
-    var self = this;
-    if (!this.chatOpen) {
-      // Opening - fetch history if not loaded yet
-      this.chatOpen = true;
-      if (!this.historyLoaded) {
-        this.loadHistory();
-      }
-    } else {
-      this.chatOpen = false;
-    }
-  },
+       toggleChat() {
+         if (!this.chatOpen) {
+           this.chatOpen = true;
+           if (!this.historyLoaded) {
+             this.loadHistory();
+           }
+         } else {
+           this.chatOpen = false;
+         }
+       },
 
-  async loadHistory() {
-    var self = this;
-    try {
-      var response = await fetch('/chat/history?signalVideoId=' + encodeURIComponent(this.signalVideoId));
-      if (!response.ok) return;
-      var html = await response.text();
-      var container = document.getElementById('chat-history-content');
-      container.innerHTML = html;
-      // Process HTMX attributes on dynamically inserted elements (delete buttons)
-      if (window.htmx && htmx.process) {
-        htmx.process(container);
-      }
-      this.historyLoaded = true;
-    } catch (e) {
-      // ignore
-    }
-  },
+       async loadHistory() {
+         try {
+           var response = await fetch('/chat/history?signalVideoId=' + encodeURIComponent(this.signalVideoId));
+           if (!response.ok) return;
+           var html = await response.text();
+           var container = document.getElementById('chat-history-content');
+           container.innerHTML = html;
+           if (window.htmx && htmx.process) {
+             htmx.process(container);
+           }
+           this.historyLoaded = true;
+         } catch (e) {
+           // ignore
+         }
+       },
 
-  async sendQuestion() {
-    var self = this;
-    var question = this.chatInput.trim();
-    if (!question) return;
-    this.chatInput = '';
+       async sendQuestion() {
+         var self = this;
+         var question = this.chatInput.trim();
+         if (!question) return;
+         this.chatInput = '';
 
-    // Append question + empty answer immediately using createElement (no HTML strings)
-    var list = document.getElementById('chat-messages-list');
-    if (!list) return;
+         try {
+           var response = await fetch('/chat/ask', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ signalVideoId: self.signalVideoId, question: question })
+           });
 
-    var entryId = 'chat-new-' + Date.now();
-    var entryDiv = document.createElement('div');
-    entryDiv.className = 'chat-entry border-t border-gray-200 pt-3 pb-2';
-    entryDiv.setAttribute('data-chat-id', entryId);
+           if (!response.ok) {
+             alert('Error: ' + response.status);
+             return;
+           }
 
-    var qDiv = document.createElement('div');
-    qDiv.className = 'chat-question text-sm';
-    qDiv.innerHTML = '<strong>Q:</strong> ' + self.escapeHtml(question);
+           self.loadHistory();
 
-    var aDiv = document.createElement('div');
-    aDiv.className = 'chat-answer text-sm text-gray-700 mt-1';
-    var aStrong = document.createElement('strong');
-    aStrong.textContent = 'A: ';
-    var spanEl = document.createElement('span');
-    spanEl.className = 'streaming-text';
-    aDiv.appendChild(aStrong);
-    aDiv.appendChild(spanEl);
+         } catch (err) {
+           alert('Error sending question');
+         }
+       },
 
-    entryDiv.appendChild(qDiv);
-    entryDiv.appendChild(aDiv);
-    list.appendChild(entryDiv);
+       escapeHtml: function(text) {
+         var div = document.createElement('div');
+         div.textContent = text;
+         return div.innerHTML;
+       },
 
-    try {
-      var response = await fetch('/chat/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signalVideoId: self.signalVideoId, question: question })
-      });
+       setViewState(state) {
+         this.viewState = state;
+       },
 
-      var streamEl = entryDiv.querySelector('.streaming-text');
-      if (!response.ok) {
-        if (streamEl) streamEl.textContent = 'Error: ' + response.status;
-        return;
-      }
+       deleteChatMessage(chatId, event) {
+         // Let HTMX handle the DELETE request and OOB swap
+       },
 
-      var reader = response.body.getReader();
-      var decoder = new TextDecoder();
-      var fullAnswer = '';
+       handleSummaryPillClick(ms) {
+         this.viewState = 'split';
+         var self = this;
+         setTimeout(function() {
+           self.scrollToTranscript(ms);
+         }, 1050);
+       },
 
-       while (true) {
-        var result = await reader.read();
-        if (result.done) break;
-        fullAnswer += decoder.decode(result.value, { stream: true });
-        if (streamEl) streamEl.textContent = fullAnswer;
-      }
+       handleTranscriptPillClick(ms) {
+         if (this.viewState !== 'split') {
+           this.viewState = 'split';
+           var self = this;
+           setTimeout(function() {
+             self.scrollToSummary(ms);
+           }, 1050);
+         } else {
+           this.scrollToSummary(ms);
+         }
+       },
 
-      // Replace streaming span with final answer (raw tokens from stream, not transformed)
-      // The persisted answer in DB is transformed — history reload below renders it properly
-      if (aDiv && fullAnswer) {
-        var aStrong2 = document.createElement('strong');
-        aStrong2.textContent = 'A: ';
-        aDiv.innerHTML = '';
-        aDiv.appendChild(aStrong2);
-        var finalSpan = document.createElement('span');
-        finalSpan.className = 'streaming-text';
-        finalSpan.textContent = fullAnswer;
-        aDiv.appendChild(finalSpan);
-      }
+       scrollToTranscript(ms) {
+         var target = document.getElementById('t-' + ms);
+         if (!target) {
+           var segments = document.querySelectorAll('[id]');
+           segments = Array.prototype.filter.call(segments, function(s) { return s.id && s.id.indexOf('t-') === 0; });
+           var closest = null;
+           var closestDiff = Infinity;
+           segments.forEach(function(seg) {
+             var segMs = parseInt(seg.id.replace('t-', ''), 10);
+             var diff = Math.abs(segMs - ms);
+             if (diff < closestDiff) {
+               closestDiff = diff;
+               closest = seg;
+             }
+           });
+           target = closest;
+         }
+         if (!target) return;
+         var container = document.getElementById('transcript-pane');
+         if (container) {
+           container.scrollTop = target.offsetTop + container.scrollTop - container.offsetTop;
+           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+         } else {
+           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+         }
+         this.highlightTarget(target);
+       },
 
-      // Remove temporary streaming entry, then reload history with permanent copy
-      entryDiv.remove();
-      self.loadHistory();
+       scrollToSummary(ms) {
+         var pills = document.querySelectorAll('#summary-pane a[data-timestamp]');
+         var target = null;
+         pills.forEach(function(a) {
+           if (parseInt(a.getAttribute('data-timestamp'), 10) === ms) {
+             target = a;
+           }
+         });
+         if (!target) {
+           var closest = null;
+           var closestDiff = Infinity;
+           pills.forEach(function(a) {
+             var pillMs = parseInt(a.getAttribute('data-timestamp'), 10);
+             var diff = Math.abs(pillMs - ms);
+             if (diff < closestDiff) {
+               closestDiff = diff;
+               closest = a;
+             }
+           });
+           target = closest;
+         }
+         if (!target) return;
+         var self = this;
+         var transcriptPane = document.getElementById('transcript-pane');
+         var savedScrollTop = transcriptPane ? transcriptPane.scrollTop : 0;
+         var container = document.getElementById('summary-pane');
+         if (container) {
+           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+         } else {
+           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+         }
+         if (transcriptPane) {
+           requestAnimationFrame(function() {
+             transcriptPane.scrollTop = savedScrollTop;
+           });
+         }
+         this.highlightTarget(target);
+       },
 
-    } catch (err) {
-      var streamEl2 = entryDiv.querySelector('.streaming-text');
-      if (streamEl2) streamEl2.textContent = 'Error sending question';
-    }
-  },
+       highlightTarget(el) {
+         var self = this;
+         if (this.highlighted && this.highlighted !== el) {
+           this.highlighted.classList.remove('bg-yellow-100');
+         }
+         this.highlighted = el;
+         el.classList.add('bg-yellow-100');
+         setTimeout(function() {
+           if (el) el.classList.remove('bg-yellow-100');
+         }, 1500);
+       },
 
-  escapeHtml: function(text) {
-    var div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  },
+       init() {
+         var self = this;
+         this.signalVideoId = this.$el.getAttribute('data-video-id') || '';
+         window.__alpineReady = true;
 
-  setViewState(state) {
-    this.viewState = state;
-  },
+         document.querySelectorAll('#summary-pane a[data-timestamp]').forEach(function(link) {
+           link.addEventListener('click', function(e) {
+             e.preventDefault();
+             var ms = parseInt(this.getAttribute('data-timestamp'), 10);
+             self.handleSummaryPillClick(ms);
+           });
+         });
 
-  deleteChatMessage(chatId, event) {
-    // Let HTMX handle the DELETE request and OOB swap
-  },
+         document.querySelectorAll('#transcript-pane a[data-timestamp]').forEach(function(link) {
+           link.addEventListener('click', function(e) {
+             e.preventDefault();
+             var ms = parseInt(this.getAttribute('data-timestamp'), 10);
+             self.handleTranscriptPillClick(ms);
+           });
+         });
 
-  handleSummaryPillClick(ms) {
-    this.viewState = 'split';
-    var self = this;
-    setTimeout(function() {
-      self.scrollToTranscript(ms);
-    }, 1050);
-  },
-
-  handleTranscriptPillClick(ms) {
-    if (this.viewState !== 'split') {
-      this.viewState = 'split';
-      var self = this;
-      setTimeout(function() {
-        self.scrollToSummary(ms);
-      }, 1050);
-    } else {
-      this.scrollToSummary(ms);
-    }
-  },
-
-  scrollToTranscript(ms) {
-    var target = document.getElementById('t-' + ms);
-    if (!target) {
-      var segments = document.querySelectorAll('[id]');
-      segments = Array.prototype.filter.call(segments, function(s) { return s.id && s.id.indexOf('t-') === 0; });
-      var closest = null;
-      var closestDiff = Infinity;
-      segments.forEach(function(seg) {
-        var segMs = parseInt(seg.id.replace('t-', ''), 10);
-        var diff = Math.abs(segMs - ms);
-        if (diff < closestDiff) {
-          closestDiff = diff;
-          closest = seg;
-        }
-      });
-      target = closest;
-    }
-    if (!target) return;
-    var container = document.getElementById('transcript-pane');
-    if (container) {
-      container.scrollTop = target.offsetTop + container.scrollTop - container.offsetTop;
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-    this.highlightTarget(target);
-  },
-
-  scrollToSummary(ms) {
-    var pills = document.querySelectorAll('#summary-pane a[data-timestamp]');
-    var target = null;
-    pills.forEach(function(a) {
-      if (parseInt(a.getAttribute('data-timestamp'), 10) === ms) {
-        target = a;
-      }
-    });
-    if (!target) {
-      var closest = null;
-      var closestDiff = Infinity;
-      pills.forEach(function(a) {
-        var pillMs = parseInt(a.getAttribute('data-timestamp'), 10);
-        var diff = Math.abs(pillMs - ms);
-        if (diff < closestDiff) {
-          closestDiff = diff;
-          closest = a;
-        }
-      });
-      target = closest;
-    }
-    if (!target) return;
-    var self = this;
-    var transcriptPane = document.getElementById('transcript-pane');
-    var savedScrollTop = transcriptPane ? transcriptPane.scrollTop : 0;
-    var container = document.getElementById('summary-pane');
-    if (container) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-    // Bug 1 fix: counter-scroll transcript pane back to prevent browser auto-align
-    if (transcriptPane) {
-      requestAnimationFrame(function() {
-        transcriptPane.scrollTop = savedScrollTop;
-      });
-    }
-    this.highlightTarget(target);
-  },
-
-  highlightTarget(el) {
-    var self = this;
-    if (this.highlighted && this.highlighted !== el) {
-      this.highlighted.classList.remove('bg-yellow-100');
-    }
-    this.highlighted = el;
-    el.classList.add('bg-yellow-100');
-    setTimeout(function() {
-      if (el) el.classList.remove('bg-yellow-100');
-    }, 1500);
-  },
-
-  init() {
-    var self = this;
-    this.$nextTick(() => {
-      window.__alpineReady = true;
-
-      document.querySelectorAll('#summary-pane a[data-timestamp]').forEach(function(link) {
-        link.addEventListener('click', function(e) {
-          e.preventDefault();
-          var ms = parseInt(this.getAttribute('data-timestamp'), 10);
-          self.handleSummaryPillClick(ms);
-        });
-      });
-
-      document.querySelectorAll('#transcript-pane a[data-timestamp]').forEach(function(link) {
-        link.addEventListener('click', function(e) {
-          e.preventDefault();
-          var ms = parseInt(this.getAttribute('data-timestamp'), 10);
-          self.handleTranscriptPillClick(ms);
-        });
-      });
-
-      // Chat panel: delegate timestamp link clicks to scroll transcript + keep chat open
-      document.addEventListener('click', function(e) {
-        var target = e.target;
-        if (!target || !target.closest) return;
-        var link = target.closest('a[data-timestamp]');
-        if (!link) return;
-        // Only handle links inside the chat panel
-        if (!link.closest('[data-chat-panel]') && !link.closest('.chat-history')) return;
-        e.preventDefault();
-        var ms = parseInt(link.getAttribute('data-timestamp'), 10);
-        // Enter split mode so transcript is visible, then scroll to timestamp
-        self.viewState = 'split';
-        setTimeout(function() {
-          self.scrollToTranscript(ms);
-        }, 1050);
-      });
-    });
-  }
-}">
+         // Chat panel: delegate timestamp link clicks to scroll transcript + keep chat open
+         document.addEventListener('click', function(e) {
+           var target = e.target;
+           if (!target || !target.closest) return;
+           var link = target.closest('a[data-timestamp]');
+           if (!link) return;
+           if (!link.closest('[data-chat-panel]') && !link.closest('.chat-history')) return;
+           e.preventDefault();
+           var ms = parseInt(link.getAttribute('data-timestamp'), 10);
+           self.viewState = 'split';
+           setTimeout(function() {
+             self.scrollToTranscript(ms);
+           }, 1050);
+         });
+       }
+     }">
 
   <!-- Error flash message -->
   <% if (error) { %>

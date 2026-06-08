@@ -159,13 +159,18 @@ export function initDb(db: Database.Database): void {
       )
     `);
 
+    // Issue #114: Migration: add generated_title to signals (TEXT, nullable)
+    if (!signalCols.includes('generated_title')) {
+      db.exec('ALTER TABLE signals ADD COLUMN generated_title TEXT');
+    }
+
     // Issue #106: signal_chat table for threaded Q&A per Signal
     db.exec(`
       CREATE TABLE IF NOT EXISTS signal_chat (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         signal_video_id TEXT NOT NULL REFERENCES signals(video_id),
         question        TEXT NOT NULL,
-        answer          TEXT NOT NULL,
+        answer          TEXT,
         created_at      TEXT DEFAULT (datetime('now'))
       )
     `);

@@ -1,0 +1,19 @@
+<% if (status === 'failed') { %>
+<div class="chat-answer text-sm text-red-600 mt-1">
+  <strong>A:</strong> <span class="font-medium">failed</span>
+</div>
+<% } else if (status === 'pending') { %>
+<div
+  class="chat-answer text-sm text-gray-500 mt-1"
+  hx-get="/chat/<%= id %>/status"
+  hx-trigger="every 2s"
+  hx-swap="outerHTML"
+  hx-select=".chat-answer"
+>
+  <strong>A:</strong> <span class="animate-pulse">processing...</span>
+</div>
+<% } else { %>
+<div class="chat-answer text-sm text-gray-700 mt-1 whitespace-pre-wrap">
+  <strong>A:</strong> <%- answer %>
+</div>
+<% } %>

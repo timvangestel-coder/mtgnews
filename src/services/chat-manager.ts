@@ -1,12 +1,12 @@
 import Database from 'better-sqlite3';
-import { LlmConfig, callLlmStream } from '../llm';
+import { LlmConfig, callLlmStream, callLlmSync } from '../llm';
 import { assembleChat } from '../prompt-assembler';
 
 export interface ChatMessage {
   id: number;
   signal_video_id: string;
   question: string;
-  answer: string;
+  answer: string | null;
   created_at: string;
 }
 
@@ -98,6 +98,69 @@ export class ChatManager {
       // Do NOT partial-write to DB on failure
       throw error;
     }
+  }
+
+  /**
+   * Phase 1: insert a pending chat row with answer=NULL.
+   * Returns the inserted row id for later processing.
+   * Throws if the signal is not found.
+   */
+  submit(signalVideoId: string, question: string): number {
+    const signal = resolveSignalForChat(this.db, signalVideoId);
+    if (!signal) {
+      throw new Error(`Signal ${signalVideoId} not found`);
+    }
+
+    const result = this.db.prepare(
+      `INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)`
+    ).run(signalVideoId, question);
+
+    return result.lastInsertRowid as number;
+  }
+
+  /**
+   * Phase 2: process a pending chat row — resolve context, call LLM, persist answer.
+   * On success: UPDATE SET answer=... 
+   * On failure: answer remains NULL, error re-thrown.
+   */
+  async process(id: number): Promise<void> {
+    const row = this.db.prepare(
+      'SELECT id, signal_video_id, question FROM signal_chat WHERE id = ?'
+    ).get(id) as { id: number; signal_video_id: string; question: string } | undefined;
+
+    if (!row) {
+      throw new Error(`Chat question ${id} not found`);
+    }
+
+    // Resolve signal context
+    const signal = resolveSignalForChat(this.db, row.signal_video_id);
+    if (!signal) {
+      throw new Error(`Signal ${row.signal_video_id} not found`);
+    }
+
+    // Fetch recent Q&A history for context (exclude this pending row which has no answer yet)
+    const historyRows = this.db.prepare(`
+      SELECT question, answer FROM signal_chat
+      WHERE signal_video_id = ? AND answer IS NOT NULL
+      ORDER BY created_at DESC LIMIT 10
+    `).all(row.signal_video_id) as Array<{ question: string; answer: string }>;
+
+    // Assemble chat prompt
+    const prompt = assembleChat({
+      transcriptionJson: signal.transcriptionJson,
+      summary: signal.summary,
+      filterText: signal.filterText,
+      history: historyRows,
+      question: row.question,
+    });
+
+    // Call LLM sync — throws on failure, leaving answer=NULL
+    const answer = await callLlmSync(this.llmConfig, prompt);
+
+    // Persist answer on success
+    this.db.prepare(
+      'UPDATE signal_chat SET answer = ? WHERE id = ?'
+    ).run(answer, row.id);
   }
 
   /**

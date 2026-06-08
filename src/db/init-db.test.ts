@@ -498,10 +498,10 @@ describe('Schema initialization', () => {
     expect(columnMap.get('question')?.type).toBe('TEXT');
     expect(columnMap.get('question')?.notnull).toBe(1);
 
-    // answer TEXT NOT NULL
+    // answer TEXT (nullable - Issue #116: failed questions have NULL answer)
     expect(columnMap.has('answer')).toBe(true);
     expect(columnMap.get('answer')?.type).toBe('TEXT');
-    expect(columnMap.get('answer')?.notnull).toBe(1);
+    expect(columnMap.get('answer')?.notnull).toBe(0);
 
     // created_at DEFAULT datetime('now')
     expect(columnMap.has('created_at')).toBe(true);

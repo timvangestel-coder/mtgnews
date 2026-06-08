@@ -1,11 +1,14 @@
 import { Router } from 'express';
 import { ChatManager, ChatMessage } from '../services/chat-manager';
+import { ChatQueue } from '../chat-queue';
 import { TimestampFormatter } from '../timestamp-formatter';
 
-export function createChatRouter(chatManager: ChatManager) {
+export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue) {
   const router = Router();
 
-  // POST /chat/ask — accept JSON body with signalVideoId + question, stream LLM tokens back
+  // POST /chat/ask — accept JSON body with signalVideoId + question
+  // If ChatQueue is available, returns immediately with question ID (two-phase async)
+  // Otherwise falls back to streaming LLM tokens (legacy behavior)
   router.post('/chat/ask', async (req, res) => {
     const { signalVideoId, question } = req.body as { signalVideoId?: string; question?: string };
 
@@ -14,16 +17,29 @@ export function createChatRouter(chatManager: ChatManager) {
       return;
     }
 
-    // The ask() method throws "Signal X not found" on first .next() call —
-    // consume first token to surface errors before flushing headers.
+    // Use ChatQueue for async processing if available (Issue #120)
+    if (chatQueue) {
+      try {
+        const id = chatQueue.enqueue(signalVideoId, question);
+        res.json({ id, status: 'pending' });
+      } catch (error: unknown) {
+        const err = error as Error;
+        if (err.message?.includes('not found')) {
+          res.status(404).json({ error: err.message });
+        } else {
+          res.status(500).json({ error: 'Failed to enqueue question' });
+        }
+      }
+      return;
+    }
+
+    // Legacy streaming behavior when no queue is provided
     try {
-      // Start the async generator and consume first iteration to trigger validation
       const stream = chatManager.ask(signalVideoId, question, (text) => TimestampFormatter.format(text));
-      
-      // Attempt to get the first token — this is where "not found" errors surface
+
       let firstToken: string | undefined;
       let exhausted = false;
-      
+
       try {
         const firstResult = await stream.next();
         if (!firstResult.done) {
@@ -41,7 +57,6 @@ export function createChatRouter(chatManager: ChatManager) {
         return;
       }
 
-      // First token obtained — now safe to flush headers and stream
       res.setHeader('Content-Type', 'text/plain');
       res.flushHeaders();
 
@@ -70,7 +85,42 @@ export function createChatRouter(chatManager: ChatManager) {
     }
   });
 
+  // GET /chat/:id/status — return processing status for HTMX polling (Issue #120)
+  // Returns HTML fragment when called via HTMX (for hx-swap), JSON otherwise
+  router.get('/chat/:id/status', (_req, res) => {
+    const id = parseInt(_req.params.id, 10);
+    if (isNaN(id)) {
+      res.status(400).json({ error: 'Invalid id' });
+      return;
+    }
+
+    if (!chatQueue) {
+      res.status(501).json({ error: 'Status endpoint requires ChatQueue' });
+      return;
+    }
+
+    const info = chatQueue.statusInfo(id);
+    if (info === null) {
+      res.status(404).json({ error: `Chat question ${id} not found` });
+      return;
+    }
+
+    // HTMX requests get HTML fragment for hx-swap="outerHTML" + hx-select
+    if (_req.headers['hx-request']) {
+      res.render('_chatAnswerStatus', {
+        id,
+        status: info.status,
+        answer: info.answer ?? '',
+        layout: false,
+      });
+    } else {
+      // Non-HTMX requests get JSON (for API consumers / tests)
+      res.json({ id, ...info });
+    }
+  });
+
   // GET /chat/history?signalVideoId=X — return HTMX fragment of Q&A pairs
+  // Includes per-message status from ChatQueue so template can render pending/failed states
   router.get('/chat/history', (req, res) => {
     const signalVideoId = req.query.signalVideoId as string | undefined;
 
@@ -79,8 +129,18 @@ export function createChatRouter(chatManager: ChatManager) {
       messages = chatManager.getHistory(signalVideoId);
     }
 
+    // Build a status map for each message when queue is available
+    const statusMap: Record<number, 'pending' | 'done' | 'failed'> = {};
+    if (chatQueue) {
+      for (const msg of messages) {
+        const s = chatQueue.status(msg.id);
+        if (s) statusMap[msg.id] = s;
+      }
+    }
+
     res.render('_chatHistory', {
       messages,
+      statusMap,
       layout: false,
     });
   });

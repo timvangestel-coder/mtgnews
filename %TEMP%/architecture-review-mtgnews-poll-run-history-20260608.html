@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Architecture Review: Poll Run History Deepening</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    .badge-strong { background: #dcfce7; color: #166534; }
+    .badge-worth { background: #fef9c3; color: #854d0e; }
+    .badge-speculative { background: #e0e7ff; color: #3730a3; }
+    .before-box { border-left: 3px solid #f87171; }
+    .after-box { border-left: 3px solid #34d399; }
+    .mermaid { display: flex; justify-content: center; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-8">
+  <div class="max-w-6xl mx-auto">
+    <h1 class="text-3xl font-bold mb-2">Architecture Review: Poll Run History Deepening</h1>
+    <p class="text-gray-500 mb-8">Generated 2026-06-08 &middot; improve-codebase-architecture skill</p>
+
+    <!-- Context -->
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+      <h2 class="text-xl font-semibold mb-4">Context</h2>
+      <p class="mb-3">
+        The admin [Polling] tab presents rich, state-aware Poll Run progress via a deep view model (<code>RunState</code>) produced by <code>PollRunManager.runState()</code>. It maps raw DB statuses to UI-friendly enums, computes per-channel step progress (X/Y done/total), and drives a 5-branch colour-coded display for running, aborted, and completed runs.
+      </p>
+      <p class="mb-3">
+        The Run History pages (<code>/polls</code> list + <code>/polls/:id-detail</code>) present the same underlying data through a completely different, shallow path: raw DB rows passed directly to templates with inline status logic. The result is divergent terminology, missing progress granularity (no X/Y per channel in detail), and duplicated display logic scattered across EJS templates.
+      </p>
+      <p>
+        <strong>Friction:</strong> two independent presentation paths for the same domain concept (Poll Run state), one deep, one shallow. Every new status or display rule must be implemented twice, increasing the bug surface and reducing locality.
+      </p>
+    </div>
+
+    <!-- Candidate 1 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold">Candidate 1: Unify Run History on <code>RunState</code></h2>
+        <span class="badge-strong px-3 py-1 rounded-full text-sm font-medium">Strong</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-6 text-sm">
+        <div>
+          <strong>Files involved:</strong><br/>
+          <code>src/services/poll-query-service.ts</code><br/>
+          <code>src/routes/polls-router.ts</code><br/>
+          <code>views/polls.ejs</code><br/>
+          <code>views/poll-detail.ejs</code><br/>
+          <code>views/admin/_pollProgress.ejs</code>
+        </div>
+        <div>
+          <strong>Problem:</strong><br/>
+          <code>PollQueryService</code> is a shallow pass-through: its interface (<code>listRuns()</code>, <code>getRunDetail()</code>) exposes raw DB shapes (<code>PollRunRow</code>, <code>PollRunProgressRow</code>) directly to templates. All status mapping and display logic leaks into EJS, duplicating what <code>PollRunManager.runState()</code> already does for the admin tab. The Run History detail page shows per-channel <code>signals_found</code> but not <code>signalsDone/signals_found</code> progress (X/Y), making it impossible to see per-channel completion from the history view.
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <strong>Solution:</strong>
+        <p class="mt-2">Promote <code>RunState</code> (and its constituent <code>PollRunStep</code>) from <code>PollRunManager</code>'s private domain to a shared view model consumed by both the admin [Polling] tab and the Run History pages. Concretely:</p>
+        <ul class="list-disc ml-6 mt-2 space-y-1">
+          <li><strong>Move <code>RunState</code> + <code>PollRunStep</code> + status mapping</strong> into <code>PollQueryService</code> as a public method <code>getRunState(runId): RunState | null</code>. This is the seam: the query service becomes the single source of truth for Poll Run view models.</li>
+          <li><strong>Extract status-mapping functions</strong> (<code>mapStatus()</code>, <code>mapStepStatus()</code>) from <code>PollRunManager</code> into a pure module (e.g., <code>src/utils/poll-status-map.ts</code>) so both the Manager and the Query Service share the same mapping logic.</li>
+          <li><strong>Update <code>PollQueryService.getRunDetail()</code></strong> to return <code>RunState</code> (or a superset including it) instead of raw progress rows. The list view (<code>ListRunsResult</code>) stays as-is since it needs aggregate columns, but the detail view gets the deepened model.</li>
+          <li><strong>Replace inline EJS logic in <code>poll-detail.ejs</code></strong> with the same 5-branch step display used by <code>_pollProgress.ejs</code>, driven by the pre-computed <code>PollRunStep</code> status enum.</li>
+          <li><strong>Refactor <code>PollRunManager.runState()</code></strong> to call the shared mapping functions instead of duplicating them. The Manager still builds RunState, but delegates mapping to the pure utility — two adapters at the same seam.</li>
+        </ul>
+      </div>
+
+      <div class="mb-6">
+        <strong>Benefits:</strong>
+        <ul class="list-disc ml-6 mt-2 space-y-1">
+          <li><strong>Locality:</strong> Status mapping logic lives in one place (<code>poll-status-map.ts</code>). Adding a new DB status or changing display rules touches a single module, not two templates and two classes.</li>
+          <li><strong>Leverage:</strong> The <code>PollQueryService.getRunState()</code> interface is small (one method) but returns rich, pre-computed data. Callers get mapped statuses, step progress (X/Y), and display names without knowing about DB schemas.</li>
+          <li><strong>Testability:</strong> Pure mapping functions are trivially unit-testable. The Query Service method can be tested with in-memory SQLite. Template logic shrinks to simple switch-on-enum, reducing the need for template-level tests.</li>
+          <li><strong>Consistency:</strong> Admin tab and Run History detail show identical per-channel states (same colours, same labels, same X/Y format) because they consume the same view model.</li>
+        </ul>
+      </div>
+
+      <!-- Before/After Diagram -->
+      <h3 class="font-semibold mb-3">Before / After</h3>
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="before-box pl-4">
+          <h4 class="text-red-600 font-medium mb-2">Before — Shallow, Duplicated</h4>
+          <div class="mermaid">graph LR
+            A[PollRunManager.runState] -->|mapStatus private| B[Admin _pollProgress.ejs]
+            C[PollQueryService.getRunDetail] -->|raw DB rows| D[poll-detail.ejs]
+            E[PollQueryService.listRuns] -->|raw DB rows| F[polls.ejs]
+            style A fill:#fef3c7,stroke:#f59e0b
+            style C fill:#fee2e2,stroke:#ef4444
+            style D fill:#fee2e2,stroke:#ef4444
+          </div>
+          <p class="text-xs text-gray-500 mt-2">Two independent paths. Status mapping duplicated in PollRunManager (private) and inline EJS templates. Raw DB shapes leak into views.</p>
+        </div>
+        <div class="after-box pl-4">
+          <h4 class="text-green-600 font-medium mb-2">After — Deep, Unified</h4>
+          <div class="mermaid">graph LR
+            G[poll-status-map.ts pure] --> H[PollQueryService.getRunState]
+            G --> I[PollRunManager.runState]
+            H --> J[Admin _pollProgress.ejs]
+            H --> K[poll-detail.ejs]
+            L[PollQueryService.listRuns] --> M[polls.ejs]
+            style G fill:#dcfce7,stroke:#22c55e
+            style H fill:#dcfce7,stroke:#22c55e
+            style I fill:#fef3c7,stroke:#f59e0b
+          </div>
+          <p class="text-xs text-gray-500 mt-2">Single pure mapping module. PollQueryService.getRunState() is the deep seam — both views consume RunState. Manager delegates mapping to shared utility (two adapters at the seam).</p>
+        </div>
+      </div>
+
+      <!-- Deletion Test -->
+      <h3 class="font-semibold mb-2">Deletion Test</h3>
+      <p class="text-sm">
+        Imagine deleting <code>PollQueryService.getRunDetail()</code>. The complexity doesn't vanish — it reappears in the route handler (<code>polls-router.ts</code>) which would need to call DB functions directly, and in the template which would need inline status mapping. The module is currently a pass-through (shallow), but <em>deepening it</em> concentrates that complexity productively: one deep method instead of N shallow callers.
+      </p>
+    </div>
+
+    <!-- Candidate 2 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold">Candidate 2: Extract Step Display Logic into a View Helper</h2>
+        <span class="badge-worth px-3 py-1 rounded-full text-sm font-medium">Worth exploring</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-6 text-sm">
+        <div>
+          <strong>Files involved:</strong><br/>
+          <code>views/admin/_pollProgress.ejs</code><br/>
+          <code>views/poll-detail.ejs</code>
+        </div>
+        <div>
+          <strong>Problem:</strong><br/>
+          The 5-branch step display logic (fetching &rarr; blue, failed &rarr; red, none &rarr; grey, X/Y processing &rarr; blue, Y/Y done &rarr; green) is copy-pasted as inline EJS JavaScript across <code>_pollProgress.ejs</code> in three places (running, aborted, complete states). That's 3 &times; 5-branch blocks of near-identical logic. Any change to colours or labels requires editing 3 template blocks.
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <strong>Solution:</strong>
+        <p class="mt-2">Extract the step-label + step-color computation into an Express view helper (e.g., <code>res.locals.stepLabel()</code>, <code>res.locals.stepColor()</code>) that takes a <code>PollRunStep</code> and run status, returning the display string and CSS class. The template then calls <code><%= stepLabel(step, state.status) %></code> instead of inline if/else blocks.</p>
+      </div>
+
+      <div class="mb-6">
+        <strong>Benefits:</strong>
+        <ul class="list-disc ml-6 mt-2 space-y-1">
+          <li><strong>Locality:</strong> Display rules for one concept (channel step state) live in one function, not scattered across template branches.</li>
+          <li><strong>Testability:</strong> Pure function of (step, runStatus) &rarr; {label, color}. Trivially testable with table-driven tests covering all 15 state combinations (3 run states &times; 5 step states).</li>
+        </ul>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="before-box pl-4">
+          <h4 class="text-red-600 font-medium mb-2">Before — Triple-copy inline logic</h4>
+          <pre class="text-xs bg-gray-100 p-3 rounded overflow-auto">if (step.status === 'fetching') {
+  stepLabel = 'fetching';
+  stepColor = 'text-blue-600';
+} else if (step.status === 'failed') {
+  ...
+// repeated 3x in _pollProgress.ejs</pre>
+        </div>
+        <div class="after-box pl-4">
+          <h4 class="text-green-600 font-medium mb-2">After — Single helper call</h4>
+          <pre class="text-xs bg-gray-100 p-3 rounded overflow-auto"><% const {label, color} = 
+   stepDisplay(step, state.status); %>
+<span class="<%= color %>"><%= label %></span></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Candidate 3 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold">Candidate 3: Add HTMX Polling to Run History Detail for Active Runs</h2>
+        <span class="badge-speculative px-3 py-1 rounded-full text-sm font-medium">Speculative</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-6 text-sm">
+        <div>
+          <strong>Files involved:</strong><br/>
+          <code>views/poll-detail.ejs</code><br/>
+          <code>src/routes/polls-router.ts</code>
+        </div>
+        <div>
+          <strong>Problem:</strong><br/>
+          The Run History detail page is static — it shows a snapshot. If a user opens the detail of a currently-running poll, they see stale data with no auto-refresh. The admin [Polling] tab gets live updates via HTMX polling (<code>hx-trigger="every 3s"</code>), but the Run History pages don't.
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <strong>Solution:</strong>
+        <p class="mt-2">When rendering poll-detail for a run with status <code>running</code>, include HTMX polling attributes on the channel breakdown table that call back to a lightweight endpoint (e.g., <code>GET /polls/:id/progress</code>) returning just the table fragment. Stop polling when status changes to done/failed/aborted.</p>
+      </div>
+
+      <div class="mb-6">
+        <strong>Benefits:</strong>
+        <ul class="list-disc ml-6 mt-2 space-y-1">
+          <li><strong>Consistency:</strong> Both admin and history pages show live progress for active runs.</li>
+          <li><strong>Leverage:</strong> The same <code>RunState</code> view model powers both the full-page detail and the HTMX fragment swap.</li>
+        </ul>
+      </div>
+
+      <p class="text-xs text-gray-400 italic">This candidate depends on Candidate 1 (unified RunState) landing first. Skipping it is fine — it's a UX nicety, not an architectural fix.</p>
+    </div>
+
+    <!-- Top Recommendation -->
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
+      <h2 class="text-xl font-semibold text-blue-900 mb-3">Top Recommendation</h2>
+      <p class="mb-3">
+        <strong>Tackle Candidate 1 first:</strong> Unify Run History on <code>RunState</code>. It's the foundational change that eliminates the dual-path problem. Once the Query Service exposes a deep view model, both templates become thin renderers — and Candidates 2 (view helper) and 3 (HTMX polling) become incremental improvements on top of the unified foundation.
+      </p>
+      <p class="text-sm text-blue-700">
+        The sequence: Candidate 1 &rarr; Candidate 2 (inline, low effort) &rarr; Candidate 3 (optional UX polish). Total estimated impact: high leverage, moderate effort, immediate consistency gain.
+      </p>
+    </div>
+
+    <script>mermaid.initialize({startOnLoad:true});</script>
+  </div>
+</body>
+</html>

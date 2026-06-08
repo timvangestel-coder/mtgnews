@@ -18,6 +18,8 @@ import { createAdminPollingRouter } from './routes/admin-polling-router';
 import { createAdminRouter } from './routes/admin-router';
 import { createAdminSettingsRouter } from './routes/admin-settings-router';
 import { ChatManager } from './services/chat-manager';
+import { ChatQueue } from './chat-queue';
+import { ConcurrencyPool } from './concurrency-pool';
 import { getLlmConfig } from './llm';
 import { createChatRouter } from './routes/chat-router';
 
@@ -56,8 +58,12 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
     console.log(`[scheduler] Recovered ${recovered} stale run(s) on startup`);
   }
 
+  // Global concurrency pool shared between Poll analysis and Chat processing
+  const llmConcurrency = parseInt(process.env.LLM_CONCURRENCY || '3', 10);
+  const globalPool = new ConcurrencyPool(llmConcurrency);
+
   // PollRunManager — consolidated poll lifecycle manager (Issue #78)
-  const pollRunManager = new PollRunManager(useDb);
+  const pollRunManager = new PollRunManager(useDb, globalPool);
 
   // start background worker (opt-out for tests)
   if (opts.startScheduler !== false) {
@@ -92,9 +98,10 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
   // admin dashboard — mounted via router (Issue #72)
   app.use('/', createAdminRouter(channelManager, topicManager, pollRunManager, useDb));
 
-  // chat — mounted via router (Issue #108)
+  // chat — mounted via router with queue (Issue #108, #120)
   const chatManager = new ChatManager(useDb, getLlmConfig());
-  app.use('/', createChatRouter(chatManager));
+  const chatQueue = new ChatQueue(useDb, chatManager, globalPool);
+  app.use('/', createChatRouter(chatManager, chatQueue));
 
   const server = app.listen(listenPort, () => {
     console.log(`Dashboard server listening on port ${listenPort}`);

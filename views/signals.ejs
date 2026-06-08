@@ -74,75 +74,7 @@
   </div>
 </div>
 
-<!-- Signal Table Fragment -->
-<div id="signals-table">
-  <table class="w-full text-left">
-    <thead>
-      <tr class="border-b text-sm text-gray-500">
-        <th class="py-2 px-3">Published</th>
-        <th class="py-2 px-3">Time</th>
-        <th class="py-2 px-3">Summary</th>
-        <th class="py-2 px-3">Sentiment</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% if (!signals || signals.length === 0) { %>
-        <tr><td colspan="4" class="py-4 px-3 text-gray-500">No signals found.</td></tr>
-      <% } %>
-      <% for (var si = 0; si < (signals || []).length; si++) { var signal = signals[si]; %>
-        <% var dt = signal.published_at ? new Date(signal.published_at) : new Date(); %>
-        <% var dateStr = dt.toLocaleDateString(); %>
-        <% var timeStr = dt.toLocaleTimeString(); %>
-        <% var isIrrelevant = signal.relevance_status === 'irrelevant'; %>
-        <% var summary = isIrrelevant ? '[Irrelevant]' : (signal.summary || '').substring(0, 50); %>
-        <% var sentiment = signal.overall_sentiment || 3; %>
-        <% var colors = ['', 'bg-red-600', 'bg-orange-500', 'bg-yellow-500', 'bg-lime-500', 'bg-green-600']; %>
-        <tr class="border-b hover:bg-gray-50 cursor-pointer <%= isIrrelevant ? 'opacity-50' : '' %>" onclick="location.href='/signals/<%= signal.video_id %>'">
-          <td class="py-2 px-3 text-sm"><%= dateStr %></td>
-          <td class="py-2 px-3 text-sm"><%= timeStr %></td>
-          <td class="py-2 px-3 text-sm"><%= summary %></td>
-          <td class="py-2 px-3">
-            <span class="<%= colors[sentiment] || 'bg-gray-400' %> text-white rounded-full px-2 py-0.5 text-xs">
-              <%= sentiment %>
-            </span>
-          </td>
-        </tr>
-      <% } %>
-    </tbody>
-  </table>
-
-  <!-- Pagination -->
-  <div class="flex justify-between items-center mt-4">
-    <span class="text-sm text-gray-500">
-      Showing <%= (signals || []).length %> of <%= total %> signals
-    </span>
-    <div class="flex gap-2">
-      <% if (page > 1) { %>
-        <% var prevParams = new URLSearchParams(); %>
-        <% if (channelId) prevParams.set('channelId', channelId); %>
-        <% if (topicKey) prevParams.set('topicKey', topicKey); %>
-        <% if (showIrrelevant) prevParams.set('showIrrelevant', 'true'); %>
-        <% prevParams.set('page', String(page - 1)); %>
-        <% prevParams.set('htmx', 'true'); %>
-        <button hx-get="/signals?<%= prevParams.toString() %>"
-                hx-target="#signals-table"
-                class="px-3 py-1 bg-gray-200 rounded text-sm hover:bg-gray-300">
-          Previous
-        </button>
-      <% } %>
-      <% if (page < totalPages) { %>
-        <% var nextParams = new URLSearchParams(); %>
-        <% if (channelId) nextParams.set('channelId', channelId); %>
-        <% if (topicKey) nextParams.set('topicKey', topicKey); %>
-        <% if (showIrrelevant) nextParams.set('showIrrelevant', 'true'); %>
-        <% nextParams.set('page', String(page + 1)); %>
-        <% nextParams.set('htmx', 'true'); %>
-        <button hx-get="/signals?<%= nextParams.toString() %>"
-                hx-target="#signals-table"
-                class="px-3 py-1 bg-gray-200 rounded text-sm hover:bg-gray-300">
-          Next
-        </button>
-      <% } %>
-    </div>
-  </div>
-</div>
+ <!-- Signal Table Fragment -->
+ <div id="signals-table">
+   <%- include('_signalsTable', { signals, page, totalPages, total, channelId, topicKey, showIrrelevant }) %>
+ </div>

@@ -229,6 +229,42 @@ describe('query', () => {
     expect(result.total).toBe(5);
   });
 
+  // -- Issue #115: generated_title in SignalRow --
+  it('query includes generated_title column in results', () => {
+    // Set generated_title on v1
+    db.prepare("UPDATE signals SET generated_title = ? WHERE video_id = ?").run('AI Generated Title for V1', 'v1');
+
+    const result = querySignals(db);
+    const v1Row = result.items.find((s: any) => s.video_id === 'v1');
+    expect(v1Row).toBeDefined();
+    expect(v1Row!.generated_title).toBe('AI Generated Title for V1');
+  });
+
+  it('generated_title is null when not set', () => {
+    const result = querySignals(db);
+    const v2Row = result.items.find((s: any) => s.video_id === 'v2');
+    expect(v2Row).toBeDefined();
+    expect(v2Row!.generated_title).toBeNull();
+  });
+
+  it('generated_title is included with channel filter', () => {
+    db.prepare("UPDATE signals SET generated_title = ? WHERE video_id = ?").run('Custom Title V5', 'v5');
+
+    const result = querySignals(db, { channelId: 'UC1' });
+    const v5Row = result.items.find((s: any) => s.video_id === 'v5');
+    expect(v5Row!.generated_title).toBe('Custom Title V5');
+  });
+
+  it('generated_title is included for irrelevant signals', () => {
+    db.prepare("UPDATE signals SET processing_state = ? WHERE video_id = ?").run('irrelevant', 'v3');
+    db.prepare("UPDATE signals SET generated_title = ? WHERE video_id = ?").run('Irrelevant Signal Title', 'v3');
+
+    const result = querySignals(db, { includeIrrelevant: true });
+    const v3Row = result.items.find((s: any) => s.video_id === 'v3');
+    expect(v3Row!.generated_title).toBe('Irrelevant Signal Title');
+    expect(v3Row!.processing_state).toBe('irrelevant');
+  });
+
   // -- Topic filter (Issue #56) --
   it('topicKey filters signals to only that topic channels', () => {
     const result = querySignals(db, { topicKey: 'esports' });
@@ -276,5 +312,72 @@ describe('query', () => {
     const result = querySignals(db, { topicKey: 'esports', minSentiment: 3, dateFrom: '2026-01-01T00:00:00Z' });
     expect(result.items).toHaveLength(2);
     expect(result.items.map((s: any) => s.video_id)).toEqual(['v2', 'v1']);
+  });
+
+  // -- Issue #116: Q&A Ratio --
+  it('signal with no chat rows has null qaAnswered and qaTotal', () => {
+    const result = querySignals(db);
+    const v1Row = result.items.find((s: any) => s.video_id === 'v1');
+    expect(v1Row!.qaAnswered).toBeNull();
+    expect(v1Row!.qaTotal).toBeNull();
+  });
+
+  it('signal with one answered question shows 1/1 ratio', () => {
+    db.prepare(
+      "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, ?)"
+    ).run('v1', 'What is this about?', 'It is about MTG.');
+
+    const result = querySignals(db);
+    const v1Row = result.items.find((s: any) => s.video_id === 'v1');
+    expect(v1Row!.qaAnswered).toBe(1);
+    expect(v1Row!.qaTotal).toBe(1);
+  });
+
+  it('signal with multiple questions including failed ones counts correctly', () => {
+    // 2 answered, 1 failed (NULL answer)
+    db.prepare(
+      "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, ?)"
+    ).run('v2', 'Question 1?', 'Answer 1');
+    db.prepare(
+      "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, ?)"
+    ).run('v2', 'Question 2?', 'Answer 2');
+    db.prepare(
+      "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, ?)"
+    ).run('v2', 'Question 3?', null);
+
+    const result = querySignals(db);
+    const v2Row = result.items.find((s: any) => s.video_id === 'v2');
+    expect(v2Row!.qaAnswered).toBe(2);
+    expect(v2Row!.qaTotal).toBe(3);
+  });
+
+  it('signal with only failed questions shows 0 answered but correct total', () => {
+    db.prepare(
+      "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, ?)"
+    ).run('v3', 'Failed question?', null);
+    db.prepare(
+      "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, ?)"
+    ).run('v3', 'Another failed?', null);
+
+    const result = querySignals(db);
+    const v3Row = result.items.find((s: any) => s.video_id === 'v3');
+    expect(v3Row!.qaAnswered).toBe(0);
+    expect(v3Row!.qaTotal).toBe(2);
+  });
+
+  it('qa ratio works with channel filter', () => {
+    db.prepare(
+      "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, ?)"
+    ).run('v5', 'UC1 question?', 'UC1 answer');
+
+    const result = querySignals(db, { channelId: 'UC1' });
+    const v5Row = result.items.find((s: any) => s.video_id === 'v5');
+    expect(v5Row!.qaAnswered).toBe(1);
+    expect(v5Row!.qaTotal).toBe(1);
+
+    // v1 and v2 have no chat in UC1 filter
+    const v1Row = result.items.find((s: any) => s.video_id === 'v1');
+    expect(v1Row!.qaAnswered).toBeNull();
+    expect(v1Row!.qaTotal).toBeNull();
   });
 });

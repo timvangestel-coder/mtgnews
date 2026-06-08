@@ -1,0 +1,73 @@
+import Database from 'better-sqlite3';
+import { ConcurrencyPool } from './concurrency-pool';
+import { ChatManager } from './services/chat-manager';
+
+/**
+ * ChatQueue — manages chat question processing through the global ConcurrencyPool.
+ *
+ * Decouples HTTP request lifecycle from LLM processing:
+ * - enqueue() returns immediately after submit()
+ * - process() tasks dispatch in background via shared pool
+ */
+export class ChatQueue {
+  constructor(
+    private db: Database.Database,
+    private chatManager: ChatManager,
+    private pool: ConcurrencyPool
+  ) {}
+
+  /**
+   * Enqueue a chat question for async processing.
+   * Returns the question ID immediately after inserting a pending row.
+   */
+  enqueue(signalVideoId: string, question: string): number {
+    const id = this.chatManager.submit(signalVideoId, question);
+
+    // Dispatch processing task to shared pool
+    this.pool.run(async () => {
+      try {
+        await this.chatManager.process(id);
+      } catch (_err) {
+        // Process failure leaves answer=NULL → mark as failed for status tracking
+        this.markFailed(id);
+      }
+    });
+
+    return id;
+  }
+
+  /**
+   * Rich status info for HTMX polling responses.
+   * Returns status + answer text when done, so the UI can swap in the result.
+   */
+  statusInfo(id: number): { status: 'pending' | 'done' | 'failed'; answer?: string } | null {
+    const row = this.db.prepare(
+      'SELECT answer FROM signal_chat WHERE id = ?'
+    ).get(id) as { answer: string | null } | undefined;
+
+    if (!row) return null;
+
+    if (this._failedIds.has(id)) return { status: 'failed' };
+    if (row.answer !== null && row.answer !== undefined) return { status: 'done', answer: row.answer };
+    return { status: 'pending' };
+  }
+
+  /**
+   * Returns the current processing status of a chat question.
+   * - 'pending': row exists but answer is still NULL and not yet failed
+   * - 'done': answer has been written
+   * - 'failed': processing error occurred, answer remains NULL
+   * - null: question id not found
+   */
+  status(id: number): 'pending' | 'done' | 'failed' | null {
+    const info = this.statusInfo(id);
+    return info?.status ?? null;
+  }
+
+  private _failedIds = new Set<number>();
+
+  /** Mark a question ID as failed (called internally). */
+  private markFailed(id: number): void {
+    this._failedIds.add(id);
+  }
+}

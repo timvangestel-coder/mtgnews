@@ -435,6 +435,75 @@ describe('llm', () => {
       expect(sig.processing_state).toBe('irrelevant');
     });
 
+    it('persists generated_title from LLM response', async () => {
+      const db = createTestDb();
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-title', 'text about mtg news');
+
+      mockMergedResponse({
+        summary: 'MTG news update',
+        takeaways: [],
+        overall_sentiment: { score: 4, label: 'Positive' },
+        entities: [],
+        title: 'New MTG Set Announcement Changes Everything',
+      });
+
+      const result = await analyzeSignal(db, 'v-title', config);
+      expect(result.success).toBe(true);
+
+      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-title');
+      expect(sig.generated_title).toBe('New MTG Set Announcement Changes Everything');
+    });
+
+    it('truncates generated_title to 100 characters', async () => {
+      const db = createTestDb();
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-long-title', 'text');
+
+      const longTitle = 'A'.repeat(150);
+      mockMergedResponse({
+        summary: 's',
+        takeaways: [],
+        overall_sentiment: { score: 3, label: 'Neutral' },
+        entities: [],
+        title: longTitle,
+      });
+
+      await analyzeSignal(db, 'v-long-title', config);
+
+      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-long-title');
+      expect(sig.generated_title).toHaveLength(100);
+      expect(sig.generated_title).toBe('A'.repeat(100));
+    });
+
+    it('leaves generated_title NULL when LLM omits title field', async () => {
+      const db = createTestDb();
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-no-title', 'text');
+
+      mockMergedResponse({
+        summary: 's',
+        takeaways: [],
+        overall_sentiment: { score: 3, label: 'Neutral' },
+        entities: [],
+      });
+
+      await analyzeSignal(db, 'v-no-title', config);
+
+      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-no-title');
+      expect(sig.generated_title).toBeNull();
+    });
+
+    it('existing signals retain NULL generated_title after migration', async () => {
+      const db = createTestDb();
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-existing', 'text');
+
+      // Signal created before title feature — generated_title should be NULL
+      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-existing');
+      expect(sig.generated_title).toBeNull();
+    });
+
     it('returns descriptive error for unexpected response structure', async () => {
       const db = createTestDb();
       seedChannel(db, 'UCtest');

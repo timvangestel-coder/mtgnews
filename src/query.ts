@@ -24,6 +24,9 @@ export interface SignalRow {
   sentiment_label: string | null;
   created_at: number;
   processing_state: string;
+  generated_title: string | null;
+  qaAnswered: number | null;
+  qaTotal: number | null;
 }
 
 export interface QueryResult {
@@ -99,14 +102,24 @@ export function querySignals(db: Database.Database, filters: QueryFilters = {}):
   const total = countRow?.cnt ?? 0;
 
   // Get paginated results, ordered by published_at DESC
+  // Issue #116: Q&A ratio via correlated subqueries on signal_chat
   const selectSql = `
     SELECT s.video_id, s.channel_id, s.title, s.published_at, s.transcription,
-           s.summary, s.overall_sentiment, s.sentiment_label, s.created_at, s.processing_state
+           s.summary, s.overall_sentiment, s.sentiment_label, s.created_at, s.processing_state, s.generated_title,
+           (SELECT COUNT(*) FROM signal_chat sc WHERE sc.signal_video_id = s.video_id AND sc.answer IS NOT NULL) as qaAnswered,
+           (SELECT COUNT(*) FROM signal_chat sc WHERE sc.signal_video_id = s.video_id) as qaTotalRaw
     FROM signals s ${whereClause}
     ORDER BY s.published_at DESC
     LIMIT ? OFFSET ?
   `;
-  const items = db.prepare(selectSql).all(...params, limit, offset) as SignalRow[];
+  const rawItems = db.prepare(selectSql).all(...params, limit, offset) as Array<SignalRow & { qaTotalRaw: number }>;
+
+  // Convert: if 0 questions exist, both qaAnswered and qaTotal are null (template shows "—")
+  const items = rawItems.map((row) => ({
+    ...row,
+    qaAnswered: row.qaTotalRaw > 0 ? row.qaAnswered : null,
+    qaTotal: row.qaTotalRaw > 0 ? row.qaTotalRaw : null,
+  })) as SignalRow[];
 
   return { items, total, offset, limit };
 }

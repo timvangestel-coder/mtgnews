@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review — mtgnews: Chat Concurrency</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <header class="border-b border-slate-200 pb-6">
+        <h1 class="text-3xl font-serif font-bold text-slate-900">Architecture Review — mtgnews</h1>
+        <p class="text-sm text-slate-500 mt-1">2026-06-07 · Chat Concurrency & Queuing Deepening</p>
+        <div class="flex gap-4 mt-4 text-xs uppercase tracking-wider text-slate-500">
+          <span class="flex items-center gap-1"><span class="w-3 h-3 border-2 border-slate-400 inline-block rounded-sm"></span> Module</span>
+          <span class="flex items-center gap-1"><span class="w-3 h-0.5 border-t-2 border-dashed border-slate-400 inline-block"></span> Seam</span>
+          <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-red-600 inline-block"></span> Leakage</span>
+          <span class="flex items-center gap-1"><span class="w-3 h-3 border-4 border-slate-800 inline-block rounded-sm"></span> Deep Module</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-10">
+
+        <!-- CANDIDATE 1 -->
+        <article class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+          <div class="flex items-start justify-between">
+            <div>
+              <h2 class="text-2xl font-serif font-bold">Route Chat Through Concurrency Pool</h2>
+              <p class="text-sm text-slate-500 mt-1">chat-router.ts · chat-manager.ts · poll-run-manager.ts</p>
+            </div>
+            <div class="flex gap-2">
+              <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-xs font-semibold uppercase tracking-wider">Strong</span>
+              <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full text-xs font-semibold uppercase tracking-wider">in-process</span>
+            </div>
+          </div>
+
+          <!-- Before / After -->
+          <div class="grid grid-cols-2 gap-6">
+            <!-- BEFORE -->
+            <div class="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
+              <h3 class="text-xs uppercase tracking-wider text-red-700 font-bold">Before — Shallow (No Queue)</h3>
+              <pre class="mermaid">
+                sequenceDiagram
+                  participant B as Browser 1
+                  participant R as chat-router
+                  participant C as ChatManager.ask()
+                  participant L as LM Studio
+                  participant D as SQLite
+                  autonumber
+                  B->>R: POST /chat/ask (Q1)
+                  R->>C: ask(videoId, Q1)
+                  C-->>B: token stream Q1
+                  Note over C,D: answer buffered in-memory
+                  C->>D: INSERT Q1 answer
+              </pre>
+              <div class="space-y-2 mt-4">
+                <div class="text-xs text-red-700 font-semibold bg-red-100 px-3 py-2 rounded">
+                  ⚠ Browser 2 fires simultaneously → both hit LM Studio directly<br/>
+                  No concurrency limit. Second stream may fail silently or corrupt.
+                </div>
+              </div>
+            </div>
+
+            <!-- AFTER -->
+            <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+              <h3 class="text-xs uppercase tracking-wider text-emerald-700 font-bold">After — Deep (Queued)</h3>
+              <pre class="mermaid">
+                sequenceDiagram
+                  participant B1 as Browser 1
+                  participant B2 as Browser 2
+                  participant R as chat-router
+                  participant Q as ChatQueue
+                  participant L as LM Studio
+                  participant D as SQLite
+                  autonumber
+                  B1->>R: POST /chat/ask (Q1)
+                  R->>Q: queue(Q1) → SSE stream
+                  B2->>R: POST /chat/ask (Q2)
+                  R->>Q: queue(Q2) → SSE stream
+                  Q->>L: process Q1 (slot 1/3)
+                  Note over B1: receives tokens as Q1 streams
+                  Q-->>D: persist Q1 answer
+                  Q->>L: process Q2 (slot freed)
+                  Note over B2: receives tokens as Q2 streams
+                  Q-->>D: persist Q2 answer
+              </pre>
+            </div>
+          </div>
+
+          <!-- Problem -->
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <h3 class="text-xs uppercase tracking-wider text-amber-800 font-bold mb-1">Problem</h3>
+            <p class="text-sm text-amber-900">The ChatManager module is shallow — its interface (<code class="font-mono">ask(videoId, question)</code>) exposes the full implementation detail of direct LLM streaming with no queuing. Two simultaneous chat requests bypass all concurrency controls, hitting LM Studio raw. The Poll system uses a ConcurrencyPool (limit 3) for LLM analysis, but Chat routes around it entirely.</p>
+          </div>
+
+          <!-- Solution -->
+          <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+            <h3 class="text-xs uppercase tracking-wider text-emerald-800 font-bold mb-1">Solution</h3>
+            <p class="text-sm text-emerald-900">Introduce a ChatQueue module that sits between the chat-router and ChatManager. The queue reuses the ConcurrencyPool pattern: incoming requests are enqueued, processed with at most <code class="font-mono">LLM_CONCURRENCY</code> parallel slots, and SSE streams fan out to waiting browsers. The router interface stays thin — it just connects the SSE response to the queue's output stream.</p>
+          </div>
+
+          <!-- Wins -->
+          <div>
+            <h3 class="text-xs uppercase tracking-wider text-slate-500 font-bold mb-2">Wins</h3>
+            <ul class="space-y-1 text-sm">
+              <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">▸</span> locality: concurrency bugs concentrate in one module, not scattered across callers</li>
+              <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">▸</span> leverage: same ConcurrencyPool pattern serves Poll + Chat — single test surface</li>
+              <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">▸</span> parity: chat questions behave like poll signals (queued, rate-limited, persisted reliably)</li>
+              <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">▸</span> enables pending state: queue naturally produces "asked but not answered" lifecycle</li>
+            </ul>
+          </div>
+
+          <!-- Mass diagram -->
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <h3 class="text-xs uppercase tracking-wider text-slate-500 font-bold mb-3">Interface Depth — Before vs After</h3>
+            <div class="grid grid-cols-2 gap-8">
+              <!-- Before: shallow -->
+              <div class="space-y-2">
+                <p class="text-xs text-red-600 font-semibold">Before — Shallow</p>
+                <div class="border-2 border-slate-400 rounded p-2 bg-slate-100" style="height: 80px;">
+                  <p class="text-[10px] uppercase tracking-wider text-slate-600">Interface (ask)</p>
+                  <p class="text-[10px] text-slate-500">resolve · assemble · stream · tee · persist</p>
+                </div>
+                <div class="border-2 border-slate-400 rounded p-2 bg-slate-100" style="height: 80px;">
+                  <p class="text-[10px] uppercase tracking-wider text-slate-600">Implementation</p>
+                  <p class="text-[10px] text-slate-500">resolve · assemble · stream · tee · persist</p>
+                </div>
+                <p class="text-[10px] text-red-600 italic">Interface ≈ Implementation (shallow)</p>
+              </div>
+              <!-- After: deep -->
+              <div class="space-y-2">
+                <p class="text-xs text-emerald-600 font-semibold">After — Deep</p>
+                <div class="border-4 border-slate-800 rounded p-2 bg-slate-800 text-white" style="height: 40px;">
+                  <p class="text-[10px] uppercase tracking-wider">Interface (enqueue)</p>
+                </div>
+                <div class="border-4 border-slate-800 rounded p-2 bg-slate-700 text-white" style="height: 120px;">
+                  <p class="text-[10px] uppercase tracking-wider">Implementation</p>
+                  <p class="text-[9px] text-slate-300 mt-1">pool · resolve · assemble · stream · tee · persist · error handling</p>
+                </div>
+                <p class="text-[10px] text-emerald-600 italic">Small interface, large impl (deep)</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 2 -->
+        <article class="rounded-xl border border-slate-200 bg-white p-8 space-y-6">
+          <div class="flex items-start justify-between">
+            <div>
+              <h2 class="text-2xl font-serif font-bold">Add Pending State to Signal Chat</h2>
+              <p class="text-sm text-slate-500 mt-1">init-db.ts · chat-manager.ts · signal_chat table</p>
+            </div>
+            <div class="flex gap-2">
+              <span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold uppercase tracking-wider">Worth exploring</span>
+              <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full text-xs font-semibold uppercase tracking-wider">ports & adapters</span>
+            </div>
+          </div>
+
+          <!-- Before / After -->
+          <div class="grid grid-cols-2 gap-6">
+            <div class="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
+              <h3 class="text-xs uppercase tracking-wider text-red-700 font-bold">Before — Atomic Only</h3>
+              <pre class="mermaid">
+                flowchart LR
+                  A[User submits Q] --> B{Stream completes?}
+                  B -- yes --> C[INSERT question + answer]
+                  B -- no --> D[Nothing persisted]
+                  C --> E[(signal_chat)]
+                  style B fill:#fef3c7
+                  style D fill:#fee2e2
+              </pre>
+              <div class="text-xs text-red-700 font-semibold bg-red-100 px-3 py-2 rounded">
+                ⚠ No DB row exists during streaming. Cannot track "asked but not answered". Ratio always N/N.
+              </div>
+            </div>
+
+            <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+              <h3 class="text-xs uppercase tracking-wider text-emerald-700 font-bold">After — Two-Phase</h3>
+              <pre class="mermaid">
+                flowchart LR
+                  A[User submits Q] --> B[INSERT question (answer=NULL)]
+                  B --> C{Stream completes?}
+                  C -- yes --> D[UPDATE SET answer=...]
+                  C -- no --> E[UPDATE SET status='failed']
+                  D --> F[(signal_chat)]
+                  E --> F
+                  style D fill:#d1fae5
+                  style E fill:#fef3c7
+              </pre>
+            </div>
+          </div>
+
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <h3 class="text-xs uppercase tracking-wider text-amber-800 font-bold mb-1">Problem</h3>
+            <p class="text-sm text-amber-900">The signal_chat table requires both question AND answer (NOT NULL), so a row only exists after successful streaming. This makes it impossible to track the "asked but not yet answered" state needed for an X/Y progress ratio in the Signal List.</p>
+          </div>
+
+          <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+            <h3 class="text-xs uppercase tracking-wider text-emerald-800 font-bold mb-1">Solution</h3>
+            <p class="text-sm text-emerald-900">Allow <code class="font-mono">answer TEXT</code> (nullable). On question submit, INSERT immediately with <code class="font-mono">answer = NULL</code>. On stream success, UPDATE with the answer. On failure, optionally mark status. The ratio query counts <code class="font-mono">COUNT(answer IS NOT NULL) / COUNT(*)</code>.</p>
+          </div>
+
+          <div>
+            <h3 class="text-xs uppercase tracking-wider text-slate-500 font-bold mb-2">Wins</h3>
+            <ul class="space-y-1 text-sm">
+              <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">▸</span> locality: pending/completed state lives in one table, queryable from Signal List</li>
+              <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">▸</span> enables X/Y ratio where X can genuinely differ from Y during streaming</li>
+              <li class="flex items-start gap-2"><span class="text-emerald-600 mt-0.5">▸</span> failed questions leave trace (answer=NULL + status='failed') instead of vanishing</li>
+            </ul>
+          </div>
+        </article>
+
+      </section>
+
+      <!-- TOP RECOMMENDATION -->
+      <section id="top-recommendation" class="rounded-xl border-2 border-slate-800 bg-slate-900 text-white p-8">
+        <h2 class="text-xl font-serif font-bold mb-2">Top Recommendation</h2>
+        <p class="text-lg"><a href="#candidates" class="text-indigo-300 hover:underline">Route Chat Through Concurrency Pool</a></p>
+        <p class="text-sm text-slate-400 mt-2">This is the root cause of the bug you reported. Two simultaneous chat requests bypass all concurrency controls, hitting LM Studio directly with no queue. The Poll system already solves this pattern via ConcurrencyPool — reusing it for Chat creates parity, fixes the persistence bug, and enables the pending state needed for your X/Y ratio feature. Candidate 2 (pending state) builds on top of this foundation.</p>
+      </section>
+
+    </main>
+  </body>
+</html>
