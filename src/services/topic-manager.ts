@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { createTopic as dbCreateTopic, updateTopic as dbUpdateTopic, deleteTopic as dbDeleteTopic, getTopicById, TopicWithCount, UpdateTopicOptions } from '../db/watchlist';
+import { createTopic as dbCreateTopic, updateTopic as dbUpdateTopic, deleteTopic as dbDeleteTopic, getTopicById, getTopicByKey, TopicRow, TopicWithCount, UpdateTopicOptions } from '../db/watchlist';
 
 export interface TopicWithChannelCount extends TopicWithCount {}
 
@@ -11,6 +11,10 @@ export class TopicManager {
     if (!topic) return undefined;
     const row = this.db.prepare('SELECT COUNT(*) as c FROM channels WHERE topic_id = ?').get(id) as { c: number };
     return { ...topic, channel_count: row.c };
+  }
+
+  getByKey(key: string): TopicRow | undefined {
+    return getTopicByKey(this.db, key);
   }
 
   create(key: string, shortName: string, filterText: string, summaryPrompt?: string | null): void {
@@ -27,7 +31,7 @@ export class TopicManager {
 
   listWithCounts(): TopicWithCount[] {
     return this.db.prepare(`
-      SELECT t.id, t.key, t.short_name, t.filter_text, t.summary_prompt,
+      SELECT t.id, t.key, t.short_name, t.filter_text, t.summary_prompt, t.multi_signal_summary_prompt,
              COUNT(c.channel_id) AS channel_count
       FROM topics t
       LEFT JOIN channels c ON c.topic_id = t.id

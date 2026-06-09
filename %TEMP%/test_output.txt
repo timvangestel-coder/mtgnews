@@ -1,0 +1,2295 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.6 [39m[90mC:/Users/timva/OneDrive/Tim/Documents/Creetion/Workspace/mtgnews/mtgnews[39m
+
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mChat toggle button on signals list page[2m > [22mrenders a chat toggle button with data-signals-chat-toggle attribute[32m 12[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mChat toggle button on signals list page[2m > [22mchat toggle button is fixed position[32m 4[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mChat panel with 760px width[2m > [22mrenders a chat panel with data-signals-chat-panel and 760px width[32m 2[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mChat panel with 760px width[2m > [22mrenders backdrop overlay for chat panel[32m 2[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mScope badge[2m > [22mrenders scope badge in chat panel header[32m 12[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mScope badge[2m > [22mscope badge shows signal count matching filtered signals[32m 3[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mChat panel survives pagination HTMX swaps[2m > [22mchat panel is outside signals-table div so it persists across pagination[32m 2[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mChat panel survives pagination HTMX swaps[2m > [22mHTMX pagination response does not include chat panel[32m 2[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mChat closes on full-page navigation[2m > [22msignal detail page does not include signals-list chat panel[32m 2[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mAlpine chatPanel component[2m > [22muses Alpine component with scope configuration[32m 2[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mAlpine chatPanel component[2m > [22mscope config includes topicKey and channelId from current filters[32m 3[2mms[22m[39m
+ [32mΓ£ô[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mFilter change detection with toast[2m > [22mrenders toast element for scope update notifications[32m 2[2mms[22m[39m
+ [31m├ù[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mFilter change detection with toast[2m > [22mlistens for htmx:afterRequest to detect filter changes[32m 9[2mms[22m[39m
+[31m   ΓåÆ expected '<!DOCTYPE html>\r\n<html lang="en">\rΓÇª' to contain 'htmx:afterRequest'[39m
+ [31m├ù[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mAPI integration for list-scoped chat[2m > [22mchat panel sends POST /chat/ask with topicKey and channelId[32m 4[2mms[22m[39m
+[31m   ΓåÆ expected '<!DOCTYPE html>\r\n<html lang="en">\rΓÇª' to contain '/chat/ask'[39m
+ [31m├ù[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mAPI integration for list-scoped chat[2m > [22mchat panel loads history from /chat/history with scope params[32m 3[2mms[22m[39m
+[31m   ΓåÆ expected '<!DOCTYPE html>\r\n<html lang="en">\rΓÇª' to contain '/chat/history'[39m
+ [31m├ù[39m src/routes/signals-chat-panel.test.ts[2m > [22mSignals Page Chat Panel (Issue #131)[2m > [22mAPI integration for list-scoped chat[2m > [22mchat panel polls status using HTMX pattern[32m 2[2mms[22m[39m
+[31m   ΓåÆ expected '<!DOCTYPE html>\r\n<html lang="en">\rΓÇª' to contain '/chat/'[39m
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 4 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  src/routes/signals-chat-panel.test.ts > Signals Page Chat Panel (Issue #131) > Filter change detection with toast > listens for htmx:afterRequest to detect filter changes
+AssertionError: expected '<!DOCTYPE html>\r\n<html lang="en">\rΓÇª' to contain 'htmx:afterRequest'
+
+- Expected
++ Received
+
+- htmx:afterRequest
++ <!DOCTYPE html>
+
++ <html lang="en">
+
++ <head>
+
++   <meta charset="UTF-8">
+
++   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
++   <title>Signals</title>
+
++   <script src="https://cdn.tailwindcss.com"></script>
+
++   <script src="https://unpkg.com/htmx.org@2.0.0"></script>
+
++ </head>
+
++ <body class="bg-gray-100 min-h-screen">
+
++   <div class="flex min-h-screen">
+
++     <!-- sidebar -->
+
++     <aside class="sidebar w-64 bg-gray-900 text-white p-4">
+
++       <h1 class="text-xl font-bold mb-6">MTG News</h1>
+
++       <nav class="space-y-2">
+
++         <a href="/signals"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   active bg-blue-600">
+
++           Signals
+
++         </a>
+
++         <a href="/polls"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   hover:bg-gray-700">
+
++           Run History
+
++         </a>
+
++         <a href="/admin"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   hover:bg-gray-700">
+
++           Admin Panel
+
++         </a>
+
++       </nav>
+
++     </aside>
+
++ 
+
++     <!-- main content -->
+
++     <main class="flex-1 p-6">
+
++       <h2 class="text-2xl font-bold mb-4">Signals</h2>
++
++ <!-- Topic + Channel Filter Pills + Show Irrelevant Toggle -->
++ <div class="mb-4 flex flex-col gap-3"
++      x-data="{
++       topics: [],
++       channels: [{&#34;channel_id&#34;:&#34;UCnav1780993391611&#34;,&#34;display_name&#34;:&#34;Nav Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391611,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null},{&#34;channel_id&#34;:&#34;UCcount1780993391605&#34;,&#34;display_name&#34;:&#34;Count Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391605,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null},{&#34;channel_id&#34;:&#34;UCscope1780993391592&#34;,&#34;display_name&#34;:&#34;Scope Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391592,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null}],
++       selectedTopic: '',
++       selectedChannel: '',
++       showIrrelevant: false,
++       get filteredChannels() {
++         return this.selectedTopic
++           ? this.channels.filter(c => c.topic_key === this.selectedTopic)
++           : this.channels;
++       },
++       getUrl() {
++         var params = new URLSearchParams();
++         if (this.selectedTopic) params.set('topicKey', this.selectedTopic);
++         if (this.selectedChannel) params.set('channelId', this.selectedChannel);
++         if (this.showIrrelevant) params.set('showIrrelevant', 'true');
++         params.set('htmx', 'true');
++         return '/signals?' + params.toString();
++       },
++       selectTopic(key) {
++         this.selectedTopic = key;
++         this.selectedChannel = '';
++         $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
++       },
++       selectChannel(id) {
++         this.selectedChannel = id;
++         $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
++       }
++     }">
++
++   <!-- Row 1: Topic Pills -->
++   <div class="flex flex-wrap gap-2">
++     <button class="rounded-full px-4 py-1 text-sm transition"
++             :class="selectedTopic === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++             @click="selectTopic('')">
++       All Topics
++     </button>
++     <template x-for="topic in topics" :key="topic.key">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="selectedTopic === topic.key ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="selectTopic(topic.key)"
++               x-text="topic.short_name || topic.key">
++       </button>
++     </template>
++   </div>
++
++   <!-- Row 2: Channel Pills (filtered by selected topic) -->
++   <div class="flex flex-wrap gap-2 items-center">
++     <button class="rounded-full px-4 py-1 text-sm transition"
++             :class="selectedChannel === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++             @click="selectChannel('')">
++       All Channels
++     </button>
++     <template x-for="ch in filteredChannels" :key="ch.channel_id">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="selectedChannel === ch.channel_id ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="selectChannel(ch.channel_id)"
++               x-text="ch.display_name || ch.channel_id">
++       </button>
++     </template>
++
++     <!-- Show Irrelevant Toggle -->
++     <div class="ml-auto">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="showIrrelevant ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="showIrrelevant = !showIrrelevant; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
++         Show Irrelevant
++       </button>
++     </div>
++   </div>
++ </div>
++
++  <!-- Signal Table Fragment -->
++  <div id="signals-table">
++    <table class="w-full text-left">
+
++   <thead>
+
++     <tr class="border-b text-sm text-gray-500">
+
++       <th class="py-2 px-3">Published</th>
+
++       <th class="py-2 px-3">Time</th>
+
++       <th class="py-2 px-3">Title</th>
+
++       <th class="py-2 px-3">Q&A</th>
+
++       <th class="py-2 px-3">Sentiment</th>
+
++     </tr>
+
++   </thead>
+
++   <tbody>
+
++     
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915920'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 0</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915921'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 1</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915922'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 2</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916050'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 0</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916051'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 1</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916052'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 2</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916053'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 3</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916054'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 4</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vnav-1780993391611'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Nav Video</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++   </tbody>
+
++ </table>
+
++ 
+
++ <!-- Pagination -->
+
++ <div class="flex justify-between items-center mt-4">
+
++   <span class="text-sm text-gray-500">
+
++     Showing 9 of 9 signals
+
++   </span>
+
++   <div class="flex gap-2">
+
++     
+
++     
+
++   </div>
+
++ </div>
++  </div>
++
++ <!-- Signals List Chat Panel (lives outside #signals-table to survive pagination) -->
++ <div x-data="chatPanel({
++   topicKey: '',
++   channelId: '',
++   showIrrelevant: false,
++   signalCount: 9
++ })">
++
++   <!-- Scope toast notification -->
++   <div
++     data-scope-toast
++     x-show="toastVisible"
++     x-transition.opacity.duration.300ms
++     class="fixed right-6 top-20 z-50 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-medium"
++     x-text="toastMessage"
++   ></div>
++
++   <!-- Chat toggle button (fixed position, hidden when chat is open) -->
++   <button
++     data-signals-chat-toggle
++     x-show="!chatOpen"
++     @click="toggleChat"
++     type="button"
++     class="fixed right-6 top-6 z-50 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-lg transition-colors w-12 h-12 flex items-center justify-center"
++     title="Toggle chat"
++   >
++     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
++       <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
++     </svg>
++   </button>
++
++   <!-- Chat overlay panel (760px wide) -->
++   <div
++     data-signals-chat-panel
++     x-show="chatOpen"
++     x-transition:enter="transition ease-out duration-300"
++     x-transition:enter-start="translate-x-full opacity-0"
++     x-transition:enter-end="translate-x-0 opacity-100"
++     x-transition:leave="transition ease-in duration-200"
++     x-transition:leave-start="translate-x-0 opacity-100"
++     x-transition:leave-end="translate-x-full opacity-0"
++     :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
++     class="fixed right-0 top-0 z-40 h-full w-[760px] max-w-full bg-white shadow-2xl flex flex-col border-l border-gray-200"
++   >
++     <!-- Panel header with scope badge -->
++     <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
++       <div>
++         <h3 class="font-semibold text-gray-800">Chat</h3>
++         <span data-scope-badge class="text-xs text-gray-500" x-text="scopeLabel"></span>
++       </div>
++       <button @click="toggleChat" type="button" class="text-gray-500 hover:text-gray-700">
++         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
++           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
++         </svg>
++       </button>
++     </div>
++
++     <!-- Messages list -->
++     <div id="signals-chat-messages-list" class="flex-1 overflow-y-auto p-4 space-y-3">
++       <div id="signals-chat-history-content"></div>
++     </div>
++
++     <!-- Input area -->
++     <div class="border-t border-gray-200 p-3">
++       <form @submit.prevent="sendQuestion" class="flex gap-2">
++         <input
++           data-signals-chat-input
++           x-model="chatInput"
++           type="text"
++           placeholder="Ask a question about these signals..."
++           class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
++         />
++         <button
++           data-signals-chat-send
++           type="submit"
++           class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
++         >
++           Send
++         </button>
++       </form>
++     </div>
++   </div>
++
++   <!-- Backdrop overlay when chat is open -->
++   <div
++     data-signals-chat-backdrop
++     x-show="chatOpen"
++     x-transition.opacity
++     @click="toggleChat"
++     :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
++     class="fixed inset-0 z-30 bg-black/20"
++   ></div>
++ </div>
++
++ 
+
++     </main>
+
++   </div>
+
++   <!-- Extracted page scripts ΓÇö must load before Alpine so global functions are available -->
++   
++ 
+
++   <!-- Admin topic actions ΓÇö must load before Alpine so onclick handlers can find it -->
+
++   
+
++   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
++ </body>
+
++ </html>
+
+ Γ¥» src/routes/signals-chat-panel.test.ts:189:25
+    187|       const resp = await request(httpServer).get('/signals');
+    188|       expect(resp.status).toBe(200);
+    189|       expect(resp.text).toContain('htmx:afterRequest');
+       |                         ^
+    190|     });
+    191|   });
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/4]ΓÄ»
+
+ FAIL  src/routes/signals-chat-panel.test.ts > Signals Page Chat Panel (Issue #131) > API integration for list-scoped chat > chat panel sends POST /chat/ask with topicKey and channelId
+AssertionError: expected '<!DOCTYPE html>\r\n<html lang="en">\rΓÇª' to contain '/chat/ask'
+
+- Expected
++ Received
+
+- /chat/ask
++ <!DOCTYPE html>
+
++ <html lang="en">
+
++ <head>
+
++   <meta charset="UTF-8">
+
++   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
++   <title>Signals</title>
+
++   <script src="https://cdn.tailwindcss.com"></script>
+
++   <script src="https://unpkg.com/htmx.org@2.0.0"></script>
+
++ </head>
+
++ <body class="bg-gray-100 min-h-screen">
+
++   <div class="flex min-h-screen">
+
++     <!-- sidebar -->
+
++     <aside class="sidebar w-64 bg-gray-900 text-white p-4">
+
++       <h1 class="text-xl font-bold mb-6">MTG News</h1>
+
++       <nav class="space-y-2">
+
++         <a href="/signals"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   active bg-blue-600">
+
++           Signals
+
++         </a>
+
++         <a href="/polls"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   hover:bg-gray-700">
+
++           Run History
+
++         </a>
+
++         <a href="/admin"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   hover:bg-gray-700">
+
++           Admin Panel
+
++         </a>
+
++       </nav>
+
++     </aside>
+
++ 
+
++     <!-- main content -->
+
++     <main class="flex-1 p-6">
+
++       <h2 class="text-2xl font-bold mb-4">Signals</h2>
++
++ <!-- Topic + Channel Filter Pills + Show Irrelevant Toggle -->
++ <div class="mb-4 flex flex-col gap-3"
++      x-data="{
++       topics: [],
++       channels: [{&#34;channel_id&#34;:&#34;UCnav1780993391611&#34;,&#34;display_name&#34;:&#34;Nav Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391611,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null},{&#34;channel_id&#34;:&#34;UCcount1780993391605&#34;,&#34;display_name&#34;:&#34;Count Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391605,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null},{&#34;channel_id&#34;:&#34;UCscope1780993391592&#34;,&#34;display_name&#34;:&#34;Scope Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391592,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null}],
++       selectedTopic: '',
++       selectedChannel: '',
++       showIrrelevant: false,
++       get filteredChannels() {
++         return this.selectedTopic
++           ? this.channels.filter(c => c.topic_key === this.selectedTopic)
++           : this.channels;
++       },
++       getUrl() {
++         var params = new URLSearchParams();
++         if (this.selectedTopic) params.set('topicKey', this.selectedTopic);
++         if (this.selectedChannel) params.set('channelId', this.selectedChannel);
++         if (this.showIrrelevant) params.set('showIrrelevant', 'true');
++         params.set('htmx', 'true');
++         return '/signals?' + params.toString();
++       },
++       selectTopic(key) {
++         this.selectedTopic = key;
++         this.selectedChannel = '';
++         $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
++       },
++       selectChannel(id) {
++         this.selectedChannel = id;
++         $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
++       }
++     }">
++
++   <!-- Row 1: Topic Pills -->
++   <div class="flex flex-wrap gap-2">
++     <button class="rounded-full px-4 py-1 text-sm transition"
++             :class="selectedTopic === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++             @click="selectTopic('')">
++       All Topics
++     </button>
++     <template x-for="topic in topics" :key="topic.key">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="selectedTopic === topic.key ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="selectTopic(topic.key)"
++               x-text="topic.short_name || topic.key">
++       </button>
++     </template>
++   </div>
++
++   <!-- Row 2: Channel Pills (filtered by selected topic) -->
++   <div class="flex flex-wrap gap-2 items-center">
++     <button class="rounded-full px-4 py-1 text-sm transition"
++             :class="selectedChannel === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++             @click="selectChannel('')">
++       All Channels
++     </button>
++     <template x-for="ch in filteredChannels" :key="ch.channel_id">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="selectedChannel === ch.channel_id ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="selectChannel(ch.channel_id)"
++               x-text="ch.display_name || ch.channel_id">
++       </button>
++     </template>
++
++     <!-- Show Irrelevant Toggle -->
++     <div class="ml-auto">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="showIrrelevant ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="showIrrelevant = !showIrrelevant; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
++         Show Irrelevant
++       </button>
++     </div>
++   </div>
++ </div>
++
++  <!-- Signal Table Fragment -->
++  <div id="signals-table">
++    <table class="w-full text-left">
+
++   <thead>
+
++     <tr class="border-b text-sm text-gray-500">
+
++       <th class="py-2 px-3">Published</th>
+
++       <th class="py-2 px-3">Time</th>
+
++       <th class="py-2 px-3">Title</th>
+
++       <th class="py-2 px-3">Q&A</th>
+
++       <th class="py-2 px-3">Sentiment</th>
+
++     </tr>
+
++   </thead>
+
++   <tbody>
+
++     
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915920'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 0</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915921'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 1</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915922'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 2</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916050'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 0</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916051'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 1</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916052'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 2</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916053'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 3</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916054'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 4</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vnav-1780993391611'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Nav Video</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++   </tbody>
+
++ </table>
+
++ 
+
++ <!-- Pagination -->
+
++ <div class="flex justify-between items-center mt-4">
+
++   <span class="text-sm text-gray-500">
+
++     Showing 9 of 9 signals
+
++   </span>
+
++   <div class="flex gap-2">
+
++     
+
++     
+
++   </div>
+
++ </div>
++  </div>
++
++ <!-- Signals List Chat Panel (lives outside #signals-table to survive pagination) -->
++ <div x-data="chatPanel({
++   topicKey: '',
++   channelId: '',
++   showIrrelevant: false,
++   signalCount: 9
++ })">
++
++   <!-- Scope toast notification -->
++   <div
++     data-scope-toast
++     x-show="toastVisible"
++     x-transition.opacity.duration.300ms
++     class="fixed right-6 top-20 z-50 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-medium"
++     x-text="toastMessage"
++   ></div>
++
++   <!-- Chat toggle button (fixed position, hidden when chat is open) -->
++   <button
++     data-signals-chat-toggle
++     x-show="!chatOpen"
++     @click="toggleChat"
++     type="button"
++     class="fixed right-6 top-6 z-50 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-lg transition-colors w-12 h-12 flex items-center justify-center"
++     title="Toggle chat"
++   >
++     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
++       <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
++     </svg>
++   </button>
++
++   <!-- Chat overlay panel (760px wide) -->
++   <div
++     data-signals-chat-panel
++     x-show="chatOpen"
++     x-transition:enter="transition ease-out duration-300"
++     x-transition:enter-start="translate-x-full opacity-0"
++     x-transition:enter-end="translate-x-0 opacity-100"
++     x-transition:leave="transition ease-in duration-200"
++     x-transition:leave-start="translate-x-0 opacity-100"
++     x-transition:leave-end="translate-x-full opacity-0"
++     :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
++     class="fixed right-0 top-0 z-40 h-full w-[760px] max-w-full bg-white shadow-2xl flex flex-col border-l border-gray-200"
++   >
++     <!-- Panel header with scope badge -->
++     <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
++       <div>
++         <h3 class="font-semibold text-gray-800">Chat</h3>
++         <span data-scope-badge class="text-xs text-gray-500" x-text="scopeLabel"></span>
++       </div>
++       <button @click="toggleChat" type="button" class="text-gray-500 hover:text-gray-700">
++         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
++           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
++         </svg>
++       </button>
++     </div>
++
++     <!-- Messages list -->
++     <div id="signals-chat-messages-list" class="flex-1 overflow-y-auto p-4 space-y-3">
++       <div id="signals-chat-history-content"></div>
++     </div>
++
++     <!-- Input area -->
++     <div class="border-t border-gray-200 p-3">
++       <form @submit.prevent="sendQuestion" class="flex gap-2">
++         <input
++           data-signals-chat-input
++           x-model="chatInput"
++           type="text"
++           placeholder="Ask a question about these signals..."
++           class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
++         />
++         <button
++           data-signals-chat-send
++           type="submit"
++           class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
++         >
++           Send
++         </button>
++       </form>
++     </div>
++   </div>
++
++   <!-- Backdrop overlay when chat is open -->
++   <div
++     data-signals-chat-backdrop
++     x-show="chatOpen"
++     x-transition.opacity
++     @click="toggleChat"
++     :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
++     class="fixed inset-0 z-30 bg-black/20"
++   ></div>
++ </div>
++
++ 
+
++     </main>
+
++   </div>
+
++   <!-- Extracted page scripts ΓÇö must load before Alpine so global functions are available -->
++   
++ 
+
++   <!-- Admin topic actions ΓÇö must load before Alpine so onclick handlers can find it -->
+
++   
+
++   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
++ </body>
+
++ </html>
+
+ Γ¥» src/routes/signals-chat-panel.test.ts:198:25
+    196|       expect(resp.status).toBe(200);
+    197|       // The Alpine send method should reference /chat/ask endpoint
+    198|       expect(resp.text).toContain('/chat/ask');
+       |                         ^
+    199|     });
+    200| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[2/4]ΓÄ»
+
+ FAIL  src/routes/signals-chat-panel.test.ts > Signals Page Chat Panel (Issue #131) > API integration for list-scoped chat > chat panel loads history from /chat/history with scope params
+AssertionError: expected '<!DOCTYPE html>\r\n<html lang="en">\rΓÇª' to contain '/chat/history'
+
+- Expected
++ Received
+
+- /chat/history
++ <!DOCTYPE html>
+
++ <html lang="en">
+
++ <head>
+
++   <meta charset="UTF-8">
+
++   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
++   <title>Signals</title>
+
++   <script src="https://cdn.tailwindcss.com"></script>
+
++   <script src="https://unpkg.com/htmx.org@2.0.0"></script>
+
++ </head>
+
++ <body class="bg-gray-100 min-h-screen">
+
++   <div class="flex min-h-screen">
+
++     <!-- sidebar -->
+
++     <aside class="sidebar w-64 bg-gray-900 text-white p-4">
+
++       <h1 class="text-xl font-bold mb-6">MTG News</h1>
+
++       <nav class="space-y-2">
+
++         <a href="/signals"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   active bg-blue-600">
+
++           Signals
+
++         </a>
+
++         <a href="/polls"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   hover:bg-gray-700">
+
++           Run History
+
++         </a>
+
++         <a href="/admin"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   hover:bg-gray-700">
+
++           Admin Panel
+
++         </a>
+
++       </nav>
+
++     </aside>
+
++ 
+
++     <!-- main content -->
+
++     <main class="flex-1 p-6">
+
++       <h2 class="text-2xl font-bold mb-4">Signals</h2>
++
++ <!-- Topic + Channel Filter Pills + Show Irrelevant Toggle -->
++ <div class="mb-4 flex flex-col gap-3"
++      x-data="{
++       topics: [],
++       channels: [{&#34;channel_id&#34;:&#34;UCnav1780993391611&#34;,&#34;display_name&#34;:&#34;Nav Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391611,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null},{&#34;channel_id&#34;:&#34;UCcount1780993391605&#34;,&#34;display_name&#34;:&#34;Count Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391605,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null},{&#34;channel_id&#34;:&#34;UCscope1780993391592&#34;,&#34;display_name&#34;:&#34;Scope Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391592,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null}],
++       selectedTopic: '',
++       selectedChannel: '',
++       showIrrelevant: false,
++       get filteredChannels() {
++         return this.selectedTopic
++           ? this.channels.filter(c => c.topic_key === this.selectedTopic)
++           : this.channels;
++       },
++       getUrl() {
++         var params = new URLSearchParams();
++         if (this.selectedTopic) params.set('topicKey', this.selectedTopic);
++         if (this.selectedChannel) params.set('channelId', this.selectedChannel);
++         if (this.showIrrelevant) params.set('showIrrelevant', 'true');
++         params.set('htmx', 'true');
++         return '/signals?' + params.toString();
++       },
++       selectTopic(key) {
++         this.selectedTopic = key;
++         this.selectedChannel = '';
++         $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
++       },
++       selectChannel(id) {
++         this.selectedChannel = id;
++         $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
++       }
++     }">
++
++   <!-- Row 1: Topic Pills -->
++   <div class="flex flex-wrap gap-2">
++     <button class="rounded-full px-4 py-1 text-sm transition"
++             :class="selectedTopic === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++             @click="selectTopic('')">
++       All Topics
++     </button>
++     <template x-for="topic in topics" :key="topic.key">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="selectedTopic === topic.key ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="selectTopic(topic.key)"
++               x-text="topic.short_name || topic.key">
++       </button>
++     </template>
++   </div>
++
++   <!-- Row 2: Channel Pills (filtered by selected topic) -->
++   <div class="flex flex-wrap gap-2 items-center">
++     <button class="rounded-full px-4 py-1 text-sm transition"
++             :class="selectedChannel === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++             @click="selectChannel('')">
++       All Channels
++     </button>
++     <template x-for="ch in filteredChannels" :key="ch.channel_id">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="selectedChannel === ch.channel_id ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="selectChannel(ch.channel_id)"
++               x-text="ch.display_name || ch.channel_id">
++       </button>
++     </template>
++
++     <!-- Show Irrelevant Toggle -->
++     <div class="ml-auto">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="showIrrelevant ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="showIrrelevant = !showIrrelevant; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
++         Show Irrelevant
++       </button>
++     </div>
++   </div>
++ </div>
++
++  <!-- Signal Table Fragment -->
++  <div id="signals-table">
++    <table class="w-full text-left">
+
++   <thead>
+
++     <tr class="border-b text-sm text-gray-500">
+
++       <th class="py-2 px-3">Published</th>
+
++       <th class="py-2 px-3">Time</th>
+
++       <th class="py-2 px-3">Title</th>
+
++       <th class="py-2 px-3">Q&A</th>
+
++       <th class="py-2 px-3">Sentiment</th>
+
++     </tr>
+
++   </thead>
+
++   <tbody>
+
++     
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915920'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 0</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915921'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 1</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915922'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 2</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916050'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 0</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916051'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 1</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916052'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 2</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916053'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 3</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916054'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 4</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vnav-1780993391611'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Nav Video</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++   </tbody>
+
++ </table>
+
++ 
+
++ <!-- Pagination -->
+
++ <div class="flex justify-between items-center mt-4">
+
++   <span class="text-sm text-gray-500">
+
++     Showing 9 of 9 signals
+
++   </span>
+
++   <div class="flex gap-2">
+
++     
+
++     
+
++   </div>
+
++ </div>
++  </div>
++
++ <!-- Signals List Chat Panel (lives outside #signals-table to survive pagination) -->
++ <div x-data="chatPanel({
++   topicKey: '',
++   channelId: '',
++   showIrrelevant: false,
++   signalCount: 9
++ })">
++
++   <!-- Scope toast notification -->
++   <div
++     data-scope-toast
++     x-show="toastVisible"
++     x-transition.opacity.duration.300ms
++     class="fixed right-6 top-20 z-50 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-medium"
++     x-text="toastMessage"
++   ></div>
++
++   <!-- Chat toggle button (fixed position, hidden when chat is open) -->
++   <button
++     data-signals-chat-toggle
++     x-show="!chatOpen"
++     @click="toggleChat"
++     type="button"
++     class="fixed right-6 top-6 z-50 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-lg transition-colors w-12 h-12 flex items-center justify-center"
++     title="Toggle chat"
++   >
++     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
++       <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
++     </svg>
++   </button>
++
++   <!-- Chat overlay panel (760px wide) -->
++   <div
++     data-signals-chat-panel
++     x-show="chatOpen"
++     x-transition:enter="transition ease-out duration-300"
++     x-transition:enter-start="translate-x-full opacity-0"
++     x-transition:enter-end="translate-x-0 opacity-100"
++     x-transition:leave="transition ease-in duration-200"
++     x-transition:leave-start="translate-x-0 opacity-100"
++     x-transition:leave-end="translate-x-full opacity-0"
++     :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
++     class="fixed right-0 top-0 z-40 h-full w-[760px] max-w-full bg-white shadow-2xl flex flex-col border-l border-gray-200"
++   >
++     <!-- Panel header with scope badge -->
++     <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
++       <div>
++         <h3 class="font-semibold text-gray-800">Chat</h3>
++         <span data-scope-badge class="text-xs text-gray-500" x-text="scopeLabel"></span>
++       </div>
++       <button @click="toggleChat" type="button" class="text-gray-500 hover:text-gray-700">
++         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
++           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
++         </svg>
++       </button>
++     </div>
++
++     <!-- Messages list -->
++     <div id="signals-chat-messages-list" class="flex-1 overflow-y-auto p-4 space-y-3">
++       <div id="signals-chat-history-content"></div>
++     </div>
++
++     <!-- Input area -->
++     <div class="border-t border-gray-200 p-3">
++       <form @submit.prevent="sendQuestion" class="flex gap-2">
++         <input
++           data-signals-chat-input
++           x-model="chatInput"
++           type="text"
++           placeholder="Ask a question about these signals..."
++           class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
++         />
++         <button
++           data-signals-chat-send
++           type="submit"
++           class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
++         >
++           Send
++         </button>
++       </form>
++     </div>
++   </div>
++
++   <!-- Backdrop overlay when chat is open -->
++   <div
++     data-signals-chat-backdrop
++     x-show="chatOpen"
++     x-transition.opacity
++     @click="toggleChat"
++     :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
++     class="fixed inset-0 z-30 bg-black/20"
++   ></div>
++ </div>
++
++ 
+
++     </main>
+
++   </div>
+
++   <!-- Extracted page scripts ΓÇö must load before Alpine so global functions are available -->
++   
++ 
+
++   <!-- Admin topic actions ΓÇö must load before Alpine so onclick handlers can find it -->
+
++   
+
++   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
++ </body>
+
++ </html>
+
+ Γ¥» src/routes/signals-chat-panel.test.ts:204:25
+    202|       const resp = await request(httpServer).get('/signals');
+    203|       expect(resp.status).toBe(200);
+    204|       expect(resp.text).toContain('/chat/history');
+       |                         ^
+    205|     });
+    206| 
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[3/4]ΓÄ»
+
+ FAIL  src/routes/signals-chat-panel.test.ts > Signals Page Chat Panel (Issue #131) > API integration for list-scoped chat > chat panel polls status using HTMX pattern
+AssertionError: expected '<!DOCTYPE html>\r\n<html lang="en">\rΓÇª' to contain '/chat/'
+
+- Expected
++ Received
+
+- /chat/
++ <!DOCTYPE html>
+
++ <html lang="en">
+
++ <head>
+
++   <meta charset="UTF-8">
+
++   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
++   <title>Signals</title>
+
++   <script src="https://cdn.tailwindcss.com"></script>
+
++   <script src="https://unpkg.com/htmx.org@2.0.0"></script>
+
++ </head>
+
++ <body class="bg-gray-100 min-h-screen">
+
++   <div class="flex min-h-screen">
+
++     <!-- sidebar -->
+
++     <aside class="sidebar w-64 bg-gray-900 text-white p-4">
+
++       <h1 class="text-xl font-bold mb-6">MTG News</h1>
+
++       <nav class="space-y-2">
+
++         <a href="/signals"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   active bg-blue-600">
+
++           Signals
+
++         </a>
+
++         <a href="/polls"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   hover:bg-gray-700">
+
++           Run History
+
++         </a>
+
++         <a href="/admin"
+
++            class="flex items-center px-3 py-2 rounded transition
+
++                   hover:bg-gray-700">
+
++           Admin Panel
+
++         </a>
+
++       </nav>
+
++     </aside>
+
++ 
+
++     <!-- main content -->
+
++     <main class="flex-1 p-6">
+
++       <h2 class="text-2xl font-bold mb-4">Signals</h2>
++
++ <!-- Topic + Channel Filter Pills + Show Irrelevant Toggle -->
++ <div class="mb-4 flex flex-col gap-3"
++      x-data="{
++       topics: [],
++       channels: [{&#34;channel_id&#34;:&#34;UCnav1780993391611&#34;,&#34;display_name&#34;:&#34;Nav Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391611,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null},{&#34;channel_id&#34;:&#34;UCcount1780993391605&#34;,&#34;display_name&#34;:&#34;Count Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391605,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null},{&#34;channel_id&#34;:&#34;UCscope1780993391592&#34;,&#34;display_name&#34;:&#34;Scope Channel&#34;,&#34;avatar_url&#34;:null,&#34;active&#34;:1,&#34;added_at&#34;:1780993391592,&#34;topic_id&#34;:null,&#34;topic_key&#34;:null}],
++       selectedTopic: '',
++       selectedChannel: '',
++       showIrrelevant: false,
++       get filteredChannels() {
++         return this.selectedTopic
++           ? this.channels.filter(c => c.topic_key === this.selectedTopic)
++           : this.channels;
++       },
++       getUrl() {
++         var params = new URLSearchParams();
++         if (this.selectedTopic) params.set('topicKey', this.selectedTopic);
++         if (this.selectedChannel) params.set('channelId', this.selectedChannel);
++         if (this.showIrrelevant) params.set('showIrrelevant', 'true');
++         params.set('htmx', 'true');
++         return '/signals?' + params.toString();
++       },
++       selectTopic(key) {
++         this.selectedTopic = key;
++         this.selectedChannel = '';
++         $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
++       },
++       selectChannel(id) {
++         this.selectedChannel = id;
++         $nextTick(() => htmx.ajax('GET', this.getUrl(), { target: '#signals-table' }));
++       }
++     }">
++
++   <!-- Row 1: Topic Pills -->
++   <div class="flex flex-wrap gap-2">
++     <button class="rounded-full px-4 py-1 text-sm transition"
++             :class="selectedTopic === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++             @click="selectTopic('')">
++       All Topics
++     </button>
++     <template x-for="topic in topics" :key="topic.key">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="selectedTopic === topic.key ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="selectTopic(topic.key)"
++               x-text="topic.short_name || topic.key">
++       </button>
++     </template>
++   </div>
++
++   <!-- Row 2: Channel Pills (filtered by selected topic) -->
++   <div class="flex flex-wrap gap-2 items-center">
++     <button class="rounded-full px-4 py-1 text-sm transition"
++             :class="selectedChannel === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++             @click="selectChannel('')">
++       All Channels
++     </button>
++     <template x-for="ch in filteredChannels" :key="ch.channel_id">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="selectedChannel === ch.channel_id ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="selectChannel(ch.channel_id)"
++               x-text="ch.display_name || ch.channel_id">
++       </button>
++     </template>
++
++     <!-- Show Irrelevant Toggle -->
++     <div class="ml-auto">
++       <button class="rounded-full px-4 py-1 text-sm transition"
++               :class="showIrrelevant ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'"
++               @click="showIrrelevant = !showIrrelevant; $nextTick(() => htmx.ajax('GET', getUrl(), { target: '#signals-table' }))">
++         Show Irrelevant
++       </button>
++     </div>
++   </div>
++ </div>
++
++  <!-- Signal Table Fragment -->
++  <div id="signals-table">
++    <table class="w-full text-left">
+
++   <thead>
+
++     <tr class="border-b text-sm text-gray-500">
+
++       <th class="py-2 px-3">Published</th>
+
++       <th class="py-2 px-3">Time</th>
+
++       <th class="py-2 px-3">Title</th>
+
++       <th class="py-2 px-3">Q&A</th>
+
++       <th class="py-2 px-3">Sentiment</th>
+
++     </tr>
+
++   </thead>
+
++   <tbody>
+
++     
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915920'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 0</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915921'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 1</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vscope17809933915922'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Scope Video 2</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916050'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 0</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916051'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 1</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916052'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 2</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916053'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 3</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vcount17809933916054'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Count Video 4</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++       
+
++       <tr class="border-b hover:bg-gray-50 cursor-pointer " onclick="location.href='/signals/vnav-1780993391611'">
+
++         <td class="py-2 px-3 text-sm">31/12/2103</td>
+
++         <td class="py-2 px-3 text-sm">01:00:00</td>
+
++         <td class="py-2 px-3 text-sm">Nav Video</td>
+
++         <td class="py-2 px-3 text-sm text-gray-500">ΓÇö</td>
+
++         <td class="py-2 px-3">
+
++           <span class="bg-lime-500 text-white rounded-full px-2 py-0.5 text-xs">
+
++             4
+
++           </span>
+
++         </td>
+
++       </tr>
+
++     
+
++   </tbody>
+
++ </table>
+
++ 
+
++ <!-- Pagination -->
+
++ <div class="flex justify-between items-center mt-4">
+
++   <span class="text-sm text-gray-500">
+
++     Showing 9 of 9 signals
+
++   </span>
+
++   <div class="flex gap-2">
+
++     
+
++     
+
++   </div>
+
++ </div>
++  </div>
++
++ <!-- Signals List Chat Panel (lives outside #signals-table to survive pagination) -->
++ <div x-data="chatPanel({
++   topicKey: '',
++   channelId: '',
++   showIrrelevant: false,
++   signalCount: 9
++ })">
++
++   <!-- Scope toast notification -->
++   <div
++     data-scope-toast
++     x-show="toastVisible"
++     x-transition.opacity.duration.300ms
++     class="fixed right-6 top-20 z-50 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-medium"
++     x-text="toastMessage"
++   ></div>
++
++   <!-- Chat toggle button (fixed position, hidden when chat is open) -->
++   <button
++     data-signals-chat-toggle
++     x-show="!chatOpen"
++     @click="toggleChat"
++     type="button"
++     class="fixed right-6 top-6 z-50 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-lg transition-colors w-12 h-12 flex items-center justify-center"
++     title="Toggle chat"
++   >
++     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
++       <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
++     </svg>
++   </button>
++
++   <!-- Chat overlay panel (760px wide) -->
++   <div
++     data-signals-chat-panel
++     x-show="chatOpen"
++     x-transition:enter="transition ease-out duration-300"
++     x-transition:enter-start="translate-x-full opacity-0"
++     x-transition:enter-end="translate-x-0 opacity-100"
++     x-transition:leave="transition ease-in duration-200"
++     x-transition:leave-start="translate-x-0 opacity-100"
++     x-transition:leave-end="translate-x-full opacity-0"
++     :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
++     class="fixed right-0 top-0 z-40 h-full w-[760px] max-w-full bg-white shadow-2xl flex flex-col border-l border-gray-200"
++   >
++     <!-- Panel header with scope badge -->
++     <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
++       <div>
++         <h3 class="font-semibold text-gray-800">Chat</h3>
++         <span data-scope-badge class="text-xs text-gray-500" x-text="scopeLabel"></span>
++       </div>
++       <button @click="toggleChat" type="button" class="text-gray-500 hover:text-gray-700">
++         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
++           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
++         </svg>
++       </button>
++     </div>
++
++     <!-- Messages list -->
++     <div id="signals-chat-messages-list" class="flex-1 overflow-y-auto p-4 space-y-3">
++       <div id="signals-chat-history-content"></div>
++     </div>
++
++     <!-- Input area -->
++     <div class="border-t border-gray-200 p-3">
++       <form @submit.prevent="sendQuestion" class="flex gap-2">
++         <input
++           data-signals-chat-input
++           x-model="chatInput"
++           type="text"
++           placeholder="Ask a question about these signals..."
++           class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
++         />
++         <button
++           data-signals-chat-send
++           type="submit"
++           class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
++         >
++           Send
++         </button>
++       </form>
++     </div>
++   </div>
++
++   <!-- Backdrop overlay when chat is open -->
++   <div
++     data-signals-chat-backdrop
++     x-show="chatOpen"
++     x-transition.opacity
++     @click="toggleChat"
++     :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
++     class="fixed inset-0 z-30 bg-black/20"
++   ></div>
++ </div>
++
++ 
+
++     </main>
+
++   </div>
+
++   <!-- Extracted page scripts ΓÇö must load before Alpine so global functions are available -->
++   
++ 
+
++   <!-- Admin topic actions ΓÇö must load before Alpine so onclick handlers can find it -->
+
++   
+
++   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
++ </body>
+
++ </html>
+
+ Γ¥» src/routes/signals-chat-panel.test.ts:211:25
+    209|       expect(resp.status).toBe(200);
+    210|       // Should reference the status polling endpoint or include hx-trΓÇª
+    211|       expect(resp.text).toContain('/chat/');
+       |                         ^
+    212|     });
+    213|   });
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[4/4]ΓÄ»
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m4 failed[39m[22m[2m | [22m[1m[32m12 passed[39m[22m[90m (16)[39m
+[2m   Start at [22m 10:23:11
+[2m   Duration [22m 434ms[2m (transform 54ms, setup 0ms, collect 157ms, tests 74ms, environment 0ms, prepare 67ms)[22m
+

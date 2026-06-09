@@ -3,62 +3,7 @@
      x-data="{
        viewState: 'summary',
        highlighted: null,
-       chatOpen: false,
-       chatInput: '',
-       historyLoaded: false,
        signalVideoId: '',
-
-       toggleChat() {
-         if (!this.chatOpen) {
-           this.chatOpen = true;
-           if (!this.historyLoaded) {
-             this.loadHistory();
-           }
-         } else {
-           this.chatOpen = false;
-         }
-       },
-
-       async loadHistory() {
-         try {
-           var response = await fetch('/chat/history?signalVideoId=' + encodeURIComponent(this.signalVideoId));
-           if (!response.ok) return;
-           var html = await response.text();
-           var container = document.getElementById('chat-history-content');
-           container.innerHTML = html;
-           if (window.htmx && htmx.process) {
-             htmx.process(container);
-           }
-           this.historyLoaded = true;
-         } catch (e) {
-           // ignore
-         }
-       },
-
-       async sendQuestion() {
-         var self = this;
-         var question = this.chatInput.trim();
-         if (!question) return;
-         this.chatInput = '';
-
-         try {
-           var response = await fetch('/chat/ask', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ signalVideoId: self.signalVideoId, question: question })
-           });
-
-           if (!response.ok) {
-             alert('Error: ' + response.status);
-             return;
-           }
-
-           self.loadHistory();
-
-         } catch (err) {
-           alert('Error sending question');
-         }
-       },
 
        escapeHtml: function(text) {
          var div = document.createElement('div');
@@ -218,32 +163,23 @@
     </div>
   <% } %>
 
-  <!-- Header bar -->
-  <div class="mb-6">
-    <h2 class="text-2xl font-bold mb-2"><%= title %></h2>
-    <div class="flex items-center gap-3 text-sm text-gray-600">
-      <% if (channel) { %>
-        <span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded">
-          <%= channel.display_name %>
-        </span>
-      <% } %>
-      <% if (signal.published_at) { %>
-        <time><%= new Date(signal.published_at).toLocaleString() %></time>
-      <% } %>
-    </div>
-  </div>
+   <!-- Header bar -->
+   <div class="mb-6">
+     <h2 class="text-2xl font-bold mb-2"><%= title %></h2>
+     <div class="flex items-center gap-3 text-sm text-gray-600">
+       <% if (channel) { %>
+         <span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded">
+           <%= channel.display_name %>
+         </span>
+       <% } %>
+       <% if (signal.published_at) { %>
+         <time><%= new Date(signal.published_at).toLocaleString() %><% if (signal.generated_title && originalTitle) { %> - <%= originalTitle %><% } %></time>
+       <% } %>
+     </div>
+   </div>
 
-  <!-- Summarize button (shown when not yet processed) -->
-  <% if (!signal.processed_at) { %>
-    <form method="post" action="/signals/<%= signal.video_id %>/summarize" class="mb-4">
-      <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded transition">
-        Summarize
-      </button>
-    </form>
-  <% } %>
-
-  <!-- Toggle bar -->
-  <div class="flex gap-2 mb-4">
+  <!-- Toggle bar with optional Summarize button -->
+  <div class="flex gap-2 mb-4 items-center">
     <button
       @click="viewState = 'summary'"
       :class="viewState === 'summary' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'"
@@ -265,6 +201,13 @@
     >
       Split
     </button>
+    <% if (!signal.processed_at) { %>
+      <form method="post" action="/signals/<%= signal.video_id %>/summarize" class="ms-auto">
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded transition">
+          Summarize
+        </button>
+      </form>
+    <% } %>
   </div>
 
   <!-- Three-state container -->
@@ -320,74 +263,8 @@
 
   </div>
 
-  <!-- Chat toggle button (fixed top-right) -->
-  <button
-    data-chat-toggle
-    @click="toggleChat"
-    type="button"
-    class="fixed right-6 top-6 z-50 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-lg transition-colors w-12 h-12 flex items-center justify-center"
-    title="Toggle chat"
-  >
-    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-    </svg>
-  </button>
-
-  <!-- Chat overlay panel -->
-  <div
-    data-chat-panel
-    x-show="chatOpen"
-    x-transition:enter="transition ease-out duration-300"
-    x-transition:enter-start="translate-x-full opacity-0"
-    x-transition:enter-end="translate-x-0 opacity-100"
-    x-transition:leave="transition ease-in duration-200"
-    x-transition:leave-start="translate-x-0 opacity-100"
-    x-transition:leave-end="translate-x-full opacity-0"
-    :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
-    class="fixed right-0 top-0 z-40 h-full w-[380px] max-w-full bg-white shadow-2xl flex flex-col border-l border-gray-200"
-  >
-    <!-- Panel header -->
-    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-      <h3 class="font-semibold text-gray-800">Signal Chat</h3>
-      <button @click="toggleChat" type="button" class="text-gray-500 hover:text-gray-700">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
-
-    <!-- Messages list -->
-    <div id="chat-messages-list" class="flex-1 overflow-y-auto p-4 space-y-3">
-      <div id="chat-history-content"></div>
-    </div>
-
-    <!-- Input area -->
-    <div class="border-t border-gray-200 p-3">
-      <form @submit.prevent="sendQuestion" class="flex gap-2">
-        <input
-          data-chat-input
-          x-model="chatInput"
-          type="text"
-          placeholder="Ask a question..."
-          class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-        <button
-          data-chat-send
-          type="submit"
-          class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-        >
-          Send
-        </button>
-      </form>
-    </div>
-  </div>
-
-  <!-- Backdrop overlay when chat is open -->
-  <div
-    x-show="chatOpen"
-    x-transition.opacity
-    @click="toggleChat"
-    :class="chatOpen ? 'pointer-events-auto' : 'pointer-events-none'"
-    class="fixed inset-0 z-30 bg-black/20"
-  ></div>
 </div>
+
+<% var detailChatScope = { videoId: signal.video_id }; %>
+<!-- Signal Detail Chat Panel — outside outer x-data for independent Alpine lifecycle -->
+<%- include('_chatPanel', { scope: detailChatScope, isMultiSignal: false, hasVideoId: true }) %>

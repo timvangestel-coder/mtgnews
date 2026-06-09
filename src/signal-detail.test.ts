@@ -9,7 +9,7 @@ import { getSignalById } from './signal-detail';
 import { escapeHtml } from './signal-detail';
 
 // -- formatTranscriptionHtml --
-import { formatTranscriptionHtml } from './signal-detail';
+import { formatTranscriptionHtml, displayTitleForSignal } from './signal-detail';
 
 import { createTestDb } from '../tests/fixtures/test-db';
 
@@ -60,6 +60,33 @@ describe('signal-detail', () => {
 
     it('leaves normal text unchanged', () => {
       expect(escapeHtml('safe text [T:45]')).toBe('safe text [T:45]');
+    });
+  });
+
+  // -- displayTitleForSignal --
+  describe('displayTitleForSignal', () => {
+    it('returns generated_title when available', () => {
+      const result = displayTitleForSignal({
+        title: 'Original YouTube Title',
+        generated_title: 'AI Generated Title',
+      } as SignalRow);
+      expect(result).toBe('AI Generated Title');
+    });
+
+    it('falls back to original title when generated_title is null', () => {
+      const result = displayTitleForSignal({
+        title: 'Original YouTube Title',
+        generated_title: null,
+      } as SignalRow);
+      expect(result).toBe('Original YouTube Title');
+    });
+
+    it('falls back to default when both are null', () => {
+      const result = displayTitleForSignal({
+        title: null,
+        generated_title: null,
+      } as SignalRow);
+      expect(result).toBe('Signal Detail');
     });
   });
 

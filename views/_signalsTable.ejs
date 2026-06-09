@@ -39,6 +39,9 @@
   </tbody>
 </table>
 
+<!-- Signal count for chat panel scope badge updates -->
+<span data-signal-count style="display:none" aria-hidden="true"><%= total %></span>
+
 <!-- Pagination -->
 <div class="flex justify-between items-center mt-4">
   <span class="text-sm text-gray-500">
@@ -48,6 +51,7 @@
     <% if (page > 1) { %>
       <%
         const prevParams = new URLSearchParams();
+        if (topicKey) prevParams.set('topicKey', topicKey);
         if (channelId) prevParams.set('channelId', channelId);
         if (showIrrelevant) prevParams.set('showIrrelevant', 'true');
         prevParams.set('page', String(page - 1));
@@ -62,6 +66,7 @@
     <% if (page < totalPages) { %>
       <%
         const nextParams = new URLSearchParams();
+        if (topicKey) nextParams.set('topicKey', topicKey);
         if (channelId) nextParams.set('channelId', channelId);
         if (showIrrelevant) nextParams.set('showIrrelevant', 'true');
         nextParams.set('page', String(page + 1));

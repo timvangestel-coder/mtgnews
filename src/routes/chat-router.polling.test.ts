@@ -55,7 +55,7 @@ describe('chat-router HTMX polling for pending questions', () => {
   });
 
   describe('GET /chat/history with pending rows', () => {
-    it('renders pending row with processing spinner and HTMX polling attributes', async () => {
+    it('renders pending row with processing spinner and data attributes for JS polling', async () => {
       // Insert a pending row (answer = NULL)
       const result = db.prepare(
         "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)"
@@ -71,35 +71,37 @@ describe('chat-router HTMX polling for pending questions', () => {
       expect(resp.text).toContain('What is MTG?');
       // Should show processing indicator for pending rows
       expect(resp.text).toContain('processing...');
-      // Should have HTMX polling trigger on the answer element
-      expect(resp.text).toContain(`hx-get="/chat/${chatId}/status`);
-      expect(resp.text).toContain('hx-trigger="every 2s"');
+      // Pending divs have data-chat-status="pending" and data-chat-id for JS polling
+      expect(resp.text).toContain('data-chat-status="pending"');
+      expect(resp.text).toContain(`data-chat-id="${chatId}"`);
     });
 
     it('renders completed row with answer (no spinner)', async () => {
-      // Insert a completed row and capture its id
+      // Use a unique signal video ID to avoid leaking rows from other tests
+      insertSignal('video-poll-2');
       const result = db.prepare(
         "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, ?)"
-      ).run('video-poll-1', 'What is the price?', 'The price is $20');
+      ).run('video-poll-2', 'What is the price?', 'The price is $20');
       const chatId = Number(result.lastInsertRowid);
 
       const resp = await request(app)
         .get('/chat/history')
-        .query({ signalVideoId: 'video-poll-1' });
+        .query({ signalVideoId: 'video-poll-2' });
 
       expect(resp.status).toBe(200);
       expect(resp.text).toContain('What is the price?');
       expect(resp.text).toContain('The price is $20');
-      // The completed entry should render with whitespace-pre-wrap (done state), not polling
       // Check that this specific entry's answer div has the done styling
       const entryStart = resp.text.indexOf(`id="entry-${chatId}"`);
       const nextEntryOrEnd = resp.text.indexOf('<div class="chat-entry"', entryStart + 1);
       const thisEntry = nextEntryOrEnd > -1
         ? resp.text.substring(entryStart, nextEntryOrEnd)
         : resp.text.substring(entryStart);
-      expect(thisEntry).toContain('whitespace-pre-wrap');
+      // answer no longer uses whitespace-pre-wrap (layout fix: removed to prevent bold/italic indent)
       expect(thisEntry).not.toContain('processing...');
-      expect(thisEntry).not.toContain('hx-trigger="every 2s"');
+      expect(thisEntry).not.toContain('hx-trigger="every 3s"');
+      // Completed entry should have data-chat-status="done"
+      expect(thisEntry).toContain('data-chat-status="done"');
     });
 
     it('renders failed row with failed indicator', async () => {
@@ -141,7 +143,7 @@ describe('chat-router HTMX polling for pending questions', () => {
       expect(resp.body.status).toBe('pending');
     });
 
-    it('returns done status with answer text for HTMX swap', async () => {
+     it('returns done status with answer field for JS polling', async () => {
       // Insert and complete a row
       const result = db.prepare(
         "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, ?)"
@@ -152,7 +154,7 @@ describe('chat-router HTMX polling for pending questions', () => {
       expect(resp.status).toBe(200);
       expect(resp.body.id).toBe(chatId);
       expect(resp.body.status).toBe('done');
-      // The answer should be included so HTMX can swap it in
+      // The answer is included so JS polling can detect completion and reload history
       expect(resp.body.answer).toBe('The completed answer');
     });
 

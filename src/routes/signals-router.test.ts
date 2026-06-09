@@ -36,6 +36,12 @@ beforeAll(() => {
   const router = createSignalsRouter(service);
   app.use('/', router);
 
+  // Error handler to surface EJS rendering errors
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Express error:', err?.message, err?.stack);
+    res.status(500).send(err?.message || 'Internal server error');
+  });
+
   httpServer = app.listen(0);
 });
 
@@ -122,6 +128,42 @@ describe('Signals Router', () => {
       expect(resp.status).toBe(200);
       expect(resp.text).toContain('Detail Router Video');
       expect(resp.text).toContain('hello router');
+    });
+
+    it('places Summarize button inside toggle bar when signal not processed', async () => {
+      const t = Date.now();
+      addChannel(db, `UCsumBtn${t}`, 'Sum Button Ch');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(`vsumBtn-${t}`, `UCsumBtn${t}`, 'Sum Button Video', `2103-12-31T00:00:00Z`, '[]', Date.now());
+
+      const resp = await request(httpServer).get(`/signals/vsumBtn-${t}`);
+      expect(resp.status).toBe(200);
+
+      // The toggle bar uses "flex gap-2 mb-4" class
+      const toggleBarStart = resp.text.indexOf('flex gap-2 mb-4');
+      expect(toggleBarStart).toBeGreaterThan(-1);
+
+      // Find the closing </div> of the toggle bar (after Split button text)
+      const splitPos = resp.text.indexOf('Split', toggleBarStart);
+      expect(splitPos).toBeGreaterThan(-1);
+      const toggleBarEnd = resp.text.indexOf('</div>', splitPos);
+
+      // The ms-auto class must appear within the toggle bar (pushes Summarize right)
+      const msAutoPos = resp.text.indexOf('ms-auto', toggleBarStart);
+      expect(msAutoPos).toBeGreaterThan(toggleBarStart);
+      expect(msAutoPos).toBeLessThan(toggleBarEnd);
+
+      // The summarize action URL must appear within the toggle bar
+      const actionPos = resp.text.indexOf(`/signals/vsumBtn-${t}/summarize`, toggleBarStart);
+      expect(actionPos).toBeGreaterThan(toggleBarStart);
+      expect(actionPos).toBeLessThan(toggleBarEnd);
+
+      // "Summarize" button text must be present within the toggle bar
+      const sumButtonPos = resp.text.indexOf('Summarize', toggleBarStart);
+      expect(sumButtonPos).toBeGreaterThan(toggleBarStart);
+      expect(sumButtonPos).toBeLessThan(toggleBarEnd);
     });
 
     it('shows error message when error query param present', async () => {

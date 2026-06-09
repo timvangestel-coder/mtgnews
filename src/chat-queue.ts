@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { ConcurrencyPool } from './concurrency-pool';
 import { ChatManager } from './services/chat-manager';
+import { ChatScope } from './signal-chat-scope';
 
 /**
  * ChatQueue — manages chat question processing through the global ConcurrencyPool.
@@ -24,6 +25,28 @@ export class ChatQueue {
     const id = this.chatManager.submit(signalVideoId, question);
 
     // Dispatch processing task to shared pool
+    this._dispatchProcess(id);
+
+    return id;
+  }
+
+  /**
+   * Enqueue a list-scoped chat question for async processing.
+   * Returns the question ID immediately after inserting a pending row.
+   */
+  enqueueScoped(scope: ChatScope): number {
+    const id = this.chatManager.submit(scope);
+
+    // Dispatch processing task to shared pool
+    this._dispatchProcess(id);
+
+    return id;
+  }
+
+  /**
+   * Internal: dispatch a process task to the shared concurrency pool.
+   */
+  _dispatchProcess(id: number): void {
     this.pool.run(async () => {
       try {
         await this.chatManager.process(id);
@@ -32,23 +55,21 @@ export class ChatQueue {
         this.markFailed(id);
       }
     });
-
-    return id;
   }
 
   /**
-   * Rich status info for HTMX polling responses.
-   * Returns status + answer text when done, so the UI can swap in the result.
-   */
-  statusInfo(id: number): { status: 'pending' | 'done' | 'failed'; answer?: string } | null {
+    * Rich status info for HTMX polling responses.
+    * Returns status + answer text when done, so the UI can swap in the result.
+    */
+  statusInfo(id: number): { status: 'pending' | 'done' | 'failed'; answer?: string; isFormatted?: number } | null {
     const row = this.db.prepare(
-      'SELECT answer FROM signal_chat WHERE id = ?'
-    ).get(id) as { answer: string | null } | undefined;
+      'SELECT answer, COALESCE(is_formatted, 0) AS is_formatted FROM signal_chat WHERE id = ?'
+    ).get(id) as { answer: string | null; is_formatted: number } | undefined;
 
     if (!row) return null;
 
     if (this._failedIds.has(id)) return { status: 'failed' };
-    if (row.answer !== null && row.answer !== undefined) return { status: 'done', answer: row.answer };
+    if (row.answer !== null && row.answer !== undefined) return { status: 'done', answer: row.answer, isFormatted: row.is_formatted };
     return { status: 'pending' };
   }
 

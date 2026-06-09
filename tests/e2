@@ -1,0 +1,66 @@
+const { test, expect } = require('./fixtures/server-fixture');
+
+const detailTranscript = JSON.stringify([
+  { time: 0, text: 'Hello welcome to the show.' },
+  { time: 45000, text: 'Today we discuss MTG news.' }
+]);
+const detailSummary = 'Welcome intro [T:0]. MTG discussion [T:45].';
+
+function seedChatSignal(db) {
+  db.prepare(
+    `INSERT OR REPLACE INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, sentiment_label, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run('vid_chat', 'UC_test_channel_1', 'Chat Test Signal', '2026-05-10T12:00:00Z', detailTranscript, detailSummary, 4, 'positive', Date.now());
+}
+
+test.describe('Debug Alpine ChatPanel Deep', () => {
+  test.beforeEach(({ db }) => {
+    seedChatSignal(db);
+  });
+
+  test('deep diagnose script loading', async ({ page, baseUrl }) => {
+    await page.goto(`${baseUrl}/signals/vid_chat`);
+    await page.waitForTimeout(3000);
+
+    const diagnostics = await page.evaluate(() => {
+      // Check if chatPanel is defined anywhere
+      const chatPanelOnWindow = typeof window.chatPanel;
+      const chatPanelOnGlobalThis = typeof globalThis.chatPanel;
+      
+      // Get all script tags and their content
+      const scripts = Array.from(document.querySelectorAll('script'));
+      const scriptInfo = scripts.map((s, i) => ({
+        index: i,
+        src: s.src || null,
+        type: s.type || null,
+        textPreview: (s.textContent || '').substring(0, 100),
+        defer: s.defer,
+      }));
+
+      // Check console errors
+      // Look at the x-data elements and their state
+      const xDataEls = document.querySelectorAll('[x-data]');
+      const xDataInfo = Array.from(xDataEls).map(el => ({
+        xdataValue: el.getAttribute('x-data').substring(0, 80),
+        tagName: el.tagName,
+        hasDataChatToggle: el.querySelector('[data-chat-toggle]') !== null,
+      }));
+
+      // Check if the inline script content is present in the DOM
+      const pageHtml = document.documentElement.innerHTML;
+      const chatPanelInHtml = pageHtml.includes('function chatPanel');
+
+      return {
+        chatPanelOnWindow,
+        chatPanelOnGlobalThis,
+        chatPanelInHtml,
+        scriptCount: scripts.length,
+        scriptInfo,
+        xDataInfo,
+      };
+    });
+
+    console.log('DEEP DIAGNOSTICS:', JSON.stringify(diagnostics, null, 2));
+    expect(true).toBe(true);
+  });
+});

@@ -12,6 +12,7 @@ export function createAdminTopicsRouter(service: TopicManager) {
     const shortName = req.body.short_name as string;
     const filterText = req.body.filter_text as string;
     const summaryPrompt = req.body.summary_prompt as string | undefined;
+    const multiSignalSummaryPrompt = req.body.multi_signal_summary_prompt as string | undefined;
 
     if (!key) {
       res.status(400).send('key required');
@@ -20,6 +21,13 @@ export function createAdminTopicsRouter(service: TopicManager) {
 
     try {
       service.create(key, shortName || '', filterText || '', summaryPrompt || null);
+      // Issue #137: set multi_signal_summary_prompt if provided
+      if (multiSignalSummaryPrompt) {
+        const created = service.getByKey(key);
+        if (created) {
+          service.update(created.id, { multi_signal_summary_prompt: multiSignalSummaryPrompt });
+        }
+      }
     } catch (err) {
       const msg = (err as Error).message || '';
       if (msg.includes('UNIQUE constraint failed') || msg.includes('duplicate key')) {
@@ -45,6 +53,8 @@ export function createAdminTopicsRouter(service: TopicManager) {
     if (req.body.short_name !== undefined) opts.short_name = req.body.short_name as string;
     if (req.body.filter_text !== undefined) opts.filter_text = req.body.filter_text as string;
     if (req.body.summary_prompt !== undefined) opts.summary_prompt = req.body.summary_prompt as string || null;
+    // Issue #137: support multi_signal_summary_prompt in updates
+    if (req.body.multi_signal_summary_prompt !== undefined) opts.multi_signal_summary_prompt = req.body.multi_signal_summary_prompt as string || null;
 
     service.update(id, opts);
 

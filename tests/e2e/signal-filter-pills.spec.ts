@@ -66,8 +66,8 @@ test.describe('Signal page channel filter pills', () => {
   test('channel filter pills render and filter signals via Alpine + HTMX', async ({ page }) => {
     await page.goto('http://localhost:3001/signals');
 
-    // Alpine x-data initialized (no console error from undefined Alpine)
-    await expect(page.locator('[x-data]')).toBeAttached();
+    // Wait for Alpine.js to initialize
+    await page.waitForFunction(() => window.Alpine && Alpine.data, { timeout: 5000 });
 
     // "All Channels" pill active (blue bg); channel pills present
     const allPill = page.getByRole('button', { name: 'All Channels' });
@@ -77,16 +77,16 @@ test.describe('Signal page channel filter pills', () => {
     expect(page.getByRole('button', { name: 'Alpha Channel' })).toBeVisible();
     expect(page.getByRole('button', { name: 'Beta Channel' })).toBeVisible();
 
-    // Both signals visible on /signals (no filter)
-    await expect(page.getByText('alpha signal summary')).toBeVisible();
-    await expect(page.getByText('beta signal summary')).toBeVisible();
+    // Both signals visible on /signals (no filter) — view renders title, not summary
+    await expect(page.getByText('Alpha Video')).toBeVisible();
+    await expect(page.getByText('Beta Video')).toBeVisible();
 
     // Click "Alpha Channel" pill → filters to alpha only
     await page.getByRole('button', { name: 'Alpha Channel' }).click();
     // Wait for HTMX to swap: beta signal disappears from #signals-table
-    await expect(page.getByText('beta signal summary')).toBeHidden({ timeout: 5000 });
+    await expect(page.getByText('Beta Video')).toBeHidden({ timeout: 5000 });
 
-    await expect(page.getByText('alpha signal summary')).toBeVisible();
+    await expect(page.getByText('Alpha Video')).toBeVisible();
 
     // Alpha pill now blue, All pill gray
     expect(await page.getByRole('button', { name: 'Alpha Channel' }).getAttribute('class')).toContain('bg-blue-600');
@@ -95,9 +95,9 @@ test.describe('Signal page channel filter pills', () => {
     // Click "All Channels" pill → resets filter, both signals back
     await page.getByRole('button', { name: 'All Channels' }).click();
     // Wait for HTMX to swap: beta signal reappears
-    await expect(page.getByText('beta signal summary')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Beta Video')).toBeVisible({ timeout: 5000 });
 
-    await expect(page.getByText('alpha signal summary')).toBeVisible();
+    await expect(page.getByText('Alpha Video')).toBeVisible();
     expect(await allPill.getAttribute('class')).toContain('bg-blue-600');
   });
 });

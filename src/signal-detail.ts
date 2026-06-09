@@ -1,6 +1,11 @@
 import Database from 'better-sqlite3';
 import { SignalRow } from './query';
 
+/** Return the display title: generated_title if available, otherwise original title, otherwise a fallback. */
+export function displayTitleForSignal(signal: SignalRow, fallback = 'Signal Detail'): string {
+  return signal.generated_title || signal.title || fallback;
+}
+
 export function getSignalById(db: Database.Database, videoId: string): SignalRow | null {
   const row = db.prepare(
     'SELECT video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, sentiment_label, created_at, processing_state, generated_title FROM signals WHERE video_id = ?'

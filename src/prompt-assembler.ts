@@ -1,8 +1,16 @@
 import type { SignalContext } from './signal-context';
+import type { ChatSignalContext } from './signal-chat-scope';
 
 export interface ChatContext {
   transcriptionJson: string;
   summary: string;
+  filterText?: string;
+  history: Array<{ question: string; answer: string }>;
+  question: string;
+}
+
+export interface MultiSignalChatContext {
+  signals: ChatSignalContext[];
   filterText?: string;
   history: Array<{ question: string; answer: string }>;
   question: string;
@@ -109,7 +117,16 @@ Use timestamps in "T:ss" format (ss = seconds as integer) when referencing speci
 }
 
 /**
+ * Strips HTML tags from a string, leaving only plain text content.
+ */
+function stripHtml(text: string | null | undefined): string {
+  if (!text) return '';
+  return text.replace(/<[^>]*>/g, '');
+}
+
+/**
  * Formats history exchanges into nested XML blocks.
+ * HTML tags are stripped from answers to prevent injecting markup into LLM prompts.
  */
 function formatHistory(history: Array<{ question: string; answer: string }>): string {
   if (history.length === 0) return '';
@@ -117,7 +134,7 @@ function formatHistory(history: Array<{ question: string; answer: string }>): st
   const exchanges = history.map((h) => {
     return `  <exchange>
     <question>${h.question}</question>
-    <answer>${h.answer}</answer>
+    <answer>${stripHtml(h.answer)}</answer>
   </exchange>`;
   }).join('\n');
 
@@ -138,6 +155,65 @@ export function assembleChat(context: ChatContext, customTemplate?: string): str
     .replace(/{FILTER_TEXT}/g, context.filterText || '')
     .replace(/{TRANSCRIPTION}/g, transcriptionText)
     .replace(/{SUMMARY}/g, context.summary)
+    .replace(/{HISTORY}/g, historyText)
+    .replace(/{QUESTION}/g, context.question);
+}
+
+/**
+ * Default multi-signal chat prompt template with XML signal blocks.
+ * Uses same three-tier resolution pattern: customTemplate → this default.
+ * Includes citation instruction for <> format when referencing specific signals.
+ */
+export function defaultMultiSignalChatPromptTemplate(): string {
+  return `You are a content analyst. Answer the user's question based on the video transcriptions and summaries provided.
+
+<filter_text>{FILTER_TEXT}</filter_text>
+
+When referencing content from a specific video, use the citation format: <videoId:T:ss> where videoId is the exact value from the signal's video_id attribute and ss is the timestamp in seconds as an integer. Example: <dQw4w9WgXcQ:T:120>. DO NOT add extra text inside the angle brackets. You do not need to cite every paragraph — only cite when referencing specific signal content.
+
+<signals>{SIGNALS}</signals>
+
+{HISTORY}
+
+<question>{QUESTION}</question>`;
+}
+
+/**
+ * Formats a single ChatSignalContext into an XML signal block.
+ */
+function formatSignalBlock(signal: ChatSignalContext): string {
+  const transcriptionText = formatTranscription(signal.signalContext.transcriptionJson);
+  const summary = signal.summary ?? '';
+
+  return `  <signal video_id="${signal.videoId}" title="${signal.title}">
+    <channel>${signal.channelDisplayName}</channel>
+    <transcription>${transcriptionText}</transcription>
+    <summary>${summary}</summary>
+  </signal>`;
+}
+
+/**
+ * Formats multiple signals into an XML block string.
+ */
+function formatSignals(signals: ChatSignalContext[]): string {
+  if (signals.length === 0) return '';
+
+  return signals.map(formatSignalBlock).join('\n');
+}
+
+/**
+ * Assembles a multi-signal chat prompt from a MultiSignalChatContext.
+ * Pure function: MultiSignalChatContext → string. No DB access, no side effects.
+ * Three-tier template resolution: customTemplate → defaultMultiSignalChatPromptTemplate()
+ */
+export function assembleMultiSignalChat(context: MultiSignalChatContext, customTemplate?: string): string {
+  const template = customTemplate ?? defaultMultiSignalChatPromptTemplate();
+  const signalsText = formatSignals(context.signals);
+  const historyText = formatHistory(context.history);
+
+  return template
+    .replace(/{FILTER_TEXT}/g, context.filterText || '')
+    .replace(/{SIGNALS}/g, signalsText)
     .replace(/{HISTORY}/g, historyText)
     .replace(/{QUESTION}/g, context.question);
 }

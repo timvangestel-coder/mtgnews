@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture Review — ChatPanel Alpine Nesting</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'default' });</script>
+</head>
+<body class="bg-gray-50 p-8">
+<div class="max-w-5xl mx-auto">
+
+  <h1 class="text-3xl font-bold mb-2">Architecture Review — SignalChat Overlay Panel</h1>
+  <p class="text-gray-500 mb-6">Generated 2026-06-09 &middot; improve-codebase-architecture skill</p>
+
+  <!-- Problem Statement -->
+  <div class="bg-white rounded-lg shadow p-6 mb-8 border-l-4 border-red-500">
+    <h2 class="text-xl font-bold mb-3">Problem</h2>
+    <p class="mb-2">All 5 E2E tests in <code>signal-chat-overlay.spec.ts</code> timeout waiting for the chat toggle button <code>[data-chat-toggle]</code> to become visible. The button uses Alpine's <code>x-show="!chatOpen"</code> where <code>chatOpen: false</code>, so the button <em>should</em> be visible (<code>!false = true</code>). Yet Playwright confirms <code>display: none</code> persists after 15 seconds.</p>
+    <p class="text-sm text-gray-600">629 unit tests pass. 40 of 45 E2E tests pass. Only these 5 fail.</p>
+  </div>
+
+  <!-- Root Cause Analysis -->
+  <div class="bg-white rounded-lg shadow p-6 mb-8">
+    <h2 class="text-xl font-bold mb-3">Root Cause — Nested x-data with Deferred Alpine</h2>
+
+    <h3 class="font-semibold mt-4 mb-2">1. Script Load Order Creates Race Condition</h3>
+    <p class="mb-2 text-sm">In <code>layout.ejs</code>, Alpine loads via <code><script defer></code> at line 84 — the LAST script in the document body. The <code>chatPanel()</code> function is defined inline in a <code><script></code> tag inside <code>_chatPanel.ejs</code>, which gets included server-side into the page.</p>
+    <p class="text-sm text-red-600 mb-2">The inline script runs synchronously during HTML parsing, defining <code>window.chatPanel = function...</code>. Then Alpine loads later via defer and calls <code>chatPanel(scope)</code> to initialize the component. This works in production browsers but creates a fragile dependency chain.</p>
+
+    <h3 class="font-semibold mt-4 mb-2">2. Nested x-data Components</h3>
+    <p class="mb-2 text-sm"><code>_chatPanel.ejs</code> defines its own <code><div x-data="chatPanel({...})"></code> which is physically nested inside the outer <code><div x-data="{ viewState: 'summary', ... }"></code> from <code>signal-detail.ejs</code>. Alpine.js supports nested <code>x-data</code>, but the inner component's initialization depends on the outer one completing first.</p>
+
+    <h3 class="font-semibold mt-4 mb-2">3. The Real Bug — Alpine 3.x CDN Version Instability</h3>
+    <p class="mb-2 text-sm font-mono bg-gray-100 p-2 rounded"><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></p>
+    <p class="text-sm text-red-600 mt-2"><code>@3.x.x</code> is a version range, not a pinned version. This means different environments (dev, test, CI) can resolve to different Alpine versions. Playwright's browser context may get a different version than the dev browser. Some Alpine 3.x releases have known issues with nested <code>x-data</code> initialization order.</p>
+
+    <h3 class="font-semibold mt-4 mb-2">4. Test Environment Timing</h3>
+    <p class="text-sm">Playwright loads the page, waits for navigation, then checks <code>window.Alpine</code>. The Alpine CDN script with <code>defer</code> may not have executed yet when Playwright starts checking. Even after Alpine exists, the nested component's <code>x-show</code> directive may not have been processed due to the initialization order bug in certain 3.x versions.</p>
+
+    <div class="mt-4">
+      <h3 class="font-semibold mb-2">Initialization Sequence Diagram</h3>
+      <pre class="mermaid">sequenceDiagram
+        participant HTML as HTML Parser
+        participant Script as Inline Script<br/>(chatPanel fn)
+        participant Alpine as Alpine.js (defer)
+        participant Outer as Outer x-data<br/>(signal-detail)
+        participant Inner as Inner x-data<br/>(chatPanel)
+        participant Button as Toggle Button<br/>(x-show)
+
+        HTML->>Script: Parse inline <script>
+        Script-->>HTML: chatPanel() defined globally
+        HTML->>Alpine: Defer executes after parse
+        Alpine->>Outer: Initialize outer x-data
+        Outer->>Outer: init() sets __alpineReady
+        Alpine->>Inner: Initialize inner x-data
+        Inner->>Inner: chatPanel(scope) returns {chatOpen:false,...}
+        Inner->>Button: Process x-show="!chatOpen"
+        alt Alpine 3.x works correctly
+          Button-->>Button: display = block (visible)
+        else Alpine 3.x nested bug
+          Button-->>Button: display = none (stuck hidden)
+        end
+      </pre>
+    </div>
+  </div>
+
+  <!-- Candidate 1 -->
+  <div class="bg-white rounded-lg shadow p-6 mb-8 border-l-4 border-green-500">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-xl font-bold">Candidate 1: Pin Alpine.js Version + Add x-init Guard</h2>
+      <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-semibold">Strong</span>
+    </div>
+
+    <h3 class="font-semibold mb-1">Files</h3>
+    <p class="text-sm text-gray-600 mb-3"><code>views/layout.ejs</code>, <code>views/_chatPanel.ejs</code></p>
+
+    <h3 class="font-semibold mb-1">Problem — Shallow Module</h3>
+    <p class="mb-2 text-sm">The Alpine loading module (<code>layout.ejs</code>) is shallow: the interface (a CDN script tag) exposes the full implementation complexity (version resolution, initialization order, nested component support) to every consumer. Deleting the version pin doesn't remove complexity — it reappears as flaky tests across 5 test files.</p>
+    <p class="text-sm"><strong>Deletion test:</strong> If you delete the unpinned CDN URL and replace it with a pinned one, all 5 test timeouts vanish. Complexity was hidden in the version range, not in the consumers. The layout module was earning its keep by NOT pinning — but that's wrong leverage.</p>
+
+    <h3 class="font-semibold mb-1">Solution</h3>
+    <ol class="list-decimal list-inside text-sm space-y-1">
+      <li><strong>Pin Alpine version:</strong> Change <code>@3.x.x</code> to a specific version like <code>@3.14.8</code> (latest stable 3.x). This creates a real seam: one version, predictable behavior across all environments.</li>
+      <li><strong>Add x-init guard on chatPanel:</strong> Add <code>x-init="chatOpen = false"</code> to the inner <code><div></code> to explicitly set initial state after Alpine processes the component. This forces Alpine to re-evaluate <code>x-show</code> directives.</li>
+      <li><strong>Add Playwright wait for Alpine ready:</strong> Use <code>page.waitForFunction(() => window.Alpine && document.querySelector('[data-chat-toggle]')._x_dataStack)</code> to verify Alpine actually processed the component, not just that the global exists.</li>
+    </ol>
+
+    <h3 class="font-semibold mb-1">Benefits</h3>
+    <ul class="list-disc list-inside text-sm space-y-1">
+      <li><strong>Locality:</strong> Version pin concentrates compatibility knowledge in one file (<code>layout.ejs</code>) rather than scattering workarounds across 5 test files.</li>
+      <li><strong>Leverage:</strong> One version change fixes all 5 tests. High leverage = deep module.</li>
+      <li><strong>Tests improve:</strong> Tests wait for actual Alpine component initialization, not just global existence.</li>
+    </ul>
+
+    <div class="mt-4 grid grid-cols-2 gap-4">
+      <div class="bg-red-50 p-3 rounded">
+        <h4 class="font-bold text-sm text-red-700 mb-1">Before — Shallow</h4>
+        <pre class="text-xs overflow-x-auto"><script defer src=
+  "https://cdn.jsdelivr.net/npm/
+    alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+<div x-data="chatPanel({...})">
+  <button x-show="!chatOpen">...</button>
+</div></pre>
+      </div>
+      <div class="bg-green-50 p-3 rounded">
+        <h4 class="font-bold text-sm text-green-700 mb-1">After — Deep</h4>
+        <pre class="text-xs overflow-x-auto"><script defer src=
+  "https://cdn.jsdelivr.net/npm/
+    alpinejs@3.14.8/dist/cdn.min.js"></script>
+
+<div x-data="chatPanel({...})"
+     x-init="chatOpen = false">
+  <button x-show="!chatOpen">...</button>
+</div></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Candidate 2 -->
+  <div class="bg-white rounded-lg shadow p-6 mb-8 border-l-4 border-green-500">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-xl font-bold">Candidate 2: Unnest ChatPanel from Signal Detail x-data</h2>
+      <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-semibold">Strong</span>
+    </div>
+
+    <h3 class="font-semibold mb-1">Files</h3>
+    <p class="text-sm text-gray-600 mb-3"><code>views/signal-detail.ejs</code>, <code>views/_chatPanel.ejs</code></p>
+
+    <h3 class="font-semibold mb-1">Problem — Tightly Coupled Nesting</h3>
+    <p class="mb-2 text-sm">The chat panel's <code>x-data</code> is physically nested inside the signal-detail's <code>x-data</code>. This creates a coupling seam where the inner component's lifecycle depends on the outer one. The <code>chatPanel()</code> function is a pure adapter (it takes scope, returns state) but the nesting forces it to inherit the outer component's initialization timing.</p>
+    <p class="text-sm"><strong>Deletion test:</strong> If you delete the nesting and place the chat panel outside the outer x-data, the initialization order problem disappears entirely. The complexity was in the nesting, not in either component individually.</p>
+
+    <h3 class="font-semibold mb-1">Solution</h3>
+    <ol class="list-decimal list-inside text-sm space-y-1">
+      <li>Move the <code><%- include('_chatPanel'...) %></code> to be OUTSIDE the closing <code></div></code> of the signal-detail's outer x-data.</li>
+      <li>The chat panel becomes a sibling Alpine component rather than a child, giving it independent initialization.</li>
+      <li>This also applies to <code>signals.ejs</code> where the multi-signal chat panel is already outside any x-data (so it works there — confirming the nesting theory).</li>
+    </ol>
+
+    <h3 class="font-semibold mb-1">Benefits</h3>
+    <ul class="list-disc list-inside text-sm space-y-1">
+      <li><strong>Locality:</strong> The chat panel becomes a self-contained module with its own Alpine lifecycle. No dependency on the parent component's init order.</li>
+      <li><strong>Leverage:</strong> Fixes the root cause (nested initialization) rather than working around symptoms.</li>
+      <li><strong>Tests improve:</strong> Independent x-data means Playwright can wait for the chat panel component specifically without caring about the signal-detail component state.</li>
+    </ul>
+
+    <div class="mt-4 grid grid-cols-2 gap-4">
+      <div class="bg-red-50 p-3 rounded">
+        <h4 class="font-bold text-sm text-red-700 mb-1">Before — Nested (coupled)</h4>
+        <pre class="text-xs overflow-x-auto"><div x-data="{ viewState: ... }">
+  <!-- signal detail content -->
+  
+  <%-- BAD: nested inside outer x-data --%>
+  <%- include('_chatPanel', ...) %>
+</div></pre>
+      </div>
+      <div class="bg-green-50 p-3 rounded">
+        <h4 class="font-bold text-sm text-green-700 mb-1">After — Sibling (independent)</h4>
+        <pre class="text-xs overflow-x-auto"><div x-data="{ viewState: ... }">
+  <!-- signal detail content -->
+</div>
+
+<%-- GOOD: sibling, independent lifecycle --%>
+<%- include('_chatPanel', ...) %></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Candidate 3 -->
+  <div class="bg-white rounded-lg shadow p-6 mb-8 border-l-4 border-yellow-500">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-xl font-bold">Candidate 3: E2E Test Fixture — Explicit Alpine Ready Signal</h2>
+      <span class="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-semibold">Worth exploring</span>
+    </div>
+
+    <h3 class="font-semibold mb-1">Files</h3>
+    <p class="text-sm text-gray-600 mb-3"><code>views/layout.ejs</code>, <code>tests/e2e/signal-chat-overlay.spec.ts</code></p>
+
+    <h3 class="font-semibold mb-1">Problem — Shallow Test Wait Strategy</h3>
+    <p class="text-sm">Current tests wait for <code>window.Alpine</code> existence plus computed style checks. This is a shallow interface: the test knows too much about Alpine internals (x-show, display:none) rather than waiting for a high-level "ready" signal. The deletion test shows that removing these inline waits and replacing with one central ready signal concentrates the Alpine knowledge in the layout module.</p>
+
+    <h3 class="font-semibold mb-1">Solution</h3>
+    <ol class="list-decimal list-inside text-sm space-y-1">
+      <li>Add <code>window.__alpineComponentsReady = false</code> to the layout.</li>
+      <li>After Alpine loads, use <code>Alpine.directive()</code> or a MutationObserver to detect when all x-data components are initialized, then set the flag.</li>
+      <li>Simplify all 5 tests to: <code>await page.waitForFunction(() => window.__alpineComponentsReady)</code>.</li>
+    </ol>
+
+    <h3 class="font-semibold mb-1">Benefits</h3>
+    <ul class="list-disc list-inside text-sm space-y-1">
+      <li><strong>Locality:</strong> Alpine initialization knowledge moves from 5 test files to 1 layout file.</li>
+      <li><strong>Leverage:</strong> One ready signal serves all E2E tests, not just chat overlay tests.</li>
+    </ul>
+  </div>
+
+  <!-- Top Recommendation -->
+  <div class="bg-indigo-50 rounded-lg shadow p-6 mb-8 border-l-4 border-indigo-500">
+    <h2 class="text-xl font-bold mb-3 text-indigo-800">Top Recommendation</h2>
+    <p class="mb-2"><strong>Tackle Candidate 1 + Candidate 2 together.</strong> They are complementary fixes that address the problem at two levels:</p>
+    <ul class="list-disc list-inside text-sm space-y-1 mb-3">
+      <li><strong>Candidate 1 (Pin version)</strong> eliminates environment variance — the same Alpine code runs everywhere. This is a 2-line change with immediate impact.</li>
+      <li><strong>Candidate 2 (Unnest chatPanel)</strong> eliminates the architectural coupling that makes nested initialization fragile. This is a structural fix preventing future regressions.</li>
+    </ul>
+    <p class="text-sm font-semibold">Together they create a deep seam: one pinned version at the layout boundary, one independent component per page feature. The deletion test passes for both — removing either one causes complexity to reappear across multiple callers (tests, views).</p>
+  </div>
+
+</div>
+</body>
+</html>

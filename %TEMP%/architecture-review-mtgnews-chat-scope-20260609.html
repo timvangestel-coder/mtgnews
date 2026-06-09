@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review — mtgnews chat scope</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); color: white; }
+      .mass-interface { border-left: 4px solid #6366f1; }
+      .mass-impl { border-left: 4px solid #334155; }
+      .deep-module { border-left: 6px solid #059669; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <!-- HEADER -->
+      <header>
+        <h1 class="text-3xl font-serif font-bold text-slate-900">Architecture Review — mtgnews Chat Scope</h1>
+        <p class="mt-2 text-sm text-slate-500">2026-06-09 &middot; Triggered by chatissues.md bug diagnosis</p>
+        <div class="mt-4 flex gap-6 text-xs text-slate-500">
+          <span><span class="inline-block w-3 h-3 rounded-sm bg-slate-200 border border-slate-400 align-middle mr-1"></span> Module</span>
+          <span><span class="inline-block w-8 border-t-2 border-dashed border-slate-400 align-middle mr-1"></span> Seam</span>
+          <span><span class="inline-block w-8 border-t-2 border-red-600 align-middle mr-1"></span> Leakage</span>
+          <span><span class="inline-block w-3 h-3 rounded-sm bg-slate-800 align-middle mr-1"></span> Deep module</span>
+        </div>
+      </header>
+
+      <!-- CANDIDATES -->
+      <section id="candidates" class="space-y-10">
+
+        <!-- CANDIDATE 1: ScopeSource seam -->
+        <article class="bg-white rounded-xl border border-slate-200 p-8 space-y-6">
+          <div class="flex items-start justify-between">
+            <div>
+              <h2 class="text-xl font-bold">1. Create a <code class="text-indigo-600">ScopeSource</code> seam — single truth for chat scope</h2>
+              <p class="text-sm text-slate-500 mt-1">Collapse scattered scope reading into one deep module with URL as canonical source</p>
+            </div>
+            <span class="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 whitespace-nowrap">Strong</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-x-2">
+            <code>views/scripts/chat-panel.js</code>
+            <code>src/routes/chat-router.ts</code>
+            <code>src/services/chat-manager.ts</code>
+          </div>
+
+          <!-- BEFORE/AFTER -->
+          <div class="grid grid-cols-2 gap-6">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3 font-semibold">Before — shallow scatter</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[sendQuestion] -->|reads this.topicKey| B[(Alpine state)]
+                  C[loadHistory] -->|builds params[]| D[fetch URL]
+                  E[_syncScopeFromUrl] -->|reads URL| F[updates Alpine]
+                  G[toggleChat] -->|does NOT sync| H[stale scope]
+                  B -.leak.-> I{DRIFT: state & URL diverge}
+                  classDef leak fill:#fef2f2,stroke:#dc2626,stroke-width:2px;
+                  class I leak
+              </pre>
+            </div>
+            <div class="rounded-lg border-2 border-emerald-500 bg-slate-50 p-4">
+              <p class="text-xs uppercase tracking-wider text-emerald-700 mb-3 font-semibold">After — one deep module</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[sendQuestion] -->|calls| B["ScopeSource.fromURL()"]
+                  C[loadHistory] -->|calls| B
+                  D[toggleChat] -->|calls| B
+                  E[_syncScopeFromUrl] -.->|deleted| F
+                  B -->|"returns {topicKey, channelId}"| G[(single scope object)]
+                  classDef deep fill:#0f172a,color:#fff,stroke:#059669,stroke-width:3px;
+                  class B deep
+              </pre>
+            </div>
+          </div>
+
+          <!-- MASS DIAGRAM -->
+          <div class="grid grid-cols-2 gap-6 mt-4">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-2 font-semibold">Interface mass — before (shallow)</p>
+              <div class="space-y-1">
+                <div class="mass-interface bg-indigo-50 p-2 rounded text-xs"><strong>sendQuestion()</strong> — reads this.topicKey, this.channelId, builds body</div>
+                <div class="mass-interface bg-indigo-50 p-2 rounded text-xs"><strong>loadHistory()</strong> — builds params[], appends to URL</div>
+                <div class="mass-interface bg-indigo-50 p-2 rounded text-xs"><strong>_syncScopeFromUrl()</strong> — reads searchParams, compares saved*</div>
+                <div class="mass-interface bg-indigo-50 p-2 rounded text-xs"><strong>toggleChat()</strong> — opens panel, calls loadHistory</div>
+                <div class="mass-interface bg-indigo-50 p-2 rounded text-xs"><strong>init() listener</strong> — htmx:afterRequest guard + update</div>
+              </div>
+              <p class="text-xs text-red-600 mt-1">Interface as wide as implementation — 5 callers each re-implementing scope logic</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-emerald-700 mb-2 font-semibold">Interface mass — after (deep)</p>
+              <div class="space-y-1">
+                <div class="deep-module bg-slate-800 text-white p-3 rounded text-xs"><strong>ScopeSource.fromURL()</strong><br/><span class="text-slate-300">returns {topicKey, channelId, includeIrrelevant}</span></div>
+              </div>
+              <p class="text-xs text-emerald-600 mt-1">One interface. All 5 callers cross one seam. Implementation absorbs URL parsing + normalization.</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Problem</p>
+              <p class="mt-1">Scope reading scattered across 5 methods in <code>chat-panel.js</code>. Each re-implements URL parsing, normalization, and state sync. Alpine reactive properties drift from actual browser URL because updates only fire when chat is open.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Solution</p>
+              <p class="mt-1">Extract a pure <code>ScopeSource.fromURL()</code> module that reads <code>window.location.searchParams</code> and returns a normalized scope object. All callers use it at point-of-use instead of maintaining stale Alpine state. Delete _syncScopeFromUrl, savedTopicKey, savedChannelId.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Wins</p>
+              <ul class="mt-1 space-y-1 list-disc list-inside text-slate-600">
+                <li>Locality: scope bugs in one module</li>
+                <li>Leverage: 5 callers, 1 interface</li>
+                <li>Delete drift-prone Alpine state props</li>
+                <li>Pure function — trivially testable</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 2: Frontend test strategy -->
+        <article class="bg-white rounded-xl border border-slate-200 p-8 space-y-6">
+          <div class="flex items-start justify-between">
+            <div>
+              <h2 class="text-xl font-bold">2. Replace regex source probes with Playwright chat E2E tests</h2>
+              <p class="text-sm text-slate-500 mt-1">Test observable DOM behavior instead of string-matching JS source code</p>
+            </div>
+            <span class="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 whitespace-nowrap">Strong</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-x-2">
+            <code>src/chat-panel-history.test.ts</code>
+            <code>tests/e2e/</code>
+            <code>views/scripts/chat-panel.js</code>
+          </div>
+
+          <!-- BEFORE/AFTER -->
+          <div class="grid grid-cols-2 gap-6">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3 font-semibold">Before — regex probes (shallow)</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[fs.readFileSync] --> B[regex match]
+                  B --> C{pattern found?}
+                  C -->|yes| D[pass — but code may still break]
+                  C -->|no| E[fail — even if behavior correct]
+                  classDef leak fill:#fef2f2,stroke:#dc2626,stroke-width:2px;
+                  class E leak
+              </pre>
+            </div>
+            <div class="rounded-lg border-2 border-emerald-500 bg-slate-50 p-4">
+              <p class="text-xs uppercase tracking-wider text-emerald-700 mb-3 font-semibold">After — Playwright E2E (deep)</p>
+              <pre class="mermaid">
+                flowchart LR
+                  A[page.goto] --> B[select topic pill]
+                  B --> C[open chat panel]
+                  C --> D[type + submit question]
+                  D --> E[assert: badge shows filtered count]
+                  E --> F[assert: POST body has correct topicKey]
+                  F --> G[assert: question appears in history]
+                  classDef deep fill:#0f172a,color:#fff,stroke:#059669,stroke-width:3px;
+                  class A deep
+              </pre>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Problem</p>
+              <p class="mt-1"><code>chat-panel-history.test.ts</code> uses regex assertions against JS source files. Tests pass when the string pattern exists in the file, not when the behavior works. Benign refactors break tests; real bugs slip through because nothing executes the code.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Solution</p>
+              <p class="mt-1">Replace regex probes with Playwright E2E tests using the existing in-memory SQLite fixture pattern. Test observable behavior: scope badge updates, POST body contains correct topicKey, question appears in chat history after submit.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Wins</p>
+              <ul class="mt-1 space-y-1 list-disc list-inside text-slate-600">
+                <li>Tests verify actual behavior, not source patterns</li>
+                <li>Catches scope drift bugs automatically</li>
+                <li>Survives benign refactors</li>
+                <li>Uses existing Playwright fixture infra</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 3: Scope integration test -->
+        <article class="bg-white rounded-xl border border-slate-200 p-8 space-y-6">
+          <div class="flex items-start justify-between">
+            <div>
+              <h2 class="text-xl font-bold">3. Add scope round-trip integration test</h2>
+              <p class="text-sm text-slate-500 mt-1">Test full POST → router → manager → DB → history path with supertest</p>
+            </div>
+            <span class="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 whitespace-nowrap">Strong</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-x-2">
+            <code>src/routes/chat-router.ts</code>
+            <code>src/services/chat-manager.ts</code>
+            <code>src/signal-chat-scope.ts</code>
+          </div>
+
+          <!-- SEQUENCE DIAGRAM -->
+          <div class="grid grid-cols-2 gap-6">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="text-xs uppercase tracking-wider text-red-600 mb-3 font-semibold">Before — no integration test covers this path</p>
+              <pre class="mermaid">
+                sequenceDiagram
+                  participant C as Client
+                  participant R as chat-router
+                  participant M as ChatManager
+                  participant D as SQLite
+                  C->>R: POST /chat/ask {topicKey:'mtg'}
+                  R->>M: submit(scope)
+                  M->>D: INSERT topic_key='mtg'
+                  Note over C,D: NO TEST COVERS THIS FULL PATH
+                  D-->>M: row id
+                  M-->>R: {id}
+                  R-->>C: 201
+              </pre>
+            </div>
+            <div class="rounded-lg border-2 border-emerald-500 bg-slate-50 p-4">
+              <p class="text-xs uppercase tracking-wider text-emerald-700 mb-3 font-semibold">After — supertest integration covers full path</p>
+              <pre class="mermaid">
+                sequenceDiagram
+                  participant T as Test
+                  participant R as chat-router
+                  participant M as ChatManager
+                  participant D as SQLite
+                  T->>R: POST /chat/ask {topicKey:'mtg'}
+                  R->>M: submit(scope)
+                  M->>D: INSERT topic_key='mtg'
+                  T->>R: GET /chat/history?topicKey=mtg
+                  R->>M: getHistory(scope)
+                  M->>D: SELECT WHERE topic_key='mtg'
+                  D-->>T: question row with correct scope
+                  Note over T,D: ASSERT: topic_key='mtg', NOT ''
+              </pre>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Problem</p>
+              <p class="mt-1">Existing tests mock ChatManager or test resolveScope in isolation. No test verifies the full path: POST body with topicKey → router parsing → manager submit → DB row stores correct value → history returns it. The chatissues.md bugs all live in this gap.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Solution</p>
+              <p class="mt-1">Add supertest integration test that hits Express routes with in-memory SQLite. Verify: (a) POST /chat/ask stores correct topicKey in DB, (b) GET /chat/history returns the question, (c) scope values survive round-trip unchanged.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Wins</p>
+              <ul class="mt-1 space-y-1 list-disc list-inside text-slate-600">
+                <li>Catches scope corruption at integration level</li>
+                <li>Tests cross 3 module seams end-to-end</li>
+                <li>Regression guard for all chatissues.md bugs</li>
+                <li>Uses existing supertest + in-memory DB pattern</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 4: Empty-string scope disambiguation -->
+        <article class="bg-white rounded-xl border border-slate-200 p-8 space-y-6">
+          <div class="flex items-start justify-between">
+            <div>
+              <h2 class="text-xl font-bold">4. Disambiguate empty-string topicKey in ChatScope</h2>
+              <p class="text-sm text-slate-500 mt-1">Replace ambiguous <code>topicKey: ''</code> with explicit scope type discrimination</p>
+            </div>
+            <span class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 whitespace-nowrap">Worth exploring</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-x-2">
+            <code>src/signal-chat-scope.ts</code>
+            <code>src/routes/chat-router.ts</code>
+            <code>src/services/chat-manager.ts</code>
+          </div>
+
+          <!-- CROSS-SECTION -->
+          <div class="space-y-3">
+            <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Before — 4 thin layers, each interpreting empty string differently (shallow)</p>
+            <div class="flex gap-2 items-center">
+              <div class="h-10 flex-1 border-l-4 border-blue-400 bg-blue-50 rounded px-3 flex items-center text-xs font-mono">Frontend: topicKey='' means "no filter selected"</div>
+            </div>
+            <div class="flex gap-2 items-center">
+              <div class="h-10 flex-1 border-l-4 border-yellow-400 bg-yellow-50 rounded px-3 flex items-center text-xs font-mono">Router: topicKey='' means "all signals" (list-scope)</div>
+            </div>
+            <div class="flex gap-2 items-center">
+              <div class="h-10 flex-1 border-l-4 border-orange-400 bg-orange-50 rounded px-3 flex items-center text-xs font-mono">Manager: topicKey='' stores as empty string in DB</div>
+            </div>
+            <div class="flex gap-2 items-center">
+              <div class="h-10 flex-1 border-l-4 border-red-400 bg-red-50 rounded px-3 flex items-center text-xs font-mono">History: topicKey='' matches WHERE topic_key = ''</div>
+            </div>
+            <p class="text-xs text-red-600 mt-2">Same value, 4 different meanings. Impossible to distinguish "user sent no filter" from "user selected all signals".</p>
+          </div>
+
+          <div class="space-y-3 mt-4">
+            <p class="text-xs uppercase tracking-wider text-emerald-700 font-semibold">After — 1 deep module, explicit discrimination</p>
+            <div class="flex gap-2 items-center">
+              <div class="h-16 flex-1 border-l-6 border-emerald-600 bg-slate-800 text-white rounded px-4 flex flex-col justify-center">
+                <span class="text-xs font-bold">ChatScope module — explicit type tag</span>
+                <span class="text-xs text-slate-300 mt-1"><code>{scopeType: 'perSignal', videoId}</code> | <code>{scopeType: 'listAll'}</code> | <code>{scopeType: 'listFiltered', topicKey?, channelId?}</code></span>
+              </div>
+            </div>
+            <p class="text-xs text-emerald-600 mt-2">One interface. No empty-string ambiguity. Discriminated union enforces exhaustiveness at compile time.</p>
+          </div>
+
+          <div class="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Problem</p>
+              <p class="mt-1"><code>topicKey: ''</code> means different things at each layer. Frontend sends it for "no filter". Router interprets it as "all signals list-scoped". Manager stores empty string in DB. History query matches on empty string. Fundamental ambiguity makes correct filtering impossible.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Solution</p>
+              <p class="mt-1">Replace flat ChatScope with a discriminated union tagged by scope type. TypeScript enforces exhaustive handling. Empty string disappears as a valid topicKey value — replaced by explicit <code>scopeType: 'listAll'</code>.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Wins</p>
+              <ul class="mt-1 space-y-1 list-disc list-inside text-slate-600">
+                <li>Locality: ambiguity resolved in one module</li>
+                <li>Compile-time exhaustiveness checks</li>
+                <li>Eliminates empty-string confusion</li>
+                <li>Cleaner DB queries (NULL vs '' is clear)</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm">
+            <p class="text-xs uppercase tracking-wider text-amber-700 font-semibold mb-1">⚠ Contradicts issue #135 design decision</p>
+            <p class="text-amber-800">Issue #135 explicitly chose empty-string topicKey as "all signals" indicator. This candidate proposes reversing that decision because the ambiguity caused real bugs (chatissues.md Issues 1 & 2). Worth reopening because the original design cannot distinguish "no filter selected" from "intentionally all signals".</p>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 5: ChatManager submit/getHistory normalization -->
+        <article class="bg-white rounded-xl border border-slate-200 p-8 space-y-6">
+          <div class="flex items-start justify-between">
+            <div>
+              <h2 class="text-xl font-bold">5. Deepen ChatManager scope handling</h2>
+              <p class="text-sm text-slate-500 mt-1">Move all scope normalization into ChatManager as the single authority</p>
+            </div>
+            <span class="px-3 py-1 rounded-full text-xs font-semibold bg-slate-200 text-slate-700 whitespace-nowrap">Speculative</span>
+          </div>
+
+          <div class="font-mono text-sm text-slate-600 space-x-2">
+            <code>src/services/chat-manager.ts</code>
+            <code>src/routes/chat-router.ts</code>
+          </div>
+
+          <div class="grid grid-cols-2 gap-6">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="text-xs uppercase tracking-wider text-slate-500 mb-3 font-semibold">Before — normalization scattered</p>
+              <pre class="mermaid">
+                flowchart TD
+                  A[Router] -->|hasListScope check| B[submit]
+                  A -->|topicKey coalesce| C[getHistory]
+                  B -->|empty string normalize?| D[(DB)]
+                  C -->|empty string normalize?| D
+                  Note[Normalization logic in BOTH router AND manager]
+              </pre>
+            </div>
+            <div class="rounded-lg border-2 border-emerald-500 bg-slate-50 p-4">
+              <p class="text-xs uppercase tracking-wider text-emerald-700 mb-3 font-semibold">After — manager is authority</p>
+              <pre class="mermaid">
+                flowchart TD
+                  A[Router] -->|passes raw body| B["ChatManager.normalizeScope()"]
+                  B -->|"returns ChatScope"| C[submit]
+                  B -->|"returns ChatScope"| D[getHistory]
+                  C --> E[(DB)]
+                  D --> E
+                  classDef deep fill:#0f172a,color:#fff,stroke:#059669,stroke-width:3px;
+                  class B deep
+              </pre>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Problem</p>
+              <p class="mt-1">Scope normalization lives in both the router (hasListScope check, topicKey coalesce) and ChatManager (empty string handling). Two modules interpret raw input differently. Dead code in router line 54: tautological assignment.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Solution</p>
+              <p class="mt-1">Extract <code>ChatManager.normalizeScope(rawBody): ChatScope</code> as the single normalization point. Router becomes a thin pass-through: parse body → call normalizeScope → delegate. Delete duplicate logic from router.</p>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Wins</p>
+              <ul class="mt-1 space-y-1 list-disc list-inside text-slate-600">
+                <li>Locality: normalization in one place</li>
+                <li>Delete router dead code (line 54)</li>
+                <li>Pure function — testable in isolation</li>
+                <li>Router shrinks, manager deepens</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+      </section>
+
+      <!-- TOP RECOMMENDATION -->
+      <section id="top-recommendation" class="bg-slate-800 text-white rounded-xl p-8 space-y-4">
+        <h2 class="text-2xl font-serif font-bold">Top Recommendation</h2>
+        <div class="space-y-3">
+          <p><strong class="text-emerald-400">Candidate 1 + 2 + 3</strong> — tackle together as a single architectural improvement sprint.</p>
+          <p class="text-slate-300">The three chatissues.md bugs all trace to the same root cause: <em>scope data has no single source of truth between frontend and backend</em>. Candidate 1 creates the ScopeSource seam on the frontend (eliminates drift). Candidate 2 replaces fragile regex tests with real E2E behavior tests. Candidate 3 adds integration coverage for the full POST→DB→history path.</p>
+          <p class="text-slate-300">Together they create a testable architecture that prevents these bugs from recurring: one deep module reads scope, E2E tests verify it works in the browser, and integration tests catch corruption at the backend seam. Candidates 4 and 5 are follow-ups that can wait until after the core issue is resolved.</p>
+          <div class="pt-3 border-t border-slate-600 text-sm text-slate-400">
+            Estimated effort: ~3 hours TDD (red→green for each candidate before refactoring)
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </body>
+</html>

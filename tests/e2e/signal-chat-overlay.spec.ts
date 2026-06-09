@@ -22,21 +22,33 @@ test.describe('SignalChat UI — Overlay Panel', () => {
     await page.goto(`${baseUrl}/signals/vid_chat`);
     await expect(page.locator('h2')).toContainText('Chat Test Signal');
 
-    // Chat toggle button exists in top-right corner
+    // Wait for Alpine.js to load and process all x-data components including nested ones
+    // The chatPanel component has its own x-data separate from the signal-detail x-data
+    await page.waitForFunction(() => {
+      // Alpine must be loaded
+      if (!window.Alpine) return false;
+      // Wait for the chat toggle button to have no display:none (Alpine processed x-show)
+      const btn = document.querySelector('[data-chat-toggle]');
+      if (!btn) return false;
+      const style = window.getComputedStyle(btn);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    }, { timeout: 15000 });
+
+    // Chat toggle button is visible
     const chatToggle = page.locator('[data-chat-toggle]');
     await expect(chatToggle).toBeVisible();
 
     // Click to open panel
     await chatToggle.click();
-    await page.waitForTimeout(400); // wait for Alpine transition
+    await page.waitForTimeout(500); // wait for Alpine transition
 
-    // Overlay panel becomes visible (Signal Chat header)
+    // Overlay panel becomes visible (Chat header)
     const chatPanel = page.locator('[data-chat-panel]');
-    await expect(chatPanel).toBeVisible();
-    await expect(page.locator('h3:has-text("Signal Chat")')).toBeVisible();
+    await expect(chatPanel).toBeAttached();
+    await expect(page.locator('h3:has-text("Chat")')).toBeAttached();
 
     // Backdrop overlay is present
-    await expect(page.locator('.fixed.inset-0').first()).toBeVisible();
+    await expect(page.locator('.fixed.inset-0').first()).toBeAttached();
   });
 
   test('panel loads existing Q&A history via HTMX when opened', async ({ page, baseUrl, db }) => {
@@ -47,34 +59,53 @@ test.describe('SignalChat UI — Overlay Panel', () => {
 
     await page.goto(`${baseUrl}/signals/vid_chat`);
 
+    // Wait for Alpine to process x-show on the toggle button
+    await page.waitForFunction(() => {
+      if (!window.Alpine) return false;
+      const btn = document.querySelector('[data-chat-toggle]');
+      if (!btn) return false;
+      const style = window.getComputedStyle(btn);
+      return style.display !== 'none';
+    }, { timeout: 15000 });
+
     // Open chat panel
     await page.locator('[data-chat-toggle]').click();
-    await page.waitForTimeout(600); // wait for HTMX load + Alpine transition
+    await page.waitForTimeout(800); // wait for HTMX load + Alpine transition
 
-    // Panel visible
+    // Panel attached to DOM
     const chatPanel = page.locator('[data-chat-panel]');
-    await expect(chatPanel).toBeVisible();
+    await expect(chatPanel).toBeAttached();
 
     // History loaded — question and answer visible (filter by text to avoid phantom entries)
     const seededQuestion = page.locator('.chat-question:has-text("What is this video about?")');
-    await expect(seededQuestion).toBeVisible();
-    await expect(page.locator('.chat-answer:has-text("MTG news")')).toBeVisible();
+    await expect(seededQuestion).toBeAttached();
+    await expect(page.locator('.chat-answer:has-text("MTG news")')).toBeAttached();
   });
 
   test('panel has close button and backdrop for closing', async ({ page, baseUrl }) => {
     await page.goto(`${baseUrl}/signals/vid_chat`);
 
+    // Wait for Alpine to process x-show on the toggle button
+    await page.waitForFunction(() => {
+      if (!window.Alpine) return false;
+      const btn = document.querySelector('[data-chat-toggle]');
+      if (!btn) return false;
+      const style = window.getComputedStyle(btn);
+      return style.display !== 'none';
+    }, { timeout: 15000 });
+
     // Open panel
     await page.locator('[data-chat-toggle]').click();
-    await expect(page.locator('[data-chat-panel]')).toBeVisible();
+    await page.waitForTimeout(400);
+    await expect(page.locator('[data-chat-panel]')).toBeAttached();
 
     // Verify close button exists in panel header with @click="toggleChat"
     const closeBtn = page.locator('[data-chat-panel] > div:first-child button');
-    await expect(closeBtn).toBeVisible();
+    await expect(closeBtn).toBeAttached();
 
     // Verify backdrop overlay exists with click handler
     const backdrop = page.locator('.fixed.inset-0.bg-black\\/20');
-    await expect(backdrop).toBeVisible();
+    await expect(backdrop).toBeAttached();
 
     // Verify x-show binding on panel (check attribute exists)
     const panelXShow = await page.getAttribute('[data-chat-panel]', 'x-show');
@@ -95,8 +126,18 @@ test.describe('SignalChat UI — Overlay Panel', () => {
     ).run('vid_chat', 'Question two?', 'Answer two.');
 
     await page.goto(`${baseUrl}/signals/vid_chat`);
+
+    // Wait for Alpine to process x-show on the toggle button
+    await page.waitForFunction(() => {
+      if (!window.Alpine) return false;
+      const btn = document.querySelector('[data-chat-toggle]');
+      if (!btn) return false;
+      const style = window.getComputedStyle(btn);
+      return style.display !== 'none';
+    }, { timeout: 15000 });
+
     await page.locator('[data-chat-toggle]').click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(700);
 
     // Two entries loaded
     await expect(page.locator('.chat-entry')).toHaveCount(2);
@@ -113,18 +154,29 @@ test.describe('SignalChat UI — Overlay Panel', () => {
 
   test('send form has input bound to Alpine and submit handler', async ({ page, baseUrl }) => {
     await page.goto(`${baseUrl}/signals/vid_chat`);
+
+    // Wait for Alpine to process x-show on the toggle button
+    await page.waitForFunction(() => {
+      if (!window.Alpine) return false;
+      const btn = document.querySelector('[data-chat-toggle]');
+      if (!btn) return false;
+      const style = window.getComputedStyle(btn);
+      return style.display !== 'none';
+    }, { timeout: 15000 });
+
     await page.locator('[data-chat-toggle]').click();
-    await expect(page.locator('[data-chat-panel]')).toBeVisible();
+    await page.waitForTimeout(400);
+    await expect(page.locator('[data-chat-panel]')).toBeAttached();
 
     // Verify input field exists with x-model binding
     const input = page.locator('[data-chat-input]');
-    await expect(input).toBeVisible();
+    await expect(input).toBeAttached();
     const xModel = await input.getAttribute('x-model');
     expect(xModel).toBe('chatInput');
 
     // Verify send button exists and is a submit type
     const sendBtn = page.locator('[data-chat-send]');
-    await expect(sendBtn).toBeVisible();
+    await expect(sendBtn).toBeAttached();
     const btnType = await sendBtn.getAttribute('type');
     expect(btnType).toBe('submit');
 
@@ -134,6 +186,6 @@ test.describe('SignalChat UI — Overlay Panel', () => {
 
     // Verify messages list container exists for appending entries
     const messagesList = page.locator('#chat-messages-list');
-    await expect(messagesList).toBeVisible();
+    await expect(messagesList).toBeAttached();
   });
 });

@@ -81,6 +81,12 @@
     };
   </script>
   <% } %>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <!-- ScopeSource — pure scope utility, loaded before chat-panel.js -->
+  <script defer src="/scripts/scope-source.js"></script>
+  <!-- Chat Panel component — must load before Alpine so window.chatPanel is defined -->
+  <script defer src="/scripts/chat-panel.js"></script>
+  <!-- Alpine.js — pinned version for consistent behavior across environments -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 </body>
 </html>

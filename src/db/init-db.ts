@@ -145,10 +145,14 @@ export function initDb(db: Database.Database): void {
     }
 
     // Issue #98: Migration: add summary_prompt to topics (nullable TEXT for per-topic prompt templates)
+    // Issue #137: Migration: add multi_signal_summary_prompt to topics (nullable TEXT for per-topic multi-signal prompt override)
     const topicRows = db.pragma('table_info(topics)') as Array<{ name: string }>;
     const topicCols = topicRows.map((r) => r.name);
     if (!topicCols.includes('summary_prompt')) {
       db.exec('ALTER TABLE topics ADD COLUMN summary_prompt TEXT');
+    }
+    if (!topicCols.includes('multi_signal_summary_prompt')) {
+      db.exec('ALTER TABLE topics ADD COLUMN multi_signal_summary_prompt TEXT');
     }
 
      // Issue #102: app_settings key/value table for runtime-configurable global defaults
@@ -175,27 +179,70 @@ export function initDb(db: Database.Database): void {
      )
    `);
 
-   // Issue #120: Migration — fix answer column to be nullable for async processing
-   // The original table may have been created with answer TEXT NOT NULL.
-   // SQLite cannot ALTER COLUMN, so we recreate the table if needed.
-   const chatRows = db.pragma('table_info(signal_chat)') as Array<{ name: string; notnull: number }>;
-   const answerCol = chatRows.find((r) => r.name === 'answer');
-   if (answerCol && answerCol.notnull === 1) {
-     // Recreate table with nullable answer column
-     db.exec('ALTER TABLE signal_chat RENAME TO signal_chat_old');
-     db.exec(`
-       CREATE TABLE signal_chat (
-         id              INTEGER PRIMARY KEY AUTOINCREMENT,
-         signal_video_id TEXT NOT NULL REFERENCES signals(video_id),
-         question        TEXT NOT NULL,
-         answer          TEXT,
-         created_at      TEXT DEFAULT (datetime('now'))
-       )
-     `);
-     db.exec(`
-       INSERT INTO signal_chat (id, signal_video_id, question, answer, created_at)
-       SELECT id, signal_video_id, question, answer, created_at FROM signal_chat_old
-     `);
-     db.exec('DROP TABLE signal_chat_old');
-   }
+    // Issue #120: Migration — fix answer column to be nullable for async processing
+    // The original table may have been created with answer TEXT NOT NULL.
+    // SQLite cannot ALTER COLUMN, so we recreate the table if needed.
+    const chatRows = db.pragma('table_info(signal_chat)') as Array<{ name: string; notnull: number }>;
+    const answerCol = chatRows.find((r) => r.name === 'answer');
+    if (answerCol && answerCol.notnull === 1) {
+       // Recreate table with nullable answer column
+       db.exec('ALTER TABLE signal_chat RENAME TO signal_chat_old');
+       db.exec(`
+         CREATE TABLE signal_chat (
+           id              INTEGER PRIMARY KEY AUTOINCREMENT,
+           signal_video_id TEXT NOT NULL REFERENCES signals(video_id),
+           question        TEXT NOT NULL,
+           answer          TEXT,
+           created_at      TEXT DEFAULT (datetime('now'))
+         )
+       `);
+       db.exec(`
+         INSERT INTO signal_chat (id, signal_video_id, question, answer, created_at)
+         SELECT id, signal_video_id, question, answer, created_at FROM signal_chat_old
+       `);
+       db.exec('DROP TABLE signal_chat_old');
+    }
+
+    // Issue #130: Migration — make signal_video_id nullable for list-scoped chat
+    // Re-read table info in case it was recreated above
+    const chatRowsV2b = db.pragma('table_info(signal_chat)') as Array<{ name: string; notnull: number }>;
+    const videoIdCol = chatRowsV2b.find((r) => r.name === 'signal_video_id');
+    if (videoIdCol && videoIdCol.notnull === 1) {
+      // Recreate table with nullable signal_video_id
+      db.exec('ALTER TABLE signal_chat RENAME TO signal_chat_old');
+      db.exec(`
+        CREATE TABLE signal_chat (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          signal_video_id TEXT REFERENCES signals(video_id),
+          question        TEXT NOT NULL,
+          answer          TEXT,
+          created_at      TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`
+        INSERT INTO signal_chat (id, signal_video_id, question, answer, created_at)
+        SELECT id, signal_video_id, question, answer, created_at FROM signal_chat_old
+      `);
+      db.exec('DROP TABLE signal_chat_old');
+    }
+
+    // Issue #127: Migration — add multi-signal chat columns to signal_chat
+    // Re-read table info in case it was recreated above
+    const chatRowsV2 = db.pragma('table_info(signal_chat)') as Array<{ name: string }>;
+    const chatColsV2 = chatRowsV2.map((r) => r.name);
+
+    if (!chatColsV2.includes('topic_key')) {
+      db.exec('ALTER TABLE signal_chat ADD COLUMN topic_key TEXT');
+    }
+    if (!chatColsV2.includes('channel_id')) {
+      db.exec('ALTER TABLE signal_chat ADD COLUMN channel_id TEXT');
+    }
+    if (!chatColsV2.includes('include_irrelevant')) {
+      db.exec('ALTER TABLE signal_chat ADD COLUMN include_irrelevant INTEGER DEFAULT 0');
+    }
+
+    // Issue #135: Migration — add is_formatted column to distinguish pre-formatted HTML from raw text
+    if (!chatColsV2.includes('is_formatted')) {
+      db.exec('ALTER TABLE signal_chat ADD COLUMN is_formatted INTEGER DEFAULT 0');
+    }
 }

@@ -2,10 +2,13 @@ const { test, expect } = require('./fixtures/server-fixture');
 
 test.describe('Signal Viewer', () => {
 
-  test('signal list renders with signal summaries from seeded fixture data', async ({ page, baseUrl }) => {
+  test('signal list renders with signal titles from seeded fixture data', async ({ page, baseUrl }) => {
     await page.goto(`${baseUrl}/signals`);
     await expect(page.locator('tbody tr')).toHaveCount(3);
-    await expect(page.locator('td').filter({ hasText: 'Summary for signal' })).toHaveCount(3);
+    // View renders generated_title || title (not summary) in the Title column
+    await expect(page.getByText('Signal One')).toBeVisible();
+    await expect(page.getByText('Signal Two')).toBeVisible();
+    await expect(page.getByText('Signal Three')).toBeVisible();
   });
 
   test('channel filter pill filters signals when clicked', async ({ page, baseUrl }) => {
@@ -25,7 +28,8 @@ test.describe('Signal Viewer', () => {
     }).toPass({ timeout: 10000 });
     // should show only 2 signals from channel 1
     await expect(page.locator('tbody tr')).toHaveCount(2);
-    await expect(page.locator('td').filter({ hasText: 'Summary for signal three' })).toHaveCount(0);
+    // Signal Three is from UC_test_channel_2, so it should be filtered out
+    await expect(page.getByText('Signal Three')).toBeHidden();
   });
 
   test('sentiment badges display correct colors', async ({ page, baseUrl }) => {

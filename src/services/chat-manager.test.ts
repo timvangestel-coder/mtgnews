@@ -13,6 +13,16 @@ vi.mock('../llm', () => ({
   },
 }));
 
+// Mock TimestampFormatter so we can verify it is called
+// vi.mock is hoisted, so the factory must not reference variables declared later.
+// We use a getter on the module to lazily resolve the mock at runtime.
+const mockTimestampFormat = vi.fn((text: string | null | undefined) => text ?? '');
+vi.mock('../timestamp-formatter', () => ({
+  get TimestampFormatter() {
+    return { format: mockTimestampFormat };
+  },
+}));
+
 import { ChatManager } from './chat-manager';
 
 let db: Database.Database;
@@ -62,6 +72,24 @@ describe('ChatManager two-phase persist', () => {
   describe('process()', () => {
     beforeEach(() => {
       mockCallLlmSync.mockClear().mockResolvedValue('test answer');
+      // Default: pass-through identity so TimestampFormatter.format(x) returns x unchanged
+      mockTimestampFormat.mockClear().mockImplementation((text: string | null | undefined) => text ?? '');
+    });
+
+    it('applies TimestampFormatter to single-signal async answers (Bug 134)', async () => {
+      const rawAnswer = 'At T:42 the speaker discussed MTG rates';
+      const formattedAnswer = '[00:42] formatted link';
+      mockCallLlmSync.mockResolvedValue(rawAnswer);
+      mockTimestampFormat.mockReturnValue(formattedAnswer);
+
+      const id = chatManager.submit('video-1', 'When were rates discussed?');
+      await chatManager.process(id);
+
+      // TimestampFormatter.format should have been called with the raw LLM answer
+      expect(mockTimestampFormat).toHaveBeenCalledWith(rawAnswer);
+      // And the persisted answer should be the formatted version
+      const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(id) as { answer: string | null };
+      expect(row.answer).toBe(formattedAnswer);
     });
 
     it('updates answer on successful LLM call', async () => {
@@ -86,12 +114,158 @@ describe('ChatManager two-phase persist', () => {
     });
   });
 
+  // Bug 1 + Bug 3: three-tier template resolution for multi-signal chat
+  describe('_processMultiSignal three-tier template resolution', () => {
+    it('uses DB global default when no topic override exists', async () => {
+      mockCallLlmSync.mockClear().mockResolvedValue('multi answer');
+
+      // Create a topic without multi_signal_summary_prompt
+      db.prepare(
+        "INSERT OR REPLACE INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)"
+      ).run(99, 'mtg', 'MTG', 'Magic cards');
+
+      // Insert a multi-signal scoped row
+      const id = db.prepare(
+        "INSERT INTO signal_chat (signal_video_id, question, answer, topic_key) VALUES (?, ?, NULL, ?)"
+      ).run(null, 'multi q', 'mtg').lastInsertRowid as number;
+
+      // Set global multi_signal_chat_prompt in app_settings
+      db.prepare(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)"
+      ).run('multi_signal_chat_prompt', 'GLOBAL MULTI TEMPLATE');
+
+      await chatManager.process(id);
+
+      // Verify callLlmSync was called with a prompt containing the global template
+      expect(mockCallLlmSync).toHaveBeenCalled();
+      const prompt = mockCallLlmSync.mock.calls[0][1] as string;
+      expect(prompt).toContain('GLOBAL MULTI TEMPLATE');
+    });
+
+    it('uses topic override when multi_signal_summary_prompt is set (Bug 1)', async () => {
+      mockCallLlmSync.mockClear().mockResolvedValue('multi answer');
+
+      // Create a topic WITH multi_signal_summary_prompt override
+      db.prepare(
+        "INSERT OR REPLACE INTO topics (id, key, short_name, filter_text, multi_signal_summary_prompt) VALUES (?, ?, ?, ?, ?)"
+      ).run(98, 'mtg2', 'MTG2', 'Magic cards', 'TOPIC OVERRIDE TEMPLATE');
+
+      // Also set a global default — topic override should win
+      db.prepare(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)"
+      ).run('multi_signal_chat_prompt', 'GLOBAL MULTI TEMPLATE');
+
+      const id = db.prepare(
+        "INSERT INTO signal_chat (signal_video_id, question, answer, topic_key) VALUES (?, ?, NULL, ?)"
+      ).run(null, 'topic override q', 'mtg2').lastInsertRowid as number;
+
+      await chatManager.process(id);
+
+      expect(mockCallLlmSync).toHaveBeenCalled();
+      const prompt = mockCallLlmSync.mock.calls[0][1] as string;
+      // Topic override should be used, NOT the global default
+      expect(prompt).toContain('TOPIC OVERRIDE TEMPLATE');
+      expect(prompt).not.toContain('GLOBAL MULTI TEMPLATE');
+    });
+
+    it('falls back to default template when no DB setting', async () => {
+      mockCallLlmSync.mockClear().mockResolvedValue('multi answer');
+
+      // No app_settings row for multi_signal_chat_prompt
+      db.prepare("DELETE FROM app_settings WHERE key = 'multi_signal_chat_prompt'").run();
+
+      const id = db.prepare(
+        "INSERT INTO signal_chat (signal_video_id, question, answer, topic_key) VALUES (?, ?, NULL, ?)"
+      ).run(null, 'fallback q', 'mtg').lastInsertRowid as number;
+
+      await chatManager.process(id);
+
+      expect(mockCallLlmSync).toHaveBeenCalled();
+      const prompt = mockCallLlmSync.mock.calls[0][1] as string;
+      // Should use the compiled default template
+      expect(prompt).toContain('content analyst');
+    });
+  });
+
+  // Bug 2: filter_text passed to multi-signal prompt from topic scope
+  describe('_processMultiSignal filterText from topic (Bug 2)', () => {
+    it('passes filterText from topic to assembleMultiSignalChat', async () => {
+      mockCallLlmSync.mockClear().mockResolvedValue('multi answer');
+
+      // Create a topic with filter_text
+      db.prepare(
+        "INSERT OR REPLACE INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)"
+      ).run(97, 'mtg3', 'MTG3', 'Magic: The Gathering news and updates');
+
+      const id = db.prepare(
+        "INSERT INTO signal_chat (signal_video_id, question, answer, topic_key) VALUES (?, ?, NULL, ?)"
+      ).run(null, 'filter text q', 'mtg3').lastInsertRowid as number;
+
+      await chatManager.process(id);
+
+      expect(mockCallLlmSync).toHaveBeenCalled();
+      const prompt = mockCallLlmSync.mock.calls[0][1] as string;
+      // filter_text should be in the prompt inside <filter_text> block
+      expect(prompt).toContain('Magic: The Gathering news and updates');
+    });
+  });
+
+  // Bug 4 (issue #137): legacy ask() sets is_formatted column
+  describe('legacy ask() is_formatted', () => {
+    it('sets is_formatted=0 when storing via legacy ask() without transform', async () => {
+      // Consume the streaming ask() generator without a transform
+      const tokens: string[] = [];
+      for await (const token of chatManager.ask('video-1', 'Streaming question?')) {
+        tokens.push(token);
+      }
+
+      // Find the last inserted row for this question
+      const row = db.prepare(
+        "SELECT is_formatted FROM signal_chat WHERE question = ? ORDER BY id DESC LIMIT 1"
+      ).get('Streaming question?') as { is_formatted: number };
+
+      expect(row).toBeDefined();
+      expect(row.is_formatted).toBe(0);
+    });
+
+    it('sets is_formatted=1 when storing via legacy ask() with transform', async () => {
+      // Consume the streaming ask() generator WITH a transform
+      const tokens: string[] = [];
+      for await (const token of chatManager.ask('video-1', 'Streaming with transform?', (t) => t.toUpperCase())) {
+        tokens.push(token);
+      }
+
+      const row = db.prepare(
+        "SELECT is_formatted, answer FROM signal_chat WHERE question = ? ORDER BY id DESC LIMIT 1"
+      ).get('Streaming with transform?') as { is_formatted: number; answer: string };
+
+      expect(row.is_formatted).toBe(1);
+      // Answer should be transformed (uppercased)
+      expect(row.answer).not.toBe('token');
+    });
+  });
+
   describe('getHistory() and delete()', () => {
     it('getHistory returns rows including NULL answers', () => {
       chatManager.submit('video-1', 'Pending question?');
       const history = chatManager.getHistory('video-1');
       const pending = history.find((h) => h.question === 'Pending question?');
       expect(pending).toBeDefined();
+    });
+
+    it('returns null signal_video_id for list-scoped messages (Bug 134)', () => {
+      // Insert a list-scoped row with signal_video_id = NULL
+      db.prepare(
+        "INSERT INTO signal_chat (signal_video_id, question, answer, topic_key) VALUES (?, ?, ?, ?)"
+      ).run(null, 'list scoped q', 'list answer', 'mtg');
+
+      const scope = { topicKey: 'mtg' };
+      const history = chatManager.getHistory(scope);
+      const listMsg = history.find((h) => h.question === 'list scoped q');
+
+      expect(listMsg).toBeDefined();
+      // signal_video_id must be nullable per ChatMessage interface
+      expect(listMsg!.signal_video_id).toBeNull();
     });
 
     it('delete removes a row', () => {

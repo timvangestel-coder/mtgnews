@@ -48,7 +48,10 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
   app.set('layout extractScripts', true);
   app.set('layout extractStyles', true);
 
-  // static
+  // static — serve client-side scripts from views/scripts/
+  app.use('/scripts', express.static(path.join(__dirname, '..', 'views', 'scripts')));
+
+  // body parsers
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 

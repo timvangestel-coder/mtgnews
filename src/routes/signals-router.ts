@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { displayTitleForSignal } from '../signal-detail';
 import { SignalQueryService } from '../services/signal-query-service';
 import { listTopics, getChannelsWithTopics } from '../db/watchlist';
 
@@ -24,6 +25,12 @@ export function createSignalsRouter(service: SignalQueryService) {
     const topics = listTopics(service.database);
     const totalPages = Math.ceil(result.total / limit);
 
+    // Build a channel_id → display_name map for client-side scope badge resolution
+    const channelsMap: Record<string, string> = {};
+    for (const ch of channels) {
+      channelsMap[ch.channel_id] = ch.display_name || ch.channel_id;
+    }
+
     if (isHtmx) {
       res.render('_signalsTable', {
         signals: result.items,
@@ -48,6 +55,7 @@ export function createSignalsRouter(service: SignalQueryService) {
         channelId,
         topicKey,
         showIrrelevant,
+        channelsMap,
       });
     }
   });
@@ -62,7 +70,8 @@ export function createSignalsRouter(service: SignalQueryService) {
 
     res.render('signal-detail', {
       activePage: 'signals',
-      title: detail.signal.title || 'Signal Detail',
+      title: displayTitleForSignal(detail.signal),
+      originalTitle: detail.signal.title,
       signal: detail.signal,
       channel: detail.channel,
       summaryHtml: detail.summaryHtml,

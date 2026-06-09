@@ -61,7 +61,11 @@ test.describe('Run History', () => {
        VALUES (?, ?, ?, ?, ?)`
     ).run(1, 'UC_test_channel_2', 'done', 1, now);
 
-    await page.goto(`${baseUrl}/polls/1-detail`);
+    // Navigate via the polls list to ensure route works
+    await page.goto(`${baseUrl}/polls`);
+    await expect(page.locator('tbody tr')).toHaveCount(1);
+    // Click the row to navigate to detail
+    await page.locator('tbody tr[onclick]').first().click();
     await expect(page).toHaveTitle('Run #1 Detail');
 
     const heading = page.locator('h2').filter({ hasText: 'Run Detail' });
@@ -70,15 +74,15 @@ test.describe('Run History', () => {
     // Status badge (use first to avoid strict mode violation with multiple done badges)
     await expect(page.locator('span.bg-green-600').filter({ hasText: 'done' }).first()).toBeVisible();
 
-    // New signals count
-    await expect(page.locator('text=New Signals')).toBeVisible();
+    // New signals count label
+    await expect(page.getByText('New Signals')).toBeVisible();
 
-    // Channel breakdown header
-    const breakdownHeader = page.locator('h3').filter({ hasText: 'Channel Breakdown' });
-    await expect(breakdownHeader).toBeVisible();
+    // Progress widget shows run status via _pollProgress partial (h3 with "Run #1")
+    await expect(page.locator('h3:has-text("Run #1")')).toBeVisible();
 
-    // Progress table rows for 2 channels
-    await expect(page.locator('tbody tr')).toHaveCount(2);
+    // Channel steps rendered in progress widget (2 channels)
+    const channelSteps = page.locator('#progress-widget .space-y-1 > div');
+    await expect(channelSteps).toHaveCount(2);
   });
 
   test('poll detail row is clickable from polls list', async ({ page, baseUrl, db }) => {

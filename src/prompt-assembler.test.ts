@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { assemble, assembleChat, formatTranscription, defaultPromptTemplate, defaultChatPromptTemplate } from './prompt-assembler';
+import { assemble, assembleChat, formatTranscription, defaultPromptTemplate, defaultChatPromptTemplate, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate } from './prompt-assembler';
 import type { SignalContext } from './signal-context';
 import type { ChatContext } from './prompt-assembler';
+import type { ChatSignalContext } from './signal-chat-scope';
 
 function makeContext(overrides: Partial<SignalContext> = {}): SignalContext {
   return {
@@ -232,5 +233,307 @@ describe('assembleChat is pure', () => {
     const b = assembleChat(context);
 
     expect(a).toBe(b);
+  });
+});
+
+function makeChatSignal(overrides: Partial<ChatSignalContext> = {}): ChatSignalContext {
+  return {
+    signalContext: {
+      transcriptionJson: JSON.stringify([{ time: 10000, text: 'signal content' }]),
+      topicId: 1,
+      filterText: 'Magic cards',
+      summaryPrompt: null,
+    },
+    videoId: 'vid_1',
+    title: 'Test Video',
+    channelDisplayName: 'Test Channel',
+    ...overrides,
+  };
+}
+
+describe('defaultMultiSignalChatPromptTemplate', () => {
+  it('returns a template with signal placeholder and citation instruction', () => {
+    const template = defaultMultiSignalChatPromptTemplate();
+    expect(template).toContain('{SIGNALS}');
+    expect(template).toContain('{QUESTION}');
+    // Bug 2 fix: citation format uses <videoId:T:ss> instead of plain <video_id>
+    expect(template).toMatch(/<[^>]+:T:\d+>/);
+  });
+
+  it('includes instruction for citation format', () => {
+    const template = defaultMultiSignalChatPromptTemplate();
+    expect(template).toContain('citation');
+  });
+});
+
+describe('assembleMultiSignalChat with multiple signals', () => {
+  it('produces valid prompt with XML signal blocks', () => {
+    const context = {
+      signals: [makeChatSignal(), makeChatSignal({ videoId: 'vid_2', title: 'Video Two' })],
+      history: [],
+      question: 'What cards were mentioned?',
+    };
+
+    const result = assembleMultiSignalChat(context);
+
+    expect(result).toContain('<signals>');
+    expect(result).toContain('</signals>');
+    expect(result).toContain('signal video_id=');
+    expect(result).toContain('</signal>');
+  });
+
+  it('each signal block includes video_id, title, transcription, and summary', () => {
+    const context = {
+      signals: [makeChatSignal({
+        signalContext: { ...makeChatSignal().signalContext, transcriptionJson: JSON.stringify([{ time: 5000, text: 'hello' }]) },
+      })],
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleMultiSignalChat(context);
+
+    expect(result).toContain('video_id="vid_1"');
+    expect(result).toContain('title="Test Video"');
+    expect(result).toContain('[T:5] hello');
+  });
+});
+
+describe('assembleMultiSignalChat with single signal', () => {
+  it('wraps single signal in signals block', () => {
+    const context = {
+      signals: [makeChatSignal()],
+      history: [],
+      question: 'What is this about?',
+    };
+
+    const result = assembleMultiSignalChat(context);
+
+    expect(result).toContain('<signals>');
+    expect(result).toContain('signal video_id=');
+    expect(result).toContain('</signal>');
+    expect(result).toContain('What is this about?');
+  });
+});
+
+describe('assembleMultiSignalChat with empty signals array', () => {
+  it('produces prompt with empty signals block', () => {
+    const context = {
+      signals: [],
+      history: [],
+      question: 'Any news?',
+    };
+
+    const result = assembleMultiSignalChat(context);
+
+    expect(result).toContain('<signals></signals>');
+    expect(result).toContain('Any news?');
+  });
+});
+
+describe('assembleMultiSignalChat with history', () => {
+  it('includes history exchanges in the prompt', () => {
+    const context = {
+      signals: [makeChatSignal()],
+      history: [{ question: 'Previous Q', answer: 'Previous A' }],
+      question: 'Current Q',
+    };
+
+    const result = assembleMultiSignalChat(context);
+
+    expect(result).toContain('<history>');
+    expect(result).toContain('Previous Q');
+    expect(result).toContain('Previous A');
+    expect(result).toContain('Current Q');
+  });
+});
+
+describe('assembleMultiSignalChat with custom template', () => {
+  it('uses custom template when provided', () => {
+    const context = {
+      signals: [makeChatSignal()],
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleMultiSignalChat(context, 'MY TEMPLATE: {SIGNALS} | {QUESTION}');
+
+    expect(result).toContain('MY TEMPLATE:');
+    expect(result).toContain('q?');
+  });
+});
+
+describe('assembleMultiSignalChat is pure', () => {
+  it('returns same output for same input with no side effects', () => {
+    const context = {
+      signals: [makeChatSignal()],
+      history: [],
+      question: 'q?',
+    };
+
+    const a = assembleMultiSignalChat(context);
+    const b = assembleMultiSignalChat(context);
+
+    expect(a).toBe(b);
+  });
+});
+
+// Bug 2 (issue #137): filter_text support in multi-signal prompt
+describe('Bug 137 — filter_text in multi-signal prompt', () => {
+  it('default template includes {FILTER_TEXT} placeholder', () => {
+    const template = defaultMultiSignalChatPromptTemplate();
+    expect(template).toContain('{FILTER_TEXT}');
+  });
+
+  it('assembleMultiSignalChat replaces {FILTER_TEXT} with provided value', () => {
+    const context = {
+      signals: [makeChatSignal()],
+      filterText: 'Magic: The Gathering news and updates',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleMultiSignalChat(context);
+
+    expect(result).toContain('Magic: The Gathering news and updates');
+    expect(result).not.toContain('{FILTER_TEXT}');
+  });
+
+  it('assembleMultiSignalChat replaces {FILTER_TEXT} with empty string when not provided', () => {
+    const context = {
+      signals: [makeChatSignal()],
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleMultiSignalChat(context);
+
+    expect(result).not.toContain('{FILTER_TEXT}');
+  });
+});
+
+// Bug 1: formatSignalBlock uses signal.summary, not summaryPrompt
+describe('Bug 1 — signal block uses actual summary', () => {
+  it('uses signal.summary field instead of summaryPrompt in <summary> tag', () => {
+    const signal = makeChatSignal({
+      signalContext: {
+        transcriptionJson: JSON.stringify([{ time: 0, text: 'x' }]),
+        topicId: 1,
+        filterText: '',
+        summaryPrompt: 'THIS IS A PROMPT TEMPLATE - NOT THE SUMMARY',
+      },
+      summary: 'This is the real AI-generated summary',
+    });
+
+    const result = assembleMultiSignalChat({ signals: [signal], history: [], question: 'q?' });
+
+    // Should contain the actual summary, not the prompt template
+    expect(result).toContain('This is the real AI-generated summary');
+    expect(result).not.toContain('THIS IS A PROMPT TEMPLATE');
+  });
+
+  it('renders empty summary when signal.summary is undefined', () => {
+    const signal = makeChatSignal({
+      signalContext: {
+        transcriptionJson: JSON.stringify([{ time: 0, text: 'x' }]),
+        topicId: 1,
+        filterText: '',
+        summaryPrompt: null,
+      },
+    });
+
+    const result = assembleMultiSignalChat({ signals: [signal], history: [], question: 'q?' });
+
+    expect(result).toContain('<summary></summary>');
+  });
+});
+
+// Bug 2: citation format instruction matches CitationFormatter regex
+describe('Bug 2 — citation format instruction', () => {
+  it('default template instructs <videoId:T:ss> format with timestamp example', () => {
+    const template = defaultMultiSignalChatPromptTemplate();
+
+    // Must include angle bracket format with T:ss timestamp
+    expect(template).toMatch(/<[^>]+:T:\d+>/);
+  });
+
+  it('default template shows concrete citation example', () => {
+    const template = defaultMultiSignalChatPromptTemplate();
+
+    // Should have an example like <vid_abc123:T:45>
+    expect(template).toContain('<');
+    expect(template).toMatch(/T:\d+/);
+  });
+});
+
+// Bug 3 (issue #137): strip HTML from history answers before injecting into LLM prompt
+describe('Bug 137 — strip HTML from history answers', () => {
+  it('strips HTML tags from history answers in multi-signal chat', () => {
+    const context = {
+      signals: [makeChatSignal()],
+      history: [{
+        question: 'Previous Q',
+        answer: '<a href="/signals/abc#t-120" rel="nofollow">Title · [02:00]</a> some text',
+      }],
+      question: 'Current Q',
+    };
+
+    const result = assembleMultiSignalChat(context);
+
+    // Stripped content should remain
+    expect(result).toContain('Title');
+    expect(result).toContain('[02:00]');
+    expect(result).toContain('some text');
+    // HTML tags should be stripped from the prompt
+    expect(result).not.toContain('<a href=');
+    expect(result).not.toContain('rel="nofollow"');
+  });
+
+  it('strips HTML tags from history answers in single-signal chat', () => {
+    const context: ChatContext = {
+      transcriptionJson: 'transcript',
+      summary: 'summary',
+      history: [{
+        question: 'Q1',
+        answer: '<span class="pill">formatted</span> plain text',
+      }],
+      question: 'Q2',
+    };
+
+    const result = assembleChat(context);
+
+    expect(result).toContain('formatted');
+    expect(result).toContain('plain text');
+    // HTML tags stripped
+    expect(result).not.toContain('<span class="pill">');
+  });
+
+  it('leaves plain text history answers unchanged', () => {
+    const context = {
+      signals: [makeChatSignal()],
+      history: [{ question: 'Q1', answer: 'Plain text answer with no HTML' }],
+      question: 'Q2',
+    };
+
+    const result = assembleMultiSignalChat(context);
+
+    expect(result).toContain('Plain text answer with no HTML');
+  });
+});
+
+describe('assembleChat regression', () => {
+  it('existing assembleChat behavior unchanged', () => {
+    const context: ChatContext = {
+      transcriptionJson: JSON.stringify([{ time: 10000, text: 'mtg update' }]),
+      summary: 'A video about MTG updates',
+      history: [],
+      question: 'What sets were mentioned?',
+    };
+
+    const result = assembleChat(context);
+
+    expect(result).toContain('[T:10] mtg update');
+    expect(result).toContain('A video about MTG updates');
+    expect(result).toContain('What sets were mentioned?');
   });
 });

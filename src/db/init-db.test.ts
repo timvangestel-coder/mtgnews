@@ -488,10 +488,10 @@ describe('Schema initialization', () => {
     expect(columnMap.has('id')).toBe(true);
     expect(columnMap.get('id')?.type).toBe('INTEGER');
 
-    // signal_video_id TEXT NOT NULL REFERENCES signals(video_id)
+    // signal_video_id TEXT (nullable for list-scoped chat — issue #130)
     expect(columnMap.has('signal_video_id')).toBe(true);
     expect(columnMap.get('signal_video_id')?.type).toBe('TEXT');
-    expect(columnMap.get('signal_video_id')?.notnull).toBe(1);
+    expect(columnMap.get('signal_video_id')?.notnull).toBe(0);
 
     // question TEXT NOT NULL
     expect(columnMap.has('question')).toBe(true);
