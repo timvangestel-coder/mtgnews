@@ -13,13 +13,13 @@ vi.mock('../llm', () => ({
   },
 }));
 
-// Mock TimestampFormatter so we can verify it is called
+// Mock ChatResponseFormatter so we can verify it is called
 // vi.mock is hoisted, so the factory must not reference variables declared later.
 // We use a getter on the module to lazily resolve the mock at runtime.
-const mockTimestampFormat = vi.fn((text: string | null | undefined) => text ?? '');
-vi.mock('../timestamp-formatter', () => ({
-  get TimestampFormatter() {
-    return { format: mockTimestampFormat };
+const mockChatResponseFormat = vi.fn((text: string | null | undefined) => text ?? '');
+vi.mock('../chat-response-formatter', () => ({
+  get ChatResponseFormatter() {
+    return { format: mockChatResponseFormat };
   },
 }));
 
@@ -72,21 +72,21 @@ describe('ChatManager two-phase persist', () => {
   describe('process()', () => {
     beforeEach(() => {
       mockCallLlmSync.mockClear().mockResolvedValue('test answer');
-      // Default: pass-through identity so TimestampFormatter.format(x) returns x unchanged
-      mockTimestampFormat.mockClear().mockImplementation((text: string | null | undefined) => text ?? '');
+      // Default: pass-through identity so ChatResponseFormatter.format(x, map) returns x unchanged
+      mockChatResponseFormat.mockClear().mockImplementation((text: string | null | undefined) => text ?? '');
     });
 
-    it('applies TimestampFormatter to single-signal async answers (Bug 134)', async () => {
+    it('applies ChatResponseFormatter to single-signal async answers', async () => {
       const rawAnswer = 'At T:42 the speaker discussed MTG rates';
       const formattedAnswer = '[00:42] formatted link';
       mockCallLlmSync.mockResolvedValue(rawAnswer);
-      mockTimestampFormat.mockReturnValue(formattedAnswer);
+      mockChatResponseFormat.mockReturnValue(formattedAnswer);
 
       const id = chatManager.submit('video-1', 'When were rates discussed?');
       await chatManager.process(id);
 
-      // TimestampFormatter.format should have been called with the raw LLM answer
-      expect(mockTimestampFormat).toHaveBeenCalledWith(rawAnswer);
+      // ChatResponseFormatter.format should have been called with the raw LLM answer and a signalMap
+      expect(mockChatResponseFormat).toHaveBeenCalledWith(rawAnswer, expect.any(Object));
       // And the persisted answer should be the formatted version
       const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(id) as { answer: string | null };
       expect(row.answer).toBe(formattedAnswer);

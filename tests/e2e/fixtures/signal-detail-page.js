@@ -13,15 +13,25 @@ class SignalDetailPage {
 
   async goto(videoId, baseUrl) {
     await this.page.goto(`${baseUrl}/signals/${videoId}`);
-    
+    await this._waitForAlpine();
+  }
+
+  /** Navigate with a hash fragment (e.g., `#t-45000`). */
+  async gotoWithHash(videoId, hash, baseUrl) {
+    await this.page.goto(`${baseUrl}/signals/${videoId}${hash}`);
+    await this._waitForAlpine();
+  }
+
+  /** Wait for Alpine to load and init. */
+  async _waitForAlpine() {
     // Wait for Alpine CDN to load
     await this.page.waitForFunction(() => typeof window.Alpine !== 'undefined', { timeout: 15_000 });
-    
+
     // Explicitly start Alpine - CDN sync load means DOMContentLoaded already fired in headless Chromium
     await this.page.evaluate(() => {
       try { window.Alpine.start(); } catch(e) { /* already started */ }
     });
-    
+
     // Wait for Alpine component init() to signal ready
     await this.page.waitForFunction(() => window.__alpineReady === true, { timeout: 10_000 });
   }

@@ -93,5 +93,14 @@
    <%- include('_signalsTable', { signals, page, totalPages, total, channelId, topicKey, showIrrelevant }) %>
  </div>
 
-<% var chatScope = { topicKey: topicKey, channelId: channelId, showIrrelevant: showIrrelevant, signalCount: total, channelsMap: channelsMap }; %>
+ <% var chatScope = { topicKey: topicKey, channelId: channelId, showIrrelevant: showIrrelevant, signalCount: total, channelsMap: channelsMap }; %>
 <%- include('_chatPanel', { scope: chatScope, isMultiSignal: true, hasVideoId: false }) %>
+
+<!-- TimestampNav pass-through mode: timestamp links navigate to Signal Detail page -->
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    if (window.TimestampNav) {
+      window.TimestampNav.init({ samePage: false });
+    }
+  });
+</script>

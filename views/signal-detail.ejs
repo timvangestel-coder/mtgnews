@@ -118,42 +118,34 @@
          }, 1500);
        },
 
-       init() {
-         var self = this;
-         this.signalVideoId = this.$el.getAttribute('data-video-id') || '';
-         window.__alpineReady = true;
+         init() {
+           var self = this;
+           this.signalVideoId = this.$el.getAttribute('data-video-id') || '';
+           window.__alpineReady = true;
 
-         document.querySelectorAll('#summary-pane a[data-timestamp]').forEach(function(link) {
-           link.addEventListener('click', function(e) {
-             e.preventDefault();
-             var ms = parseInt(this.getAttribute('data-timestamp'), 10);
-             self.handleSummaryPillClick(ms);
+           // Use TimestampNav for document-level click delegation (replaces inline handlers)
+           window.TimestampNav.init({
+             samePage: true,
+             onSummaryClick: function(ms) { self.handleSummaryPillClick(ms); },
+             onTranscriptClick: function(ms) { self.handleTranscriptPillClick(ms); },
+             onChatClick: function(ms) {
+               self.viewState = 'split';
+               setTimeout(function() {
+                 self.scrollToTranscript(ms);
+               }, 1050);
+             }
            });
-         });
 
-         document.querySelectorAll('#transcript-pane a[data-timestamp]').forEach(function(link) {
-           link.addEventListener('click', function(e) {
-             e.preventDefault();
-             var ms = parseInt(this.getAttribute('data-timestamp'), 10);
-             self.handleTranscriptPillClick(ms);
-           });
-         });
-
-         // Chat panel: delegate timestamp link clicks to scroll transcript + keep chat open
-         document.addEventListener('click', function(e) {
-           var target = e.target;
-           if (!target || !target.closest) return;
-           var link = target.closest('a[data-timestamp]');
-           if (!link) return;
-           if (!link.closest('[data-chat-panel]') && !link.closest('.chat-history')) return;
-           e.preventDefault();
-           var ms = parseInt(link.getAttribute('data-timestamp'), 10);
-           self.viewState = 'split';
-           setTimeout(function() {
-             self.scrollToTranscript(ms);
-           }, 1050);
-         });
-       }
+           // Hash fragment navigation — open split view + scroll to timestamp on page load
+           var hash = window.location.hash;
+           if (hash) {
+             var match = hash.match(/^#t-(\d+)$/);
+             if (match) {
+               var ms = parseInt(match[1], 10);
+               self.handleSummaryPillClick(ms);
+             }
+           }
+         }
      }">
 
   <!-- Error flash message -->

@@ -2,8 +2,7 @@ import Database from 'better-sqlite3';
 import { LlmConfig, callLlmStream, callLlmSync } from '../llm';
 import { assembleChat, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate } from '../prompt-assembler';
 import { ChatScope, resolveScope, ChatSignalContext } from '../signal-chat-scope';
-import { CitationFormatter } from '../citation-formatter';
-import { TimestampFormatter } from '../timestamp-formatter';
+import { ChatResponseFormatter } from '../chat-response-formatter';
 import { getAppSetting } from '../db/app-settings';
 
 export interface ChatMessage {
@@ -270,8 +269,15 @@ export class ChatManager {
     // Call LLM sync — throws on failure, leaving answer=NULL
     const rawAnswer = await callLlmSync(this.llmConfig, prompt);
 
-    // Apply TimestampFormatter to convert T:ss → [MM:SS] pills and Markdown → HTML
-    const answer = TimestampFormatter.format(rawAnswer);
+    // Build signalMap for unified formatter (single-signal passes one entry)
+    const sigTitle = this.db.prepare(
+      'SELECT title FROM signals WHERE video_id = ?'
+    ).get(videoId) as { title: string } | undefined;
+    const signalMap: Record<string, { title: string }> = {};
+    if (sigTitle) {
+      signalMap[videoId] = { title: sigTitle.title };
+    }
+    const answer = ChatResponseFormatter.format(rawAnswer, signalMap);
 
     // Persist answer on success (is_formatted=1: TimestampFormatter already ran)
     this.db.prepare(
@@ -340,8 +346,8 @@ export class ChatManager {
     // Call LLM sync
     const rawAnswer = await callLlmSync(this.llmConfig, prompt);
 
-    // Transform citations to HTML pills
-    const answer = CitationFormatter.format(rawAnswer, signalMap);
+    // Transform response with unified formatter
+    const answer = ChatResponseFormatter.format(rawAnswer, signalMap);
 
     // Persist answer on success (is_formatted=1: CitationFormatter ran TimestampFormatter internally)
     this.db.prepare(

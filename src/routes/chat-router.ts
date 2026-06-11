@@ -1,14 +1,15 @@
 import { Router } from 'express';
 import { ChatManager, ChatMessage } from '../services/chat-manager';
 import { ChatQueue } from '../chat-queue';
-import { TimestampFormatter } from '../timestamp-formatter';
+import { ChatResponseFormatter } from '../chat-response-formatter';
 import { ChatScope } from '../signal-chat-scope';
 
 function formatAnswer(answer: string | null | undefined, isFormatted: number = 0): string {
   if (!answer) return '';
   // Skip re-formatting when answer was already formatted during storage (issue #135)
   if (isFormatted) return answer;
-  return TimestampFormatter.format(answer);
+  // Use empty signalMap — raw answers without citation context get fragment-only links
+  return ChatResponseFormatter.format(answer, {});
 }
 
 export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue) {
@@ -103,7 +104,7 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
 
     // Legacy streaming behavior when no queue is provided
     try {
-      const stream = chatManager.ask(signalVideoId, question, (text) => TimestampFormatter.format(text));
+      const stream = chatManager.ask(signalVideoId, question, (text) => ChatResponseFormatter.format(text, {}));
 
       let firstToken: string | undefined;
       let exhausted = false;

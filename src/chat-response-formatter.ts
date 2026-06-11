@@ -1,16 +1,12 @@
 /**
- * Deep module for transforming LLM citation delimiters into clickable HTML pill links.
- * Pure function: no DB access, no side effects.
- * Delegates to TimestampFormatter for remaining timestamp formatting.
+ * Deep module that unifies CitationFormatter + TimestampFormatter into a single
+ * formatter for transforming raw LLM text into rendered HTML for chat answers.
  *
- * Handles multiple LLM output formats:
- * - <videoId:T:ss> — proper citation with videoId and seconds
- * - T:ss or [T:ss] — bare timestamps in seconds
- * - [MM:SS] — minute:second timestamps (LLM common output)
- * - Malformed citations like <videold:xxx: that should be stripped but still provide context
+ * Produces uniform timestamp links regardless of scope type (single-signal or multi-signal).
+ * All citation pills include data-timestamp and data-video-id attributes.
+ *
+ * Pure function: no DB access, no side effects.
  */
-
-import { TimestampFormatter } from './timestamp-formatter';
 
 const PILL_CLASSES = 'inline-flex items-center bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-sm font-medium hover:bg-indigo-200 transition-colors';
 
@@ -18,9 +14,17 @@ interface SignalInfo {
   title: string;
 }
 
-/**
- * Format milliseconds to MM:SS display string.
- */
+function escapeHtml(text: string): string {
+  const map: Record<string, string> = {
+    '&': String.fromCharCode(38) + 'amp;',
+    '<': String.fromCharCode(38) + 'lt;',
+    '>': String.fromCharCode(38) + 'gt;',
+    '"': String.fromCharCode(38) + 'quot;',
+    "'": String.fromCharCode(38) + '#39;',
+  };
+  return text.replace(/[&<>"']/g, (m) => map[m]);
+}
+
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -28,17 +32,52 @@ function formatTime(ms: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-export interface CitationFormatter {
+/**
+ * Converts basic Markdown syntax to HTML tags.
+ */
+function markdownToHtml(text: string): string {
+  text = text.replace(/\*\*(.+?)\*\*/gs, '<strong>$1</strong>');
+  text = text.replace(/__(.+?)__/gs, '<strong>$1</strong>');
+  text = text.replace(/\*(.+?)\*/gs, '<em>$1</em>');
+  text = text.replace(/_(.+?)_/gs, '<em>$1</em>');
+  return text;
+}
+
+/**
+ * Process plain text: protect Markdown, escape HTML, restore Markdown as HTML.
+ */
+function processText(text: string): string {
+  const markdownParts: string[] = [];
+  let idx = 0;
+
+  text = text.replace(/(\*\*.+?\*\*)|(__.+?__)|(\*.+?\*)|(_.+?_)/gs, (match) => {
+    const placeholder = `\x00MD${idx++}\x00`;
+    markdownParts.push(match);
+    return placeholder;
+  });
+
+  text = escapeHtml(text);
+
+  text = text.replace(/\x00MD(\d+)\x00/g, (_match, i) => {
+    return markdownToHtml(markdownParts[parseInt(i, 10)]);
+  });
+
+  return text;
+}
+
+export interface ChatResponseFormatter {
   /**
-   * Transform citation delimiters and timestamps into clickable pill anchor links.
+   * Transform raw LLM text into rendered HTML with timestamp citation pills.
+   * @param text - raw LLM response text
+   * @param signalMap - map of videoId to signal info (always required)
    */
   format(text: string, signalMap: Record<string, SignalInfo>): string;
 }
 
-export class CitationFormatterImpl implements CitationFormatter {
+export class ChatResponseFormatterImpl implements ChatResponseFormatter {
   format(text: string, signalMap: Record<string, SignalInfo>): string {
     // Collect ALL matches with positions.
-    type Match = { pos: number; len: number; videoId?: string; seconds: string };
+    type Match = { pos: number; len: number; videoId?: string; seconds?: string };
     const allMatches: Match[] = [];
 
     // Pattern 1: <videoId:T:ss> — proper citation format
@@ -48,7 +87,6 @@ export class CitationFormatterImpl implements CitationFormatter {
     });
 
     // Pattern 1b: Malformed citations — <xxx:videoId: where xxx is not "T" and videoId matches signalMap
-    // e.g. <videold:QMn7cm4nfYU: or <videoId:abc123def: — strip these but use for context
     text.replace(/<([A-Za-z0-9_-]+):([A-Za-z0-9_-]{5,}):/g, (_match, prefix, candidateVideoId, pos) => {
       if (prefix !== 'T' && signalMap[candidateVideoId]) {
         allMatches.push({ pos, len: _match.length, videoId: candidateVideoId });
@@ -56,11 +94,10 @@ export class CitationFormatterImpl implements CitationFormatter {
       return _match;
     });
 
-    // Pattern 2: [MM:SS] — minute:second timestamps (LLM common output)
+    // Pattern 2: [MM:SS] — minute:second timestamps
     text.replace(/\[(\d{1,3}):(\d{2})\]/g, (_match, minsStr, secsStr, pos) => {
       const mins = parseInt(minsStr, 10);
       const secs = parseInt(secsStr, 10);
-      // Only treat as timestamp if seconds is valid (0-59) and not already covered
       if (secs >= 0 && secs <= 59) {
         const dominated = allMatches.some(m => pos >= m.pos && pos < m.pos + m.len);
         if (!dominated) {
@@ -98,30 +135,29 @@ export class CitationFormatterImpl implements CitationFormatter {
     // Replace each match right-to-left so positions stay valid
     let result = text;
     for (let i = 0; i < annotated.length; i++) {
-      const m = annotated[i];
+      const m = annotated[i] as Match & { effectiveVideoId?: string };
       const before = result.substring(0, m.pos);
       const after = result.substring(m.pos + m.len);
 
       if (m.videoId && signalMap[m.videoId]) {
-        // Citation or malformed citation — remove the raw text and establish context
-        // If it has a timestamp too, create a proper pill link
         if (m.seconds) {
+          // Citation with timestamp — produce pill with data attributes
           const ms = parseInt(m.seconds, 10) * 1000;
           const label = formatTime(ms);
-          const pill = `<a href="/signals/${m.videoId}#t-${ms}" rel="nofollow noreferrer" class="${PILL_CLASSES}">${signalMap[m.videoId].title} &middot; [${label}]</a>`;
+          const pill = `<a href="/signals/${m.videoId}#t-${ms}" rel="nofollow noreferrer" class="${PILL_CLASSES}" data-timestamp="${ms}" data-video-id="${m.videoId}">${signalMap[m.videoId].title} &middot; [${label}]</a>`;
           result = before + pill + after;
         } else {
-          // Malformed citation without timestamp — just remove the raw text (no visible output)
+          // Malformed citation without timestamp — just remove the raw text
           result = before + after;
         }
       } else if (m.effectiveVideoId && signalMap[m.effectiveVideoId] && m.seconds) {
-        // Bare timestamp: use inherited videoId for absolute link (not fragment)
+        // Bare timestamp with inherited videoId — absolute link
         const ms = parseInt(m.seconds, 10) * 1000;
         const label = formatTime(ms);
-        const pill = `<a href="/signals/${m.effectiveVideoId}#t-${ms}" rel="nofollow noreferrer" class="${PILL_CLASSES}">[${label}]</a>`;
+        const pill = `<a href="/signals/${m.effectiveVideoId}#t-${ms}" rel="nofollow noreferrer" class="${PILL_CLASSES}" data-timestamp="${ms}" data-video-id="${m.effectiveVideoId}">[${label}]</a>`;
         result = before + pill + after;
       } else if (m.seconds) {
-        // No video context: fragment-only fallback
+        // No video context: fragment-only fallback with data-timestamp
         const ms = parseInt(m.seconds, 10) * 1000;
         const label = formatTime(ms);
         const pill = `<a href="#t-${ms}" rel="nofollow noreferrer" class="${PILL_CLASSES}" data-timestamp="${ms}">[${label}]</a>`;
@@ -129,10 +165,7 @@ export class CitationFormatterImpl implements CitationFormatter {
       }
     }
 
-    // Delegate to TimestampFormatter for markdown conversion + HTML escaping
-    // of the plain-text parts. The <a> tags we inserted are already HTML and
-    // must survive — but TimestampFormatter.processText() escapes angle brackets.
-    // So we protect our pills with placeholders, then restore them.
+    // Protect our pills with placeholders, then run markdown+escape processing
     const pillPlaceholders: string[] = [];
     let pIdx = 0;
 
@@ -142,7 +175,7 @@ export class CitationFormatterImpl implements CitationFormatter {
       return ph;
     });
 
-    const processed = TimestampFormatter.format(withProtectedPills);
+    const processed = processText(withProtectedPills);
 
     return processed.replace(/\x00PIL(\d+)\x00/g, (_match, i) => {
       return pillPlaceholders[parseInt(i, 10)];
@@ -151,4 +184,4 @@ export class CitationFormatterImpl implements CitationFormatter {
 }
 
 /** Convenience singleton for direct import usage. */
-export const CitationFormatter = new CitationFormatterImpl();
+export const ChatResponseFormatter = new ChatResponseFormatterImpl();
