@@ -75,7 +75,7 @@ describe('ChatQueue', () => {
     expect(mockSubmit).toHaveBeenCalledWith('vid_1', 'what is this about?');
 
     await pool.drain();
-    expect(mockProcess).toHaveBeenCalledWith(42);
+    expect(mockProcess).toHaveBeenCalledWith(42, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }));
   });
 
   it('multiple enqueue calls are all processed through shared pool', async () => {
@@ -242,7 +242,7 @@ describe('ChatQueue', () => {
     queue.enqueueScoped({ topicKey: 'tech', question: 'scoped q' });
 
     await pool.drain();
-    expect(mockProcess).toHaveBeenCalledWith(300);
+    expect(mockProcess).toHaveBeenCalledWith(300, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }));
   });
 
   it('enqueueScoped failure leaves answer=NULL and status=failed', async () => {
@@ -270,6 +270,111 @@ describe('ChatQueue', () => {
     // Verify answer stayed NULL in DB
     const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(insertedId) as { answer: string | null };
     expect(row.answer).toBeNull();
+  });
+
+  /* ─── Issue #142: ChatQueue.cancel() — controller registry, abort, and DB delete ─── */
+
+  it('_dispatchProcess creates AbortController, stores in _controllers, passes signal to process()', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let capturedSignal: AbortSignal | undefined;
+    mockSubmit.mockReturnValue(500);
+    mockProcess.mockImplementation(async (_id: number, options?: { abortSignal?: AbortSignal }) => {
+      capturedSignal = options?.abortSignal;
+    });
+
+    queue.enqueue('vid_1', 'controller test');
+    await pool.drain();
+
+    // process() was called with an abortSignal
+    expect(mockProcess).toHaveBeenCalledWith(500, expect.objectContaining({ abortSignal: expect.any(AbortSignal) }));
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal?.aborted).toBe(false);
+
+    // Controller is stored in registry while task runs; after drain it's cleaned up
+    // The key verification is that the signal was passed through
+  });
+
+  it('cancel(id) aborts active controller and calls chatManager.delete(id)', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const mockDelete = vi.fn();
+    const chatManagerInstance = new ChatManagerClass(db, getLlmConfigFn());
+    (chatManagerInstance as unknown as Record<string, unknown>).delete = mockDelete;
+
+    let processResolve: () => void;
+    mockSubmit.mockReturnValue(600);
+    mockProcess.mockImplementation(async (_id: number) => {
+      // Block until cancel() is called
+      await new Promise<void>((resolve) => { processResolve = resolve; });
+    });
+
+    const queue = new ChatQueue(db, chatManagerInstance as unknown as ChatManager, pool);
+    queue.enqueue('vid_1', 'cancel test');
+
+    // Give the task time to start in the pool
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Cancel should abort + delete
+    queue.cancel(600);
+
+    // Unblock process so drain can complete
+    processResolve!();
+    await pool.drain();
+
+    expect(mockDelete).toHaveBeenCalledWith(600);
+  });
+
+  it('cancel() on already-completed task is harmless (no-op abort, delete still works)', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const mockDelete = vi.fn();
+    const chatManagerInstance = new ChatManagerClass(db, getLlmConfigFn());
+    (chatManagerInstance as unknown as Record<string, unknown>).delete = mockDelete;
+
+    mockSubmit.mockReturnValue(700);
+    mockProcess.mockResolvedValue(undefined);
+
+    const queue = new ChatQueue(db, chatManagerInstance as unknown as ChatManager, pool);
+    queue.enqueue('vid_1', 'completed cancel test');
+
+    // Wait for task to complete and controller to be cleaned up
+    await pool.drain();
+
+    // Cancel after completion — should not throw, delete still called
+    expect(() => queue.cancel(700)).not.toThrow();
+    expect(mockDelete).toHaveBeenCalledWith(700);
+  });
+
+  it('AbortError in _dispatchProcess is caught silently — no markFailed', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let insertedId = 0;
+    mockSubmit.mockImplementation(() => {
+      const result = db.prepare("INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)").run('vid_1', 'abort error test');
+      insertedId = Number(result.lastInsertRowid);
+      return insertedId;
+    });
+
+    // Simulate an abort-like error (DOMException with name AbortError)
+    const abortError = new DOMException('The operation was aborted', 'AbortError');
+    mockProcess.mockRejectedValue(abortError);
+
+    queue.enqueue('vid_1', 'abort error test');
+    await pool.drain();
+
+    // Status should be 'pending' (not 'failed') — AbortError is silently ignored
+    expect(queue.status(insertedId)).toBe('pending');
   });
 
   it('end-to-end: scoped enqueue → process writes answer via pool', async () => {

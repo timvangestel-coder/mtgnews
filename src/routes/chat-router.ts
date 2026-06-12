@@ -234,7 +234,7 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
     });
   });
 
-  // DELETE /chat/:id — remove the chat message, return 204 No Content
+  // DELETE /chat/:id — cancel in-flight processing and remove the chat message, return 204 No Content
   router.delete('/chat/:id', (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
@@ -242,7 +242,11 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
       return;
     }
 
-    chatManager.delete(id);
+    if (chatQueue) {
+      chatQueue.cancel(id);
+    } else {
+      chatManager.delete(id);
+    }
     res.status(204).end();
   });
 

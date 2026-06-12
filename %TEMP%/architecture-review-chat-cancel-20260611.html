@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture Review: Chat Delete + Cancel Mechanism</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+.mermaid { display: flex; justify-content: center; }
+.diagram-card { min-height: 420px; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900 font-sans">
+
+<div class="max-w-6xl mx-auto p-8">
+
+<!-- Header -->
+<header class="mb-10">
+  <h1 class="text-3xl font-bold mb-2">Architecture Review: Chat Delete + Cancel Mechanism</h1>
+  <p class="text-gray-500 text-sm">2026-06-11 &middot; mtgnews &middot; One deepening opportunity</p>
+</header>
+
+<!-- Context -->
+<section class="bg-white rounded-xl shadow p-6 mb-8">
+  <h2 class="text-xl font-semibold mb-3">Problem Statement</h2>
+  <p class="mb-3">
+    When a user deletes a chat question while it's still being processed, the DELETE route removes the DB row but the LLM work continues running in the background. The ConcurrencyPool task runs to completion, the HTTP request to LM Studio finishes, and the answer is silently discarded because the target DB row no longer exists.
+  </p>
+  <p class="mb-3">
+    The project already has a fully-working abort pattern in <strong>PollRunManager</strong>: per-run <code>AbortController</code>, signal threading through worker &rarr; analyzeSignal() &rarr; callLlmSync() &rarr; fetchWithRetry(). The LLM layer (<code>llm.ts</code>) already accepts an optional <code>abortSignal</code> parameter.
+  </p>
+  <p>
+    The chat processing chain uses none of this infrastructure. There is no per-task AbortController, no task registry, and no signal threading from ChatQueue &rarr; ChatManager.process() &rarr; callLlmSync().
+  </p>
+</section>
+
+<!-- Candidate Card -->
+<section class="bg-white rounded-xl shadow p-6 mb-8">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-semibold">Candidate: ChatTaskController — per-question abort seam</h2>
+    <span class="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-sm font-medium">Strong</span>
+  </div>
+
+  <div class="grid grid-cols-2 gap-6 mb-6">
+    <div>
+      <h3 class="font-semibold text-sm uppercase tracking-wide text-gray-500 mb-1">Files</h3>
+      <ul class="text-sm space-y-0.5 font-mono">
+        <li><code>src/chat-queue.ts</code></li>
+        <li><code>src/services/chat-manager.ts</code></li>
+        <li><code>src/llm.ts</code> (already supports abortSignal)</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="font-semibold text-sm uppercase tracking-wide text-gray-500 mb-1">Seam</h3>
+      <p class="text-sm"><strong>ChatQueue</strong> is the seam. It sits between the HTTP route layer and ChatManager.process(). Adding a per-task AbortController registry here creates a real cancel seam without touching ConcurrencyPool or the LLM layer.</p>
+    </div>
+  </div>
+
+  <h3 class="font-semibold text-sm uppercase tracking-wide text-gray-500 mb-2">Problem</h3>
+  <p class="text-sm mb-4">Three independent systems with no reverse signal:</p>
+  <table class="w-full text-sm mb-6 border-collapse">
+    <thead><tr class="border-b"><th class="text-left py-1">Module</th><th class="text-left py-1">On delete</th><th class="text-left py-1">Missing</th></tr></thead>
+    <tbody>
+      <tr class="border-b"><td class="py-1.5 font-mono text-xs">ChatManager.delete()</td><td class="py-1.5">Removes DB row only</td><td class="py-1.5">Does not signal the running task</td></tr>
+      <tr class="border-b"><td class="py-1.5 font-mono text-xs">ChatQueue._dispatchProcess()</td><td class="py-1.5">Nothing &mdash; fire-and-forget</td><td class="py-1.5">No AbortController, no cancel hook</td></tr>
+      <tr><td class="py-1.5 font-mono text-xs">ConcurrencyPool.run()</td><td class="py-1.5">Nothing &mdash; runs to completion</td><td class="py-1.5">No per-task abort (by design)</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="font-semibold text-sm uppercase tracking-wide text-gray-500 mb-2">Solution</h3>
+  <p class="text-sm mb-4">Add a <code>Map<number, AbortController></code> registry to ChatQueue. On enqueue, create an AbortController per task and thread the signal through process() &rarr; callLlmSync(). On delete, fire <code>controller.abort()</code> before removing the DB row.</p>
+  <ol class="list-decimal list-inside text-sm space-y-1 mb-4">
+    <li><strong>ChatQueue</strong> gains <code>_controllers = new Map<number, AbortController></code></li>
+    <li><strong>_dispatchProcess(id)</strong> creates a controller, stores it, passes signal to process()</li>
+    <li><strong>ChatManager.process(id, signal?)</strong> threads the signal into callLlmSync(config, prompt, { abortSignal: signal })</li>
+    <li><strong>delete(id)</strong> on ChatQueue first checks for an active controller &rarr; fires abort() &rarr; then delegates to chatManager.delete(id)</li>
+    <li>Task catches AbortError gracefully (same pattern as poll worker: silent return on abort path)</li>
+  </ol>
+
+  <h3 class="font-semibold text-sm uppercase tracking-wide text-gray-500 mb-2">Benefits</h3>
+  <ul class="text-sm space-y-1 mb-4">
+    <li><strong>Locality:</strong> All cancel logic concentrated in ChatQueue. No changes to ConcurrencyPool (which correctly stays consumer-agnostic).</li>
+    <li><strong>Leverage:</strong> Reuses the existing abortSignal seam in llm.ts &mdash; no new HTTP infrastructure needed.</li>
+    <li><strong>Testability:</strong> ChatManager.process() now accepts an optional AbortSignal, making it testable with mock signals. ChatQueue.cancel() is a pure in-memory operation.</li>
+    <li><strong>Resource savings:</strong> Aborts the LLM HTTP request immediately instead of waiting for full generation. Saves tokens, time, and network bandwidth.</li>
+  </ul>
+
+  <!-- Before/After diagrams -->
+  <h3 class="font-semibold text-sm uppercase tracking-wide text-gray-500 mb-2">Before / After</h3>
+  <div class="grid grid-cols-2 gap-4 diagram-card">
+    <div class="bg-red-50 rounded-lg p-4">
+      <h4 class="font-semibold text-sm text-red-700 mb-2">BEFORE &mdash; No reverse signal</h4>
+      <div class="mermaid">sequenceDiagram
+        actor User
+        participant Route as chat-router
+        participant Q as ChatQueue
+        participant P as ConcurrencyPool
+        participant CM as ChatManager
+        participant LLM as LM Studio
+        participant DB as SQLite
+        User->>Route: POST /chat/ask
+        Route->>Q: enqueue(id)
+        Q->>DB: INSERT row
+        Q->>P: run( process )
+        P-->>CM: process(id)
+        CM->>LLM: callLlmSync()
+        Note over LLM: Full generation runs<br/>regardless of delete
+        User->>Route: DELETE /chat/:id
+        Route->>DB: DELETE row
+        DB-->>Route: 204 OK
+        LLM-->>CM: full response
+        CM->>DB: UPDATE (affects 0 rows)
+        Note over CM,DB: Answer silently discarded<br/>LLM work wasted
+      </div>
+    </div>
+    <div class="bg-emerald-50 rounded-lg p-4">
+      <h4 class="font-semibold text-sm text-emerald-700 mb-2">AFTER &mdash; Abort signal threads through</h4>
+      <div class="mermaid">sequenceDiagram
+        actor User
+        participant Route as chat-router
+        participant Q as ChatQueue<br/>+controller registry
+        participant P as ConcurrencyPool
+        participant CM as ChatManager
+        participant LLM as LM Studio
+        participant DB as SQLite
+        User->>Route: POST /chat/ask
+        Route->>Q: enqueue(id)
+        Q->>DB: INSERT row
+        Q->>Q: new AbortController()
+        Q->>P: run( process )
+        P-->>CM: process(id, signal)
+        CM->>LLM: callLlmSync(...,{abortSignal})
+        User->>Route: DELETE /chat/:id
+        Route->>Q: cancel(id)
+        Q->>Q: controller.abort()
+        LLM-->>CM: AbortError thrown
+        CM-->>P: silent return (abort path)
+        Q->>DB: DELETE row
+        DB-->>Route: 204 OK
+        Note over Q,DB: HTTP request cancelled<br/>No wasted LLM work
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Reference pattern -->
+<section class="bg-white rounded-xl shadow p-6 mb-8">
+  <h2 class="text-xl font-semibold mb-3">Reference: PollRunManager abort pattern</h2>
+  <p class="text-sm mb-4">The same abort pattern already works for poll runs. The chat cancel mechanism mirrors it exactly:</p>
+  <div class="grid grid-cols-2 gap-6 text-sm">
+    <div>
+      <h3 class="font-semibold mb-1">PollRunManager (existing)</h3>
+      <ul class="space-y-0.5 font-mono text-xs bg-gray-50 p-3 rounded">
+        <li><code>activeRuns: Map<runId, {controller, worker}></code></li>
+        <li><code>startRun() &rarr; new AbortController()</code></li>
+        <li><code>workerProcessRun(runId, {signal})</code></li>
+        <li><code>analyzeSignal(..., signal)</code></li>
+        <li><code>callLlmSync(..., {abortSignal: signal})</code></li>
+        <li><code>abortPollRun() &rarr; controller.abort()</code></li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="font-semibold mb-1">ChatQueue (proposed)</h3>
+      <ul class="space-y-0.5 font-mono text-xs bg-gray-50 p-3 rounded">
+        <li><code>_controllers: Map<id, AbortController></code></li>
+        <li><code>enqueue() &rarr; new AbortController()</code></li>
+        <li><code>_dispatchProcess(id) &rarr; process(id, signal)</code></li>
+        <li><code>process(id, {abortSignal})</code></li>
+        <li><code>callLlmSync(..., {abortSignal: signal})</code></li>
+        <li><code>cancel(id) &rarr; controller.abort()</code></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- Top recommendation -->
+<section class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl shadow p-6">
+  <h2 class="text-xl font-semibold mb-3">Top Recommendation</h2>
+  <p class="mb-3">
+    <strong>Add a cancel seam to ChatQueue.</strong> This is the single smallest change with the highest leverage: one Map, one method (<code>cancel(id)</code>), and signal threading through two existing methods. The LLM layer already supports abortSignal. The poll abort pattern provides a proven reference implementation.
+  </p>
+  <p class="text-sm text-gray-600">
+    Estimated scope: ~3 files touched, ~40 lines net change. No breaking API changes to ConcurrencyPool or llm.ts.
+  </p>
+</section>
+
+</div>
+
+<script>mermaid.initialize({ startOnLoad: true });</script>
+</body>
+</html>

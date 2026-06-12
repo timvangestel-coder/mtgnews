@@ -39,6 +39,10 @@ function resolveSignalForChat(db: Database.Database, videoId: string): { transcr
   };
 }
 
+export interface ProcessOptions {
+  abortSignal?: AbortSignal;
+}
+
 export class ChatManager {
   constructor(
     private db: Database.Database,
@@ -214,8 +218,10 @@ export class ChatManager {
    * Routes to single-signal or multi-signal prompt based on scope columns.
    * On success: UPDATE SET answer=... 
    * On failure: answer remains NULL, error re-thrown.
+   *
+   * @param options - optional processing options including abortSignal for cancellation
    */
-  async process(id: number): Promise<void> {
+  async process(id: number, options?: ProcessOptions): Promise<void> {
     const row = this.db.prepare(
       'SELECT id, signal_video_id, question, topic_key, channel_id, include_irrelevant FROM signal_chat WHERE id = ?'
     ).get(id) as { 
@@ -235,13 +241,13 @@ export class ChatManager {
     const isListScoped = row.topic_key !== null || row.channel_id !== null;
 
     if (isListScoped) {
-      await this._processMultiSignal(row);
+      await this._processMultiSignal(row, options?.abortSignal);
     } else {
-      await this._processSingleSignal(row);
+      await this._processSingleSignal(row, options?.abortSignal);
     }
   }
 
-  private async _processSingleSignal(row: { id: number; signal_video_id: string | null; question: string }): Promise<void> {
+  private async _processSingleSignal(row: { id: number; signal_video_id: string | null; question: string }, abortSignal?: AbortSignal): Promise<void> {
     const videoId = row.signal_video_id!;
 
     // Resolve signal context
@@ -267,7 +273,12 @@ export class ChatManager {
     });
 
     // Call LLM sync — throws on failure, leaving answer=NULL
-    const rawAnswer = await callLlmSync(this.llmConfig, prompt);
+    const rawAnswer = await callLlmSync(this.llmConfig, prompt, { abortSignal });
+
+    // Check abort before persisting
+    if (abortSignal?.aborted) {
+      return;
+    }
 
     // Build signalMap for unified formatter (single-signal passes one entry)
     const sigTitle = this.db.prepare(
@@ -285,7 +296,7 @@ export class ChatManager {
     ).run(answer, row.id);
   }
 
-  private async _processMultiSignal(row: { id: number; question: string; topic_key: string | null; channel_id: string | null; include_irrelevant: number | null }): Promise<void> {
+  private async _processMultiSignal(row: { id: number; question: string; topic_key: string | null; channel_id: string | null; include_irrelevant: number | null }, abortSignal?: AbortSignal): Promise<void> {
     // Build scope from DB columns
     const scope: ChatScope = {
       topicKey: row.topic_key ?? undefined,
@@ -344,7 +355,12 @@ export class ChatManager {
     }, customTemplate);
 
     // Call LLM sync
-    const rawAnswer = await callLlmSync(this.llmConfig, prompt);
+    const rawAnswer = await callLlmSync(this.llmConfig, prompt, { abortSignal });
+
+    // Check abort before persisting
+    if (abortSignal?.aborted) {
+      return;
+    }
 
     // Transform response with unified formatter
     const answer = ChatResponseFormatter.format(rawAnswer, signalMap);

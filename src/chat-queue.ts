@@ -11,6 +11,9 @@ import { ChatScope } from './signal-chat-scope';
  * - process() tasks dispatch in background via shared pool
  */
 export class ChatQueue {
+  /** Registry of AbortControllers for in-flight tasks, keyed by question id. */
+  private _controllers = new Map<number, AbortController>();
+
   constructor(
     private db: Database.Database,
     private chatManager: ChatManager,
@@ -45,16 +48,44 @@ export class ChatQueue {
 
   /**
    * Internal: dispatch a process task to the shared concurrency pool.
+   * Creates an AbortController, stores it in _controllers, and passes the signal to process().
    */
   _dispatchProcess(id: number): void {
+    const controller = new AbortController();
+    this._controllers.set(id, controller);
+
     this.pool.run(async () => {
       try {
-        await this.chatManager.process(id);
-      } catch (_err) {
+        await this.chatManager.process(id, { abortSignal: controller.signal });
+      } catch (err) {
+        // Silently ignore AbortError — aborted tasks are not marked as failed
+        const message = (err as Error).message ?? '';
+        const name = (err as Error).name ?? '';
+        if (name === 'AbortError' || message.includes('AbortError') || message.includes('aborted')) {
+          return;
+        }
         // Process failure leaves answer=NULL → mark as failed for status tracking
         this.markFailed(id);
+      } finally {
+        // Cleanup: remove controller from map when task settles
+        this._controllers.delete(id);
       }
     });
+  }
+
+  /**
+   * Cancel a chat question: abort in-flight LLM work and delete the DB row.
+   * Harmless no-op for already-completed tasks (abort on absent controller is skipped, delete still runs).
+   */
+  cancel(id: number): void {
+    // Fire abort if controller exists
+    const controller = this._controllers.get(id);
+    if (controller) {
+      controller.abort('Chat question cancelled');
+    }
+
+    // Delete the DB row immediately
+    this.chatManager.delete(id);
   }
 
   /**
