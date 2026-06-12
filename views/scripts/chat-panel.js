@@ -57,9 +57,17 @@
       },
 
        init() {
-         var self = this;
-         if (!this._isMulti) return;
-         document.addEventListener('htmx:afterRequest', function(evt) {
+          var self = this;
+
+          // Listen for timestamp clicks from signal-detail — close the chat panel.
+          // This is the cross-component DOM event seam: signal-detail dispatches
+          // `chat-timestamp-clicked` when a [MM:SS] pill is clicked in a chat answer.
+          document.addEventListener('chat-timestamp-clicked', function() {
+            if (self.chatOpen) self.toggleChat();
+          });
+
+          if (!this._isMulti) return;
+          document.addEventListener('htmx:afterRequest', function(evt) {
            // Programmatic htmx.ajax() calls set evt.target to document.body.
            // Check the HTMX internal info to see if #signals-table was the swap target.
            var target = evt.detail && evt.detail.elt ? evt.detail.elt : null;

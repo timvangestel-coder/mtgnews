@@ -128,12 +128,14 @@
              samePage: true,
              onSummaryClick: function(ms) { self.handleSummaryPillClick(ms); },
              onTranscriptClick: function(ms) { self.handleTranscriptPillClick(ms); },
-             onChatClick: function(ms) {
-               self.viewState = 'split';
-               setTimeout(function() {
-                 self.scrollToTranscript(ms);
-               }, 1050);
-             }
+              onChatClick: function(ms) {
+                self.viewState = 'split';
+                setTimeout(function() {
+                  self.scrollToTranscript(ms);
+                }, 1050);
+                // Dispatch custom event so ChatPanel can close itself
+                document.dispatchEvent(new CustomEvent('chat-timestamp-clicked', { detail: { ms: ms } }));
+              }
            });
 
            // Hash fragment navigation — open split view + scroll to timestamp on page load
