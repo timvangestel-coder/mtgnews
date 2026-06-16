@@ -23,11 +23,16 @@
         const colors = ['', 'bg-red-600', 'bg-orange-500', 'bg-yellow-500', 'bg-lime-500', 'bg-green-600'];
         // Issue #116: Q&A ratio - "X/Y" or "—" when no questions
         const qaRatio = signal.qaTotal != null ? signal.qaAnswered + '/' + signal.qaTotal : '\u2014';
+        // New indicator: show if created_at is within the last 24 hours
+        const isNew = (Date.now() - signal.created_at) < 86400 * 1000;
       %>
       <tr class="border-b hover:bg-gray-50 cursor-pointer <%= isIrrelevant ? 'opacity-50' : '' %>" onclick="location.href='/signals/<%= signal.video_id %>'">
         <td class="py-2 px-3 text-sm"><%= dateStr %></td>
         <td class="py-2 px-3 text-sm"><%= timeStr %></td>
-        <td class="py-2 px-3 text-sm"><%= title %></td>
+        <td class="py-2 px-3 text-sm">
+          <%= title %>
+          <% if (isNew) { %><span style="color: #eab308; margin-left: 6px;">NEW</span><% } %>
+        </td>
         <td class="py-2 px-3 text-sm text-gray-500"><%= qaRatio %></td>
         <td class="py-2 px-3">
           <span class="<%= colors[sentiment] || 'bg-gray-400' %> text-white rounded-full px-2 py-0.5 text-xs">

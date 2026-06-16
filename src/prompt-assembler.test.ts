@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assemble, assembleChat, formatTranscription, defaultPromptTemplate, defaultChatPromptTemplate, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate } from './prompt-assembler';
+import { assemble, assembleChat, formatTranscription, defaultPromptTemplate, defaultChatPromptTemplate, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate, type FormatStyle } from './prompt-assembler';
 import type { SignalContext } from './signal-context';
 import type { ChatContext } from './prompt-assembler';
 import type { ChatSignalContext } from './signal-chat-scope';
@@ -252,17 +252,17 @@ function makeChatSignal(overrides: Partial<ChatSignalContext> = {}): ChatSignalC
 }
 
 describe('defaultMultiSignalChatPromptTemplate', () => {
-  it('returns a template with signal placeholder and citation instruction', () => {
+  it('returns a template with signal placeholder and grouping instruction', () => {
     const template = defaultMultiSignalChatPromptTemplate();
     expect(template).toContain('{SIGNALS}');
     expect(template).toContain('{QUESTION}');
-    // Bug 2 fix: citation format uses <videoId:T:ss> instead of plain <video_id>
-    expect(template).toMatch(/<[^>]+:T:\d+>/);
+    // Fixed: removed conflicting <videoId:T:ss> citation format; now instructs grouping by source
+    expect(template).toMatch(/Group findings by source/i);
   });
 
-  it('includes instruction for citation format', () => {
+  it('includes instruction to not add inline citations', () => {
     const template = defaultMultiSignalChatPromptTemplate();
-    expect(template).toContain('citation');
+    expect(template).toMatch(/do not.*inline.*citation/i);
   });
 });
 
@@ -448,21 +448,24 @@ describe('Bug 1 — signal block uses actual summary', () => {
   });
 });
 
-// Bug 2: citation format instruction matches CitationFormatter regex
-describe('Bug 2 — citation format instruction', () => {
-  it('default template instructs <videoId:T:ss> format with timestamp example', () => {
+// Bug 2: citation format instruction — REMOVED conflicting <videoId:T:ss> format
+// The multi-signal template no longer instructs angle-bracket citations because they conflict
+// with FORMAT_INSTRUCTIONS' "do not append citation markers" rule. Instead it instructs
+// grouping by source, and the FORMAT_INSTRUCTIONS provide concrete table examples.
+describe('Bug 2 — citation format instruction removed (conflict fix)', () => {
+  it('default template does NOT include <videoId:T:ss> angle bracket format', () => {
     const template = defaultMultiSignalChatPromptTemplate();
 
-    // Must include angle bracket format with T:ss timestamp
-    expect(template).toMatch(/<[^>]+:T:\d+>/);
+    // Must NOT have angle-bracket citation format that conflicts with FORMAT_INSTRUCTIONS
+    expect(template).not.toMatch(/<[^>]+:T:\d+>/);
   });
 
-  it('default template shows concrete citation example', () => {
+  it('default template instructs grouping by source instead of inline citations', () => {
     const template = defaultMultiSignalChatPromptTemplate();
 
-    // Should have an example like <vid_abc123:T:45>
-    expect(template).toContain('<');
-    expect(template).toMatch(/T:\d+/);
+    // Should instruct grouping, not angle-bracket citations
+    expect(template).toMatch(/Group findings by source/i);
+    expect(template).toMatch(/do not.*inline.*citation/i);
   });
 });
 
@@ -535,5 +538,238 @@ describe('assembleChat regression', () => {
     expect(result).toContain('[T:10] mtg update');
     expect(result).toContain('A video about MTG updates');
     expect(result).toContain('What sets were mentioned?');
+  });
+});
+
+// Issue #152: ResponseFormat — FORMAT_INSTRUCTIONS placeholder
+describe('Issue 152 — formatStyle in assembleChat', () => {
+  it('default template includes {FORMAT_INSTRUCTIONS} placeholder', () => {
+    const template = defaultChatPromptTemplate();
+    expect(template).toContain('{FORMAT_INSTRUCTIONS}');
+  });
+
+  it('assembleChat replaces {FORMAT_INSTRUCTIONS} with value for "annotated-index" style', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context, undefined, 'annotated-index');
+
+    expect(result).not.toContain('{FORMAT_INSTRUCTIONS}');
+  });
+
+  it('assembleChat replaces {FORMAT_INSTRUCTIONS} with empty string for "plain" style', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context, undefined, 'plain');
+
+    expect(result).not.toContain('{FORMAT_INSTRUCTIONS}');
+  });
+
+  it('assembleChat defaults formatStyle to "annotated-index" when not provided', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [],
+      question: 'q?',
+    };
+
+    const resultDefault = assembleChat(context);
+    const resultExplicit = assembleChat(context, undefined, 'annotated-index');
+
+    expect(resultDefault).toBe(resultExplicit);
+  });
+});
+
+describe('Issue 152 — formatStyle in assembleMultiSignalChat', () => {
+  it('default multi-signal template includes {FORMAT_INSTRUCTIONS} placeholder', () => {
+    const template = defaultMultiSignalChatPromptTemplate();
+    expect(template).toContain('{FORMAT_INSTRUCTIONS}');
+  });
+
+  it('assembleMultiSignalChat replaces {FORMAT_INSTRUCTIONS} with value for "annotated-index"', () => {
+    const signal = makeChatSignal();
+
+    const result = assembleMultiSignalChat(
+      { signals: [signal], history: [], question: 'q?' },
+      undefined,
+      'annotated-index'
+    );
+
+    expect(result).not.toContain('{FORMAT_INSTRUCTIONS}');
+  });
+
+  it('assembleMultiSignalChat replaces {FORMAT_INSTRUCTIONS} with empty string for "plain"', () => {
+    const signal = makeChatSignal();
+
+    const result = assembleMultiSignalChat(
+      { signals: [signal], history: [], question: 'q?' },
+      undefined,
+      'plain'
+    );
+
+    expect(result).not.toContain('{FORMAT_INSTRUCTIONS}');
+  });
+
+  it('assembleMultiSignalChat defaults formatStyle to "annotated-index" when not provided', () => {
+    const signal = makeChatSignal();
+
+    const resultDefault = assembleMultiSignalChat({ signals: [signal], history: [], question: 'q?' });
+    const resultExplicit = assembleMultiSignalChat(
+      { signals: [signal], history: [], question: 'q?' },
+      undefined,
+      'annotated-index'
+    );
+
+    expect(resultDefault).toBe(resultExplicit);
+  });
+});
+
+// Issue #148: compactText support in per-signal chat
+describe('Issue 148 — compactText in assembleChat', () => {
+  it('prefers compactText over formatted transcription when available', () => {
+    const context: ChatContext = {
+      transcriptionJson: JSON.stringify([{ time: 0, text: 'so um you know the Kaldra set is not bad at all and we talked about it for a long time' }]),
+      summary: 'Discussion about Kaldra set',
+      compactText: '[T:0] Kaldra set not bad discussed',
+      history: [],
+      question: 'What was said about Kaldra?',
+    };
+
+    const result = assembleChat(context);
+
+    // Should use compact text, NOT the verbose full transcription
+    expect(result).toContain('[T:0] Kaldra set not bad discussed');
+    expect(result).not.toContain('so um you know');
+  });
+
+  it('falls back to formatted transcription when compactText is undefined', () => {
+    const context: ChatContext = {
+      transcriptionJson: JSON.stringify([{ time: 42000, text: 'full transcript segment' }]),
+      summary: 'summary',
+      // compactText not provided
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context);
+
+    expect(result).toContain('[T:42] full transcript segment');
+  });
+
+  it('falls back to formatted transcription when compactText is null', () => {
+    const context: ChatContext = {
+      transcriptionJson: JSON.stringify([{ time: 10000, text: 'fallback text' }]),
+      summary: 'summary',
+      compactText: null as unknown as undefined,
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context);
+
+    expect(result).toContain('[T:10] fallback text');
+  });
+
+  it('falls back to formatted transcription when compactText is empty string', () => {
+    const context: ChatContext = {
+      transcriptionJson: JSON.stringify([{ time: 5000, text: 'fallback on empty' }]),
+      summary: 'summary',
+      compactText: '',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context);
+
+    // Empty string is falsy, should fall back to formatted transcription
+    expect(result).toContain('[T:5] fallback on empty');
+  });
+});
+
+// Issue #146: CompactTranscription wired into PromptAssembler for multi-signal chat
+describe('Issue 146 — compactText in multi-signal signal blocks', () => {
+  it('uses compactText in <content> tag when available', () => {
+    const signal = makeChatSignal({
+      compactText: '[T:10] MTG update new set announcement',
+    });
+
+    const result = assembleMultiSignalChat({ signals: [signal], history: [], question: 'q?' });
+
+    // Should use <content> tag with compact text, not full transcription
+    expect(result).toContain('<content>');
+    expect(result).toContain('[T:10] MTG update new set announcement');
+    // Full transcription "[T:10] signal content" should NOT appear in <content> block
+    expect(result).not.toContain('<content>[T:10] signal content</content>');
+  });
+
+  it('falls back to formatted transcription in <content> when compactText is undefined', () => {
+    const signal = makeChatSignal({
+      signalContext: {
+        ...makeChatSignal().signalContext,
+        transcriptionJson: JSON.stringify([{ time: 42000, text: 'full transcript segment' }]),
+      },
+      // compactText not set
+    });
+
+    const result = assembleMultiSignalChat({ signals: [signal], history: [], question: 'q?' });
+
+    // Should fall back to formatted transcription in <content> tag
+    expect(result).toContain('<content>');
+    expect(result).toContain('[T:42] full transcript segment');
+  });
+
+  it('mixed signals: some with compactText, some without', () => {
+    const signalWithCompact = makeChatSignal({
+      videoId: 'vid_compact',
+      title: 'Compact Video',
+      compactText: '[T:5] compressed text only',
+    });
+
+    const signalWithoutCompact = makeChatSignal({
+      videoId: 'vid_full',
+      title: 'Full Video',
+      signalContext: {
+        ...makeChatSignal().signalContext,
+        transcriptionJson: JSON.stringify([{ time: 100000, text: 'full transcript' }]),
+      },
+    });
+
+    const result = assembleMultiSignalChat({
+      signals: [signalWithCompact, signalWithoutCompact],
+      history: [],
+      question: 'q?',
+    });
+
+    // Compact signal uses compactText
+    expect(result).toContain('video_id="vid_compact"');
+    expect(result).toContain('[T:5] compressed text only');
+
+    // Full signal falls back to formatted transcription
+    expect(result).toContain('video_id="vid_full"');
+    expect(result).toContain('[T:100] full transcript');
+  });
+
+  it('assembleChat per-signal path unchanged — still uses <transcription> with full text', () => {
+    const context: ChatContext = {
+      transcriptionJson: JSON.stringify([{ time: 30000, text: 'per signal chat' }]),
+      summary: 'summary',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context);
+
+    // Per-signal chat still uses <transcription> tag (not <content>)
+    expect(result).toContain('<transcription>');
+    expect(result).toContain('[T:30] per signal chat');
   });
 });

@@ -6,23 +6,17 @@
  * All citation pills include data-timestamp and data-video-id attributes.
  *
  * Pure function: no DB access, no side effects.
+ *
+ * Markdown rendering uses the `marked` library with GFM enabled for full support
+ * of tables, lists, headings, blockquotes, etc.
  */
+
+import { marked } from 'marked';
 
 const PILL_CLASSES = 'inline-flex items-center bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-sm font-medium hover:bg-indigo-200 transition-colors';
 
 interface SignalInfo {
   title: string;
-}
-
-function escapeHtml(text: string): string {
-  const map: Record<string, string> = {
-    '&': String.fromCharCode(38) + 'amp;',
-    '<': String.fromCharCode(38) + 'lt;',
-    '>': String.fromCharCode(38) + 'gt;',
-    '"': String.fromCharCode(38) + 'quot;',
-    "'": String.fromCharCode(38) + '#39;',
-  };
-  return text.replace(/[&<>"']/g, (m) => map[m]);
 }
 
 function formatTime(ms: number): string {
@@ -33,36 +27,68 @@ function formatTime(ms: number): string {
 }
 
 /**
- * Converts basic Markdown syntax to HTML tags.
+ * Find best matching videoId for a heading title.
+ * Tries exact match first, then falls back to substring/partial match.
  */
-function markdownToHtml(text: string): string {
-  text = text.replace(/\*\*(.+?)\*\*/gs, '<strong>$1</strong>');
-  text = text.replace(/__(.+?)__/gs, '<strong>$1</strong>');
-  text = text.replace(/\*(.+?)\*/gs, '<em>$1</em>');
-  text = text.replace(/_(.+?)_/gs, '<em>$1</em>');
-  return text;
+function findBestTitleMatch(headingLower: string, titleToVideoId: Map<string, string>): string | undefined {
+  // Exact match first
+  if (titleToVideoId.has(headingLower)) {
+    return titleToVideoId.get(headingLower);
+  }
+
+  // Partial match: find a signal title that contains the heading text or is contained by it
+  // Prefer longest match to avoid false positives from short substrings
+  let bestMatch: string | undefined;
+  let bestScore = 0;
+
+  for (const [signalTitleLower, videoId] of titleToVideoId.entries()) {
+    // Check if heading is a substring of signal title OR signal title is substring of heading
+    const containsHeading = signalTitleLower.includes(headingLower);
+    const containedInHeading = headingLower.includes(signalTitleLower);
+
+    if (containsHeading || containedInHeading) {
+      // Score by the length of the overlapping portion — longer overlap = better match
+      const score = Math.min(signalTitleLower.length, headingLower.length);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = videoId;
+      }
+    }
+  }
+
+  return bestMatch;
 }
 
 /**
- * Process plain text: protect Markdown, escape HTML, restore Markdown as HTML.
+ * Process plain text for markdown rendering.
+ *
+ * Strategy: escape `<` to prevent raw HTML injection, but protect `>` at line
+ * starts so blockquotes still work. Then run marked which handles all markdown
+ * natively (bold, italic, tables, lists, headings, blockquotes).
  */
 function processText(text: string): string {
-  const markdownParts: string[] = [];
-  let idx = 0;
+  // Protect blockquote markers (> at start of lines) with placeholder
+  text = text.replace(/^(\s*>)/gm, '\x00BQ\x00');
 
-  text = text.replace(/(\*\*.+?\*\*)|(__.+?__)|(\*.+?\*)|(_.+?_)/gs, (match) => {
-    const placeholder = `\x00MD${idx++}\x00`;
-    markdownParts.push(match);
-    return placeholder;
-  });
+  // Escape < to prevent raw HTML passthrough
+  const amp = String.fromCharCode(38);
+  const map: Record<string, string> = {
+    '&': amp + 'amp;',
+    '<': amp + 'lt;',
+    '>': amp + 'gt;',
+    '"': amp + 'quot;',
+    "'": amp + '#39;',
+  };
+  text = text.replace(/[&<>"']/g, (m) => map[m]);
 
-  text = escapeHtml(text);
+  // Restore blockquote markers — use function to return captured group
+  text = text.replace(/\x00BQ\x00/g, () => '>');
 
-  text = text.replace(/\x00MD(\d+)\x00/g, (_match, i) => {
-    return markdownToHtml(markdownParts[parseInt(i, 10)]);
-  });
+  // Render Markdown with marked (GFM mode, breaks: false)
+  const rendered = marked.parse(text, { gfm: true, breaks: false }) as string;
 
-  return text;
+  // Remove leading/trailing <p> wrapper and trailing newline that marked adds
+  return rendered.replace(/^<p>/, '').replace(/<\/p>\n?$/, '');
 }
 
 export interface ChatResponseFormatter {
@@ -79,6 +105,25 @@ export class ChatResponseFormatterImpl implements ChatResponseFormatter {
     // Collect ALL matches with positions.
     type Match = { pos: number; len: number; videoId?: string; seconds?: string };
     const allMatches: Match[] = [];
+
+    // Phase 0: Build reverse index title → videoId for heading-based context resolution
+    const titleToVideoId = new Map<string, string>();
+    for (const [videoId, info] of Object.entries(signalMap)) {
+      titleToVideoId.set(info.title.toLowerCase(), videoId);
+    }
+
+    // Pattern 0: **Title** headings that set active videoId context
+    type HeadingMatch = { pos: number; len: number; title: string };
+    const headingMatches: HeadingMatch[] = [];
+    text.replace(/\*\*(.+?)\*\*/g, (_match, title, pos) => {
+      // Only treat as heading if the title matches (or partially matches) a signal in signalMap
+      const lowerTitle = title.toLowerCase();
+      const matchedVideoId = findBestTitleMatch(lowerTitle, titleToVideoId);
+      if (matchedVideoId) {
+        headingMatches.push({ pos, len: _match.length, title });
+      }
+      return _match;
+    });
 
     // Pattern 1: <videoId:T:ss> — proper citation format
     text.replace(/<([A-Za-z0-9_-]+):T:(\d+)>/g, (_match, videoId, seconds, pos) => {
@@ -120,9 +165,21 @@ export class ChatResponseFormatterImpl implements ChatResponseFormatter {
     // Sort left-to-right to determine inherited videoId for each bare timestamp
     const sorted = [...allMatches].sort((a, b) => a.pos - b.pos);
 
-    // Annotate each match with the effective videoId (inherited from last citation/malformed citation)
+    // Annotate each match with the effective videoId using both citations AND heading context
     let lastVideoId: string | undefined;
+    let headingIndex = 0;
     const annotated = sorted.map(m => {
+      // Advance heading pointer to find headings that appear before this match
+      while (headingIndex < headingMatches.length && headingMatches[headingIndex].pos < m.pos) {
+        const h = headingMatches[headingIndex];
+        const matchedVideoId = findBestTitleMatch(h.title.toLowerCase(), titleToVideoId);
+        if (matchedVideoId) {
+          lastVideoId = matchedVideoId;
+        }
+        headingIndex++;
+      }
+
+      // Citations override heading context
       if (m.videoId && signalMap[m.videoId]) {
         lastVideoId = m.videoId;
       }

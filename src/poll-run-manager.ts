@@ -1,17 +1,17 @@
 import Database from 'better-sqlite3';
-import { listActiveChannels } from './db/watchlist';
-import { pollChannel, PollOptions } from './poll';
-import { analyzeSignal, getLlmConfig } from './llm';
-import { preRegisterChannelProgress, getPollRunById, queryPollRunProgress, PollRunRow, PollRunProgressRow } from './db/poll-runs';
-import { deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } from './signal-state';
-import { ConcurrencyPool } from './concurrency-pool';
-import { mapStatus, mapStepStatus, type RunState, type PollRunStep } from './utils/poll-run-view-model';
+import { listActiveChannels } from './db/watchlist.ts';
+import { pollChannel, PollOptions } from './poll.ts';
+import { analyzeSignal, getLlmConfig } from './llm.ts';
+import { preRegisterChannelProgress, getPollRunById, queryPollRunProgress, PollRunRow, PollRunProgressRow } from './db/poll-runs.ts';
+import { deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } from './signal-state.ts';
+import { ConcurrencyPool } from './concurrency-pool.ts';
+import { mapStatus, mapStepStatus, type RunState, type PollRunStep } from './utils/poll-run-view-model.ts';
 
 /** Unique identifier for a poll run */
 export type RunId = number;
 
 // Re-export view model types for consumers of this module
-export { RunState, PollRunStep } from './utils/poll-run-view-model';
+export { RunState, PollRunStep } from './utils/poll-run-view-model.ts';
 
 /** Legacy-compatible progress result */
 export interface CurrentProgressResult {

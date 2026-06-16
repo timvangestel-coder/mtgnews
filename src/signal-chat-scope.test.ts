@@ -197,6 +197,90 @@ describe('resolveScope — issue #127', () => {
 
     expect(results[0].summary).toBe('');
   });
+
+  // Issue #145: compactText in multi-signal scope
+  it('populates compactText from DB for multi-signal scope', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg_a', 'MTG A', 1);
+    seedSignal(db, 'v1', 'UC_mtg_a', 'Video 1');
+    db.prepare("UPDATE signals SET compact_text = ? WHERE video_id = ?").run('compact transcription v1', 'v1');
+
+    const { resolveScope } = await import('./signal-chat-scope');
+    const results = resolveScope(db, { topicKey: 'mtg' });
+
+    expect(results[0].compactText).toBe('compact transcription v1');
+  });
+
+  it('compactText is undefined when DB column is null for multi-signal scope', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+    seedSignal(db, 'v1', 'UC_mtg', 'Video 1');
+
+    const { resolveScope } = await import('./signal-chat-scope');
+    const results = resolveScope(db, { topicKey: 'mtg' });
+
+    expect(results[0].compactText).toBeUndefined();
+  });
+
+  // Issue #149: compactText in single-video scope
+  it('populates compactText from DB for single-video scope', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+    seedSignal(db, 'v1', 'UC_mtg', 'Video 1');
+    db.prepare("UPDATE signals SET compact_text = ? WHERE video_id = ?").run('compact text v1', 'v1');
+
+    const { resolveScope } = await import('./signal-chat-scope');
+    const results = resolveScope(db, { videoId: 'v1' });
+
+    expect(results[0].compactText).toBe('compact text v1');
+  });
+
+  it('compactText is undefined when DB column is null for single-video scope', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+    seedSignal(db, 'v1', 'UC_mtg', 'Video 1');
+
+    const { resolveScope } = await import('./signal-chat-scope');
+    const results = resolveScope(db, { videoId: 'v1' });
+
+    expect(results[0].compactText).toBeUndefined();
+  });
+
+  it('both branches return identical ChatSignalContext shape', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg_a', 'MTG A', 1);
+    seedChannel(db, 'UC_mtg_b', 'MTG B', 1);
+    seedSignal(db, 'v1', 'UC_mtg_a', 'Video 1');
+    seedSignal(db, 'v2', 'UC_mtg_b', 'Video 2');
+    db.prepare("UPDATE signals SET summary = ?, compact_text = ? WHERE video_id = ?").run('sum1', 'compact1', 'v1');
+    db.prepare("UPDATE signals SET summary = ?, compact_text = ? WHERE video_id = ?").run('sum2', 'compact2', 'v2');
+
+    const { resolveScope } = await import('./signal-chat-scope');
+
+    // Single-video branch
+    const single = resolveScope(db, { videoId: 'v1' });
+    // Multi-signal branch (same topic)
+    const multi = resolveScope(db, { topicKey: 'mtg' });
+
+    // Both results have the same keys
+    const singleKeys = Object.keys(single[0]).sort();
+    const multiKeys = Object.keys(multi[0]).sort();
+    expect(singleKeys).toEqual(multiKeys);
+
+    // v1 appears in both — compare field values
+    const multiV1 = multi.find((r) => r.videoId === 'v1');
+    expect(multiV1).toBeDefined();
+    expect(single[0].videoId).toBe(multiV1!.videoId);
+    expect(single[0].title).toBe(multiV1!.title);
+    expect(single[0].channelDisplayName).toBe(multiV1!.channelDisplayName);
+    expect(single[0].summary).toBe(multiV1!.summary);
+    expect(single[0].compactText).toBe(multiV1!.compactText);
+  });
 });
 
 // ─── getHistory with filter criteria ──────────────────────

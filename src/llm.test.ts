@@ -352,7 +352,7 @@ describe('llm', () => {
       await analyzeSignal(db, 'v-minimal', config);
 
       const prompt = JSON.parse(mockFetch.mock.calls[0][1].body as string).messages[0].content;
-      expect(prompt).toMatch(/if.*not.*relevant.*return.*only|irrelevant.*return.*only.*relevant/i);
+      expect(prompt).toMatch(/if.*content.*not.*meet.*criteria.*return.*only|do not generate.*when relevant is false|relevant.*false.*return.*only/i);
     });
 
     it('accepts minimal { relevant: false } response', async () => {
@@ -368,6 +368,58 @@ describe('llm', () => {
       const sig = db.prepare('SELECT processing_state, summary FROM signals WHERE video_id = ?').get('v-min-irr');
       expect(sig.processing_state).toBe('irrelevant');
       expect(sig.summary).toBeNull();
+    });
+
+    it('prompt includes CompactTranscription instruction', async () => {
+      const db = createTestDb();
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-compact', 'text');
+
+      mockMergedResponse({ summary: 's', takeaways: [], overall_sentiment: { score: 3, label: 'Neutral' }, entities: [] });
+
+      await analyzeSignal(db, 'v-compact', config);
+
+      const prompt = JSON.parse(mockFetch.mock.calls[0][1].body as string).messages[0].content;
+      expect(prompt).toMatch(/compact.*transcription|compact_text/i);
+      expect(prompt).toMatch(/telegraphic|remove.*filler|remove.*function.*words/i);
+    });
+
+    it('persists compact_text from LLM response', async () => {
+      const db = createTestDb();
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-compact-store', '[T:0] hello world this is a test about mtg');
+
+      mockMergedResponse({
+        summary: 'Video discusses MTG',
+        takeaways: [],
+        overall_sentiment: { score: 4, label: 'Positive' },
+        entities: [],
+        compact_text: '[T:0] hello world test mtg',
+      });
+
+      const result = await analyzeSignal(db, 'v-compact-store', config);
+      expect(result.success).toBe(true);
+
+      const sig = db.prepare('SELECT compact_text FROM signals WHERE video_id = ?').get('v-compact-store');
+      expect(sig.compact_text).toBe('[T:0] hello world test mtg');
+    });
+
+    it('leaves compact_text NULL when LLM omits field', async () => {
+      const db = createTestDb();
+      seedChannel(db, 'UCtest');
+      seedSignal(db, 'v-no-compact', 'text');
+
+      mockMergedResponse({
+        summary: 's',
+        takeaways: [],
+        overall_sentiment: { score: 3, label: 'Neutral' },
+        entities: [],
+      });
+
+      await analyzeSignal(db, 'v-no-compact', config);
+
+      const sig = db.prepare('SELECT compact_text FROM signals WHERE video_id = ?').get('v-no-compact');
+      expect(sig.compact_text).toBeNull();
     });
 
     it('prompt uses generic role "You are a content analyst"', async () => {

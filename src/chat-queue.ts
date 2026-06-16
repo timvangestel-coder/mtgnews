@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
-import { ConcurrencyPool } from './concurrency-pool';
-import { ChatManager } from './services/chat-manager';
-import { ChatScope } from './signal-chat-scope';
+import { ConcurrencyPool } from './concurrency-pool.ts';
+import { ChatManager } from './services/chat-manager.ts';
+import { ChatScope } from './signal-chat-scope.ts';
 
 /**
  * ChatQueue — manages chat question processing through the global ConcurrencyPool.

@@ -1,8 +1,8 @@
 import Database from 'better-sqlite3';
-import { fetchWithRetry } from './http-retry';
-import { assemble } from './prompt-assembler';
-import { resolveSignalContext } from './signal-context';
-import { markSummarized, markIrrelevant } from './signal-state';
+import { fetchWithRetry } from './http-retry.ts';
+import { assemble } from './prompt-assembler.ts';
+import { resolveSignalContext } from './signal-context.ts';
+import { markSummarized, markIrrelevant } from './signal-state.ts';
 
 export interface LlmConfig {
   endpoint: string;
@@ -14,7 +14,7 @@ export interface LlmCallOptions {
 }
 
 const MAX_RETRIES = 1;
-const FETCH_TIMEOUT_MS = 300_000; // 5 minutes
+const FETCH_TIMEOUT_MS = 1_500_000; // 25 minutes
 
 /**
  * Sync LLM call — returns the full content string.
@@ -133,6 +133,7 @@ interface MergedAnalysisResponse {
   takeaways: Array<{ text: string; timestamp: string }>;
   overall_sentiment: { score: number; label: string };
   entities: Array<{ entity_name: string; entity_type: string; sentiment: string }>;
+  compact_text?: string;
   relevant?: boolean;
 }
 
@@ -217,10 +218,11 @@ export async function analyzeSignal(
     const entities = analysis.entities;
     const generatedTitle = analysis.title ? analysis.title.substring(0, 100) : null;
 
+    const compactText = analysis.compact_text ?? null;
     db.prepare(`
-      UPDATE signals SET summary = ?, overall_sentiment = ?, sentiment_label = ?, generated_title = ?
+      UPDATE signals SET summary = ?, overall_sentiment = ?, sentiment_label = ?, generated_title = ?, compact_text = ?
       WHERE video_id = ?
-    `).run(summaryDisplay, clampedScore, analysis.overall_sentiment.label, generatedTitle, videoId);
+    `).run(summaryDisplay, clampedScore, analysis.overall_sentiment.label, generatedTitle, compactText, videoId);
 
     markSummarized(db, videoId);
 

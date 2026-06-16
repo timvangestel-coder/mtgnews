@@ -1,9 +1,52 @@
-import type { SignalContext } from './signal-context';
-import type { ChatSignalContext } from './signal-chat-scope';
+import type { SignalContext } from './signal-context.ts';
+import type { ChatSignalContext } from './signal-chat-scope.ts';
+
+export type FormatStyle = 'plain' | 'annotated-index';
+
+const FORMAT_INSTRUCTIONS: Record<FormatStyle, string> = {
+  plain: '',
+  'annotated-index': `RESPONSE FORMAT INSTRUCTIONS:
+
+1. Begin with a 1-sentence summary of the answer.
+
+2. For each source, present findings as an annotated index using EXACTLY this structure:
+
+**Source Title Here**
+
+| Timestamp | Finding |
+|-----------|---------|
+| [T:133]   | Relay nodes proposed as fuel stations for missions |
+| [T:580]   | Impossibilities usually engineering challenges not physics violations |
+
+**Second Source Title**
+
+| Timestamp | Finding |
+|-----------|---------|
+| [T:425]   | ISS decommissioning by 2031 transitions to commercial operators |
+| [T:690]   | Self-assembling magnetic tiles for in-orbit construction |
+
+CRITICAL RULES FOR TABLES:
+- Each source gets its own **bold title** on a separate line above the table
+- The table MUST have exactly 4 lines: header row, separator row, then data rows
+- Header row is: \`| Timestamp | Finding |\`
+- Separator row is: \`|-----------|---------|\`
+- Each finding is ONE row: \`| [T:ss]   | Finding text here |\` where ss is the EXACT number from the T:ss marker in the source material
+- Blank line between the last table and the next **Source Title**
+
+3. End with thematic tags on one line (e.g., "cyclusvergelijking · diversificatie · IPO-impact")
+
+Rules:
+- Max 12 words per finding — be telegraphic, drop filler, keep only the core fact
+- Timestamps MUST use [T:ss] format where ss is the EXACT integer from the source T:ss markers — do NOT convert to minutes:seconds, just copy the number as-is
+- Source title as **bold** text above each table, NOT a markdown heading (no ###)
+- The source title provides video context — do NOT add inline citations or repeat video titles after individual findings
+- No repetitive closing paragraph`,
+};
 
 export interface ChatContext {
   transcriptionJson: string;
   summary: string;
+  compactText?: string;
   filterText?: string;
   history: Array<{ question: string; answer: string }>;
   question: string;
@@ -37,18 +80,79 @@ export function formatTranscription(transcriptionJson: string): string {
 
 /**
  * Default prompt template with XML placeholder tags.
- * Extracted from the original hardcoded prompt in prompt-builder.ts.
+ * Reflects changes from issues #144-#147:
+ * - #144: Added CompactTranscription (compact_text) to LLM response
+ * - #145: DB column added, scope resolution updated for multi-signal chat
+ * - #146: Multi-signal chat uses compactText when available, falls back to full transcription
+ * - #147: Backfill script for historical signals without compact_text
  */
 export function defaultPromptTemplate(): string {
-  return `You are a content analyst. Analyze the following video transcription and produce a structured JSON response containing summary, key takeaways, overall sentiment, and entity mentions.
+  return `You are a content analyst specializing in concise, high-information summaries.
+
+Analyze the following video transcription and produce a structured JSON response containing summary, key takeaways, overall sentiment, entity mentions, and a telegraphically compressed transcription (compact_text).
 
 <filter_text>{FILTER_TEXT}</filter_text>
 
-First, judge whether the content meets the channel's filter criteria. Include "relevant": true or "relevant": false in your JSON response. If content does not meet the criteria, set relevant to false.
+STEP 1: Determine relevance
+- First evaluate whether the transcription contains meaningful discussion that matches the channel filter criteria.
+- Content is relevant only if the filtered topic is discussed with substantive information, opinions, analysis, announcements, results, strategy, or news.
+- Brief mentions, sponsor messages, introductions, greetings, or unrelated discussion do NOT make content relevant.
 
-IMPORTANT: If content is NOT relevant, return ONLY {"relevant": false} without generating summary, takeaways, sentiment, or entities.
+If the content does not meet the criteria:
+Return ONLY:
+{"relevant": false}
 
-Return ONLY valid JSON with this structure:
+Do not generate summary, takeaways, sentiment, entities, or compact_text when relevant is false.
+
+STEP 2: Summarize relevant content
+
+Summary guidelines:
+- Use an "inverted pyramid" structure: start with the most important conclusion, announcement, insight, or outcome.
+- Capture what happened, why it matters, and any significant implications.
+- Remove filler, repetition, jokes, greetings, sponsor content, and conversational noise.
+- Focus only on content matching the filter criteria.
+- Write 2-3 concise sentences.
+- Prefer specific facts over vague descriptions.
+- Do not speculate or invent information.
+
+Takeaway guidelines:
+- Extract the most important and actionable points.
+- Each takeaway should represent a unique insight.
+- Avoid repeating information already expressed in another takeaway.
+- Use concise language.
+- Include the timestamp corresponding to when the topic first appears.
+- Maximum 8 takeaways.
+- Order takeaways by importance, not chronology.
+
+Sentiment guidelines:
+Evaluate the overall sentiment of the relevant content only.
+
+Score scale:
+1 = Very Negative
+2 = Negative
+3 = Neutral
+4 = Positive
+5 = Very Positive
+
+Entity extraction guidelines:
+- Extract only entities that are materially discussed.
+- Ignore passing mentions unless they are central to the discussion.
+- Deduplicate entities (same entity mentioned multiple times = one entry).
+- Determine sentiment toward each entity from the surrounding discussion.
+- Use one of: card, set, player, format, archetype, company, event, rules, other
+
+Entity sentiment values: Positive, Negative, Neutral
+
+STEP 3: Produce CompactTranscription (compact_text)
+- Generate a telegraphically compressed version of the full transcription.
+- Remove filler words (um, uh, like, you know), function words (articles, prepositions, auxiliary verbs), and most punctuation.
+- Keep all content words: nouns, main verbs, adjectives, proper names, numbers.
+- Always preserve [T:ss] timestamp markers in their original positions throughout the text.
+- Always keep negation words ("not", "no", "never") — they change meaning.
+
+Example: "[T:0] So, um, the Kaldra set is, you know, not bad at all" -> "[T:0] Kaldra set not bad"
+
+Return ONLY valid JSON with this exact structure:
 {
   "title": "A concise title capturing the main topic, max 100 characters",
   "summary": "A concise 2-3 sentence summary of the relevant content",
@@ -62,23 +166,15 @@ Return ONLY valid JSON with this structure:
   "entities": [
     { "entity_name": "ExampleEntity", "entity_type": "other", "sentiment": "Positive" }
   ],
+  "compact_text": "[T:0] telegraphically compressed transcription content words timestamps preserved negation kept",
   "relevant": true
 }
 
 Rules:
 - Each takeaway must include a timestamp in "T:ss" format where ss is the start seconds as an integer
+- Order takeaways by importance, not chronology
+- Maximum 8 takeaways
 - Focus only on topics matching the channel filter text
-- Keep takeaways concise and actionable
-
-Sentiment score scale (integer 1-5):
-1 = Very Negative
-2 = Negative
-3 = Neutral
-4 = Positive
-5 = Very Positive
-
-Entity types: card, set, player, format, archetype, company, event, rules, other
-Sentiment labels for entities: Positive, Negative, Neutral
 
 <transcription>{TRANSCRIPTION}</transcription>`;
 }
@@ -106,6 +202,8 @@ export function defaultChatPromptTemplate(): string {
 <filter_text>{FILTER_TEXT}</filter_text>
 
 Use timestamps in "T:ss" format (ss = seconds as integer) when referencing specific parts of the video.
+
+{FORMAT_INSTRUCTIONS}
 
 <transcription>{TRANSCRIPTION}</transcription>
 
@@ -146,13 +244,14 @@ function formatHistory(history: Array<{ question: string; answer: string }>): st
  * Pure function: ChatContext → string. No DB access, no side effects.
  * Three-tier template resolution: customTemplate → defaultChatPromptTemplate()
  */
-export function assembleChat(context: ChatContext, customTemplate?: string): string {
+export function assembleChat(context: ChatContext, customTemplate?: string, formatStyle: FormatStyle = 'annotated-index'): string {
   const template = customTemplate ?? defaultChatPromptTemplate();
-  const transcriptionText = formatTranscription(context.transcriptionJson);
+  const transcriptionText = context.compactText || formatTranscription(context.transcriptionJson);
   const historyText = formatHistory(context.history);
 
   return template
     .replace(/{FILTER_TEXT}/g, context.filterText || '')
+    .replace(/{FORMAT_INSTRUCTIONS}/g, FORMAT_INSTRUCTIONS[formatStyle])
     .replace(/{TRANSCRIPTION}/g, transcriptionText)
     .replace(/{SUMMARY}/g, context.summary)
     .replace(/{HISTORY}/g, historyText)
@@ -169,7 +268,9 @@ export function defaultMultiSignalChatPromptTemplate(): string {
 
 <filter_text>{FILTER_TEXT}</filter_text>
 
-When referencing content from a specific video, use the citation format: <videoId:T:ss> where videoId is the exact value from the signal's video_id attribute and ss is the timestamp in seconds as an integer. Example: <dQw4w9WgXcQ:T:120>. DO NOT add extra text inside the angle brackets. You do not need to cite every paragraph — only cite when referencing specific signal content.
+Group findings by source. The source title provides video context — do not add inline citations after individual findings.
+
+{FORMAT_INSTRUCTIONS}
 
 <signals>{SIGNALS}</signals>
 
@@ -180,14 +281,15 @@ When referencing content from a specific video, use the citation format: <videoI
 
 /**
  * Formats a single ChatSignalContext into an XML signal block.
+ * Uses compactText when available, falling back to formatted transcription.
  */
 function formatSignalBlock(signal: ChatSignalContext): string {
-  const transcriptionText = formatTranscription(signal.signalContext.transcriptionJson);
+  const content = signal.compactText ?? formatTranscription(signal.signalContext.transcriptionJson);
   const summary = signal.summary ?? '';
 
   return `  <signal video_id="${signal.videoId}" title="${signal.title}">
     <channel>${signal.channelDisplayName}</channel>
-    <transcription>${transcriptionText}</transcription>
+    <content>${content}</content>
     <summary>${summary}</summary>
   </signal>`;
 }
@@ -206,13 +308,14 @@ function formatSignals(signals: ChatSignalContext[]): string {
  * Pure function: MultiSignalChatContext → string. No DB access, no side effects.
  * Three-tier template resolution: customTemplate → defaultMultiSignalChatPromptTemplate()
  */
-export function assembleMultiSignalChat(context: MultiSignalChatContext, customTemplate?: string): string {
+export function assembleMultiSignalChat(context: MultiSignalChatContext, customTemplate?: string, formatStyle: FormatStyle = 'annotated-index'): string {
   const template = customTemplate ?? defaultMultiSignalChatPromptTemplate();
   const signalsText = formatSignals(context.signals);
   const historyText = formatHistory(context.history);
 
   return template
     .replace(/{FILTER_TEXT}/g, context.filterText || '')
+    .replace(/{FORMAT_INSTRUCTIONS}/g, FORMAT_INSTRUCTIONS[formatStyle])
     .replace(/{SIGNALS}/g, signalsText)
     .replace(/{HISTORY}/g, historyText)
     .replace(/{QUESTION}/g, context.question);

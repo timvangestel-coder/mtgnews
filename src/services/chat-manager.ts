@@ -1,9 +1,21 @@
 import Database from 'better-sqlite3';
 import { LlmConfig, callLlmStream, callLlmSync } from '../llm';
-import { assembleChat, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate } from '../prompt-assembler';
+import { assembleChat, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate, type FormatStyle } from '../prompt-assembler';
 import { ChatScope, resolveScope, ChatSignalContext } from '../signal-chat-scope';
 import { ChatResponseFormatter } from '../chat-response-formatter';
 import { getAppSetting } from '../db/app-settings';
+
+/**
+ * Resolves the chat response format style from AppSettings.
+ * Defaults to 'annotated-index' when key is not set or value is invalid.
+ */
+function resolveFormatStyle(db: Database.Database): FormatStyle {
+  const setting = getAppSetting(db, 'chat_response_format');
+  if (setting === 'plain' || setting === 'annotated-index') {
+    return setting;
+  }
+  return 'annotated-index';
+}
 
 export interface ChatMessage {
   id: number;
@@ -22,19 +34,20 @@ export type HistoryFilter = string | ChatScope;
 /**
  * Resolves signal transcription, summary, and topic filter_text for chat context.
  */
-function resolveSignalForChat(db: Database.Database, videoId: string): { transcriptionJson: string; summary: string; filterText?: string } | null {
+function resolveSignalForChat(db: Database.Database, videoId: string): { transcriptionJson: string; summary: string; compactText?: string; filterText?: string } | null {
   const row = db.prepare(`
-    SELECT s.transcription, s.summary, t.filter_text
+    SELECT s.transcription, s.summary, s.compact_text, t.filter_text
     FROM signals s
     LEFT JOIN channels c ON s.channel_id = c.channel_id
     LEFT JOIN topics t ON c.topic_id = t.id
     WHERE s.video_id = ?
-  `).get(videoId) as { transcription: string; summary: string | null; filter_text?: string } | undefined;
+  `).get(videoId) as { transcription: string; summary: string | null; compact_text: string | null; filter_text?: string } | undefined;
 
   if (!row) return null;
   return {
     transcriptionJson: row.transcription,
     summary: row.summary ?? '',
+    compactText: row.compact_text || undefined,
     filterText: row.filter_text || undefined,
   };
 }
@@ -134,14 +147,16 @@ export class ChatManager {
     const historyRows = this.getHistory(signalVideoId);
     const history = historyRows.map((r) => ({ question: r.question, answer: r.answer }));
 
-    // Assemble chat prompt with topic filter_text for domain context
+    // Assemble chat prompt with format style from AppSettings (defaults to 'annotated-index')
+    const formatStyle = resolveFormatStyle(this.db);
     const prompt = assembleChat({
       transcriptionJson: signal.transcriptionJson,
       summary: signal.summary,
+      compactText: signal.compactText,
       filterText: signal.filterText,
       history,
       question,
-    });
+    }, undefined, formatStyle);
 
     // Buffer for tee pattern
     let bufferedAnswer = '';
@@ -263,14 +278,16 @@ export class ChatManager {
       ORDER BY created_at DESC LIMIT 10
     `).all(videoId) as Array<{ question: string; answer: string }>;
 
-    // Assemble chat prompt
+    // Assemble chat prompt with format style from AppSettings
+    const formatStyle = resolveFormatStyle(this.db);
     const prompt = assembleChat({
       transcriptionJson: signal.transcriptionJson,
       summary: signal.summary,
+      compactText: signal.compactText,
       filterText: signal.filterText,
       history: historyRows,
       question: row.question,
-    });
+    }, undefined, formatStyle);
 
     // Call LLM sync — throws on failure, leaving answer=NULL
     const rawAnswer = await callLlmSync(this.llmConfig, prompt, { abortSignal });
@@ -346,13 +363,14 @@ export class ChatManager {
       filterText = topicRow?.filter_text || undefined;
     }
 
-    // Assemble multi-signal chat prompt
+    // Assemble multi-signal chat prompt with format style from AppSettings
+    const formatStyle = resolveFormatStyle(this.db);
     const prompt = assembleMultiSignalChat({
       signals,
       history: historyRows,
       question: row.question,
       filterText,
-    }, customTemplate);
+    }, customTemplate, formatStyle);
 
     // Call LLM sync
     const rawAnswer = await callLlmSync(this.llmConfig, prompt, { abortSignal });

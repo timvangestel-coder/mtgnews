@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { getAppSetting } from './db/app-settings';
+import { getAppSetting } from './db/app-settings.ts';
 
 export interface SignalContext {
   transcriptionJson: string;

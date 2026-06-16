@@ -152,6 +152,57 @@ test.describe('SignalChat UI — Overlay Panel', () => {
     await expect(page.locator('.chat-entry')).toHaveCount(1);
   });
 
+  test('chat answer tables hide thead headers but keep tbody two-column layout', async ({ page, baseUrl, db }) => {
+    // Seed a chat answer with pre-formatted HTML table (is_formatted=1) containing thead + tbody
+    const answerHtml = [
+      '<table>',
+      '  <thead><tr><th>Timestamp</th><th>Finding</th></tr></thead>',
+      '  <tbody>',
+      '    <tr><td>[02:13]</td><td>Deep space relay nodes function as fueling stations</td></tr>',
+      '    <tr><td>[09:40]</td><td>Scientific impossibilities are engineering challenges</td></tr>',
+      '  </tbody>',
+      '</table>'
+    ].join('');
+
+    db.prepare(
+      `INSERT INTO signal_chat (signal_video_id, question, answer, is_formatted) VALUES (?, ?, ?, 1)`
+    ).run('vid_chat', 'can you tell me the interesting topics?', answerHtml);
+
+    await page.goto(`${baseUrl}/signals/vid_chat`);
+
+    // Wait for Alpine to process x-show on the toggle button
+    await page.waitForFunction(() => {
+      if (!window.Alpine) return false;
+      const btn = document.querySelector('[data-chat-toggle]');
+      if (!btn) return false;
+      const style = window.getComputedStyle(btn);
+      return style.display !== 'none';
+    }, { timeout: 15000 });
+
+    // Open chat panel
+    await page.locator('[data-chat-toggle]').click();
+    await page.waitForTimeout(800);
+
+    // History loaded — question visible
+    const seededQuestion = page.locator('.chat-question:has-text("can you tell me the interesting topics?")');
+    await expect(seededQuestion).toBeAttached();
+
+    // THEAD must be hidden (display: none) within .chat-answer tables
+    const theadHidden = await page.$eval('.chat-answer table thead', (el) => {
+      return window.getComputedStyle(el).display === 'none';
+    });
+    expect(theadHidden).toBe(true);
+
+    // TBODY rows must still be visible — two-column layout preserved
+    const tbodyRows = await page.locator('.chat-answer table tbody tr');
+    expect(await tbodyRows.count()).toBe(2);
+
+    // First row cells are visible and contain expected content
+    const firstRow = tbodyRows.first();
+    await expect(firstRow.locator('td').first()).toContainText('02:13');
+    await expect(firstRow.locator('td').last()).toContainText('Deep space relay nodes');
+  });
+
   test('send form has input bound to Alpine and submit handler', async ({ page, baseUrl }) => {
     await page.goto(`${baseUrl}/signals/vid_chat`);
 

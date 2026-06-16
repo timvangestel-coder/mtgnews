@@ -24,6 +24,7 @@ export interface ChatSignalContext {
   title: string;
   channelDisplayName: string;
   summary: string;
+  compactText?: string;
 }
 
 /**
@@ -40,7 +41,7 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
   // Single-video scope
   if (scope.videoId) {
     const row = db.prepare(`
-      SELECT s.video_id, s.transcription, s.summary, t.id AS topic_id, t.filter_text, t.summary_prompt,
+      SELECT s.video_id, s.transcription, s.summary, s.compact_text, t.id AS topic_id, t.filter_text, t.summary_prompt,
              c.display_name AS channel_display_name, s.title
       FROM signals s
       JOIN channels c ON s.channel_id = c.channel_id
@@ -51,6 +52,7 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
           video_id: string;
           transcription: string;
           summary: string | null;
+          compact_text: string | null;
           topic_id: number | null;
           filter_text: string | null;
           summary_prompt: string | null;
@@ -75,6 +77,7 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
         title: row.title,
         channelDisplayName: row.channel_display_name,
         summary: row.summary ?? '',
+        compactText: row.compact_text ?? undefined,
       },
     ];
   }
@@ -103,7 +106,7 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const rows = db.prepare(`
-    SELECT s.video_id, s.transcription, s.summary, t.id AS topic_id, t.filter_text, t.summary_prompt,
+    SELECT s.video_id, s.transcription, s.summary, s.compact_text, t.id AS topic_id, t.filter_text, t.summary_prompt,
            c.display_name AS channel_display_name, s.title
     FROM signals s
     JOIN channels c ON s.channel_id = c.channel_id
@@ -114,6 +117,7 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
     video_id: string;
     transcription: string;
     summary: string | null;
+    compact_text: string | null;
     topic_id: number | null;
     filter_text: string | null;
     summary_prompt: string | null;
@@ -132,5 +136,6 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
     title: row.title,
     channelDisplayName: row.channel_display_name,
     summary: row.summary ?? '',
+    compactText: row.compact_text ?? undefined,
   }));
 }

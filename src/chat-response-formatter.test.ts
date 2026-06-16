@@ -117,6 +117,66 @@ describe('ChatResponseFormatter', () => {
     });
   });
 
+  describe('format - GFM markdown (marked library)', () => {
+    it('renders GFM tables as proper <table> HTML', () => {
+      const signalMap = { vid1: { title: 'V' } };
+      const input = [
+        '| Column A | Column B |',
+        '|----------|----------|',
+        '| cell 1   | cell 2   |'
+      ].join('\n');
+      const result = formatter.format(input, signalMap);
+
+      expect(result).toContain('<table>');
+      expect(result).toContain('<tr>');
+      expect(result).toContain('cell 1');
+      expect(result).toContain('cell 2');
+    });
+
+    it('renders headings as proper <h> tags', () => {
+      const signalMap = { vid1: { title: 'V' } };
+      const result = formatter.format('## This is a heading', signalMap);
+
+      expect(result).toContain('<h2>This is a heading</h2>');
+    });
+
+    it('renders bullet lists as <ul><li> tags', () => {
+      const signalMap = { vid1: { title: 'V' } };
+      const input = '- item one\n- item two\n- item three';
+      const result = formatter.format(input, signalMap);
+
+      expect(result).toContain('<ul>');
+      expect(result).toContain('<li>item one</li>');
+      expect(result).toContain('<li>item three</li>');
+    });
+
+    it('renders blockquotes', () => {
+      const signalMap = { vid1: { title: 'V' } };
+      const result = formatter.format('> this is a quote', signalMap);
+
+      expect(result).toContain('<blockquote>');
+      expect(result).toContain('this is a quote');
+    });
+
+    it('does NOT convert soft line breaks to <br> (breaks: false)', () => {
+      const signalMap = { vid1: { title: 'V' } };
+      const result = formatter.format('line one\nline two', signalMap);
+
+      expect(result).not.toContain('<br>');
+    });
+
+    it('timestamps inside code spans still convert (known limitation)', () => {
+      const signalMap = { vid1: { title: 'V' } };
+      const result = formatter.format('See `T:42` for details.', signalMap);
+
+      // Known limitation: timestamp regex runs before markdown processing, so T:42
+      // inside backticks still gets converted to a pill link wrapped in <code>.
+      // This is acceptable because LLM currently outputs bare T:ss text (not `T:ss`).
+      expect(result).toContain('#t-42000');
+      expect(result).toContain('<code>');
+    });
+  });
+
   describe('format - markdown and HTML escaping', () => {
     it('escapes HTML entities in text', () => {
       const signalMap = { vid1: { title: 'V' } };
@@ -192,6 +252,67 @@ describe('ChatResponseFormatter', () => {
     it('leaves malformed delimiters as escaped text', () => {
       const result = formatter.format('Bad <notacitation> and <also:bad>.', {});
       expect(result).toContain(LT + 'notacitation' + GT);
+    });
+  });
+
+  describe('format - title-based videoId context (issue #154)', () => {
+    it('tracer bullet: timestamps under **Source Title** heading get deep links via title matching', () => {
+      const signalMap = { dQw4w9WgXcQ: { title: 'Rick Astley - Never Gonna Give You Up' } };
+      const result = formatter.format(
+        '**Rick Astley - Never Gonna Give You Up**\n\nThe artist explains at [3:27].',
+        signalMap
+      );
+
+      // Timestamp should produce deep link, not fragment-only
+      expect(result).toContain('/signals/dQw4w9WgXcQ#t-207000');
+      expect(result).not.toContain('href="#t-207000"');
+    });
+
+    it('multiple headings with different videoIds each control their own timestamps', () => {
+      const signalMap = {
+        vidAAA: { title: 'Video Alpha' },
+        vidBBB: { title: 'Video Beta' }
+      };
+      const result = formatter.format(
+        '**Video Alpha**\n\nPoint A at [1:00].\n\n**Video Beta**\n\nPoint B at [2:30].',
+        signalMap
+      );
+
+      // First timestamp belongs to Video Alpha
+      expect(result).toContain('/signals/vidAAA#t-60000');
+      // Second timestamp belongs to Video Beta
+      expect(result).toContain('/signals/vidBBB#t-150000');
+    });
+
+    it('partial title match still resolves videoId', () => {
+      const signalMap = { vid123: { title: 'MTG News Weekly Episode 42' } };
+      const result = formatter.format(
+        '**MTG News Weekly**\n\nDiscussion at [5:00].',
+        signalMap
+      );
+
+      expect(result).toContain('/signals/vid123#t-300000');
+    });
+
+    it('timestamps before any heading fall back to fragment-only link', () => {
+      const signalMap = { vid1: { title: 'Some Video' } };
+      const result = formatter.format(
+        'Intro point at [0:30].\n\n**Some Video**\n\nMain point at [1:00].',
+        signalMap
+      );
+
+      // First timestamp has no heading context → fragment-only
+      expect(result).toContain('href="#t-30000"');
+      // Second timestamp is under heading → deep link
+      expect(result).toContain('/signals/vid1#t-60000');
+    });
+
+    it('citation-based videoId inheritance still works (single-signal regression)', () => {
+      const signalMap = { vid1: { title: 'V' } };
+      const result = formatter.format('<vid1:T:10> and [T:20].', signalMap);
+
+      expect(result).toContain('/signals/vid1#t-10000');
+      expect(result).toContain('/signals/vid1#t-20000');
     });
   });
 

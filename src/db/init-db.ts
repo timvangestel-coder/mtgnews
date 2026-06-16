@@ -245,4 +245,9 @@ export function initDb(db: Database.Database): void {
     if (!chatColsV2.includes('is_formatted')) {
       db.exec('ALTER TABLE signal_chat ADD COLUMN is_formatted INTEGER DEFAULT 0');
     }
+
+    // Issue #144: Migration — add compact_text to signals (TEXT, nullable) for CompactTranscription
+    if (!signalCols.includes('compact_text')) {
+      db.exec('ALTER TABLE signals ADD COLUMN compact_text TEXT');
+    }
 }
