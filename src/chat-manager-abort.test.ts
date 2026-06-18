@@ -2,14 +2,14 @@ import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb } from '../tests/fixtures/test-db';
 
-// Mock callLlmSync so tests don't hit real LLM
-const mockCallLlmSync = vi.fn();
+// Mock callLlmStreamWithPhases so tests don't hit real LLM
+const mockCallLlmStreamWithPhases = vi.fn();
 
 vi.mock('./llm', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./llm')>();
   return {
     ...actual,
-    callLlmSync: (...args: unknown[]) => mockCallLlmSync(...args),
+    callLlmStreamWithPhases: (...args: unknown[]) => mockCallLlmStreamWithPhases(...args),
   };
 });
 
@@ -52,22 +52,26 @@ describe('ChatManager AbortSignal seam', () => {
 
     const chatManager = new ChatManager(db, getLlmConfigFn());
 
-    // Insert a pending row (single-signal: signal_video_id set, no topic_key/channel_id)
     const result = db.prepare(
       "INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)"
     ).run('vid_1', 'what is this?');
     const chatId = Number(result.lastInsertRowid);
 
+    // Streaming mock that yields a token then checks abort
+    mockCallLlmStreamWithPhases.mockImplementation(async function* (config, prompt, options) {
+      yield 'partial';
+      if (options?.abortSignal?.aborted) return;
+      yield 'more';
+    });
+
     // Create an already-aborted signal
     const controller = new AbortController();
     controller.abort();
 
-    mockCallLlmSync.mockResolvedValue('this should not be persisted');
-
-    // Process with aborted signal — should NOT write answer
+    // Process with aborted signal — abort check after stream prevents DB write
     await chatManager.process(chatId, { abortSignal: controller.signal });
 
-    // Answer must still be NULL (no DB write after abort check)
+    // Answer must still be NULL (abort detected before persist)
     const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(chatId) as { answer: string | null };
     expect(row.answer).toBeNull();
   });
@@ -77,17 +81,19 @@ describe('ChatManager AbortSignal seam', () => {
 
     const chatManager = new ChatManager(db, getLlmConfigFn());
 
-    // Insert a pending row (multi-signal: topic_key set)
     const result = db.prepare(
       "INSERT INTO signal_chat (signal_video_id, question, answer, topic_key) VALUES (?, ?, NULL, ?)"
     ).run(null, 'compare all', 'tech');
     const chatId = Number(result.lastInsertRowid);
 
-    // Create an already-aborted signal
+    mockCallLlmStreamWithPhases.mockImplementation(async function* (config, prompt, options) {
+      yield 'partial';
+      if (options?.abortSignal?.aborted) return;
+      yield 'more';
+    });
+
     const controller = new AbortController();
     controller.abort();
-
-    mockCallLlmSync.mockResolvedValue('multi-signal answer that should not persist');
 
     await chatManager.process(chatId, { abortSignal: controller.signal });
 
@@ -96,7 +102,7 @@ describe('ChatManager AbortSignal seam', () => {
     expect(row.answer).toBeNull();
   });
 
-  it('process() threads abortSignal into callLlmSync for single-signal', async () => {
+  it('process() threads abortSignal into callLlmStreamWithPhases for single-signal', async () => {
     seedTopic(); seedChannel(); seedSignal();
 
     const chatManager = new ChatManager(db, getLlmConfigFn());
@@ -106,20 +112,21 @@ describe('ChatManager AbortSignal seam', () => {
     ).run('vid_1', 'what is this?');
     const chatId = Number(result.lastInsertRowid);
 
-    const controller = new AbortController();
-    mockCallLlmSync.mockResolvedValue('normal answer');
+    let capturedOptions: unknown;
+    mockCallLlmStreamWithPhases.mockImplementation(async function* (config, prompt, options) {
+      capturedOptions = options;
+      yield 'token';
+    });
 
+    const controller = new AbortController();
     await chatManager.process(chatId, { abortSignal: controller.signal });
 
-    // callLlmSync must have been called with options including abortSignal
-    expect(mockCallLlmSync).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.any(String),
-      expect.objectContaining({ abortSignal: controller.signal })
-    );
+    // callLlmStreamWithPhases must have been called with options including abortSignal
+    expect(capturedOptions).toBeDefined();
+    expect((capturedOptions as { abortSignal?: AbortSignal }).abortSignal).toBe(controller.signal);
   });
 
-  it('process() threads abortSignal into callLlmSync for multi-signal', async () => {
+  it('process() threads abortSignal into callLlmStreamWithPhases for multi-signal', async () => {
     seedTopic(); seedChannel(); seedSignal();
 
     const chatManager = new ChatManager(db, getLlmConfigFn());
@@ -129,16 +136,17 @@ describe('ChatManager AbortSignal seam', () => {
     ).run(null, 'compare all', 'tech');
     const chatId = Number(result.lastInsertRowid);
 
-    const controller = new AbortController();
-    mockCallLlmSync.mockResolvedValue('multi answer');
+    let capturedOptions: unknown;
+    mockCallLlmStreamWithPhases.mockImplementation(async function* (config, prompt, options) {
+      capturedOptions = options;
+      yield 'token';
+    });
 
+    const controller = new AbortController();
     await chatManager.process(chatId, { abortSignal: controller.signal });
 
-    expect(mockCallLlmSync).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.any(String),
-      expect.objectContaining({ abortSignal: controller.signal })
-    );
+    expect(capturedOptions).toBeDefined();
+    expect((capturedOptions as { abortSignal?: AbortSignal }).abortSignal).toBe(controller.signal);
   });
 
   it('process() with no signal works as before (no regression)', async () => {
@@ -151,7 +159,9 @@ describe('ChatManager AbortSignal seam', () => {
     ).run('vid_1', 'what is this?');
     const chatId = Number(result.lastInsertRowid);
 
-    mockCallLlmSync.mockResolvedValue('normal answer');
+    mockCallLlmStreamWithPhases.mockImplementation(async function* () {
+      yield 'token';
+    });
 
     await chatManager.process(chatId);
 
@@ -161,7 +171,7 @@ describe('ChatManager AbortSignal seam', () => {
     expect(row.is_formatted).toBe(1);
   });
 
-  it('process() propagates AbortError from callLlmSync', async () => {
+  it('process() propagates AbortError from stream', async () => {
     seedTopic(); seedChannel(); seedSignal();
 
     const chatManager = new ChatManager(db, getLlmConfigFn());
@@ -173,7 +183,10 @@ describe('ChatManager AbortSignal seam', () => {
 
     const controller = new AbortController();
     const abortError = new DOMException('The operation was aborted', 'AbortError');
-    mockCallLlmSync.mockRejectedValue(abortError);
+    mockCallLlmStreamWithPhases.mockImplementation(async function* () {
+      yield 'partial';
+      throw abortError;
+    });
 
     await expect(chatManager.process(chatId, { abortSignal: controller.signal }))
       .rejects.toThrow('aborted');

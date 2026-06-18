@@ -7,8 +7,17 @@
   <strong>A:</strong> <span class="font-medium">failed</span>
 </div>
 <% } else if (status === 'pending') { %>
-<div class="chat-answer text-sm text-gray-500 mt-1">
-  <strong>A:</strong> <span class="animate-pulse">processing...</span>
+<%
+  var phaseLabel = 'processing...';
+  if (typeof phase !== 'undefined') {
+    if (phase === 'intake') phaseLabel = 'Intaking...';
+    else if (phase === 'reasoning') phaseLabel = 'Reasoning...' + (typeof tokenCount !== 'undefined' ? ' (' + tokenCount + ' tokens)' : '');
+    else if (phase === 'answering') phaseLabel = 'Answering...' + (typeof tokenCount !== 'undefined' ? ' (' + tokenCount + ' tokens)' : '');
+    else if (phase === 'done') phaseLabel = 'Done';
+  }
+%>
+<div class="chat-answer text-sm text-gray-500 mt-1" data-chat-phase="<%= typeof phase !== 'undefined' ? phase : '' %>" data-chat-token-count="<%= typeof tokenCount !== 'undefined' ? tokenCount : 0 %>">
+  <strong>A:</strong> <span class="animate-pulse chat-phase-text"><%= phaseLabel %></span>
 </div>
 <% } else { %>
 <div class="chat-answer text-sm text-gray-700 mt-1">

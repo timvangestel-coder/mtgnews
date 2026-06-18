@@ -24,8 +24,8 @@
             <strong>A:</strong> <span class="font-medium">failed</span>
           </div>
         <% } else if (status === 'pending') { %>
-          <div class="chat-answer text-sm text-gray-500 mt-1" data-chat-status="pending" data-chat-id="<%= msg.id %>">
-            <strong>A:</strong> <span class="animate-pulse">processing...</span>
+          <div class="chat-answer text-sm text-gray-500 mt-1" data-chat-status="pending" data-chat-id="<%= msg.id %>" data-chat-phase="" data-chat-token-count="0">
+            <strong>A:</strong> <span class="animate-pulse chat-phase-text">processing...</span>
           </div>
         <% } else { %>
           <div class="chat-answer text-sm text-gray-700 mt-1" data-chat-status="done">

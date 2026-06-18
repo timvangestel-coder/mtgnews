@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
-import { LlmConfig, callLlmStream, callLlmSync } from '../llm';
+import { LlmConfig, callLlmStream, callLlmSync, callLlmStreamWithPhases } from '../llm';
+import type { LlmPhase } from '../phase-registry.ts';
 import { assembleChat, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate, type FormatStyle } from '../prompt-assembler';
 import { ChatScope, resolveScope, ChatSignalContext } from '../signal-chat-scope';
 import { ChatResponseFormatter } from '../chat-response-formatter';
@@ -54,6 +55,7 @@ function resolveSignalForChat(db: Database.Database, videoId: string): { transcr
 
 export interface ProcessOptions {
   abortSignal?: AbortSignal;
+  onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void;
 }
 
 export class ChatManager {
@@ -256,13 +258,13 @@ export class ChatManager {
     const isListScoped = row.topic_key !== null || row.channel_id !== null;
 
     if (isListScoped) {
-      await this._processMultiSignal(row, options?.abortSignal);
+      await this._processMultiSignal(row, options?.abortSignal, options?.onPhaseChange);
     } else {
-      await this._processSingleSignal(row, options?.abortSignal);
+      await this._processSingleSignal(row, options?.abortSignal, options?.onPhaseChange);
     }
   }
 
-  private async _processSingleSignal(row: { id: number; signal_video_id: string | null; question: string }, abortSignal?: AbortSignal): Promise<void> {
+  private async _processSingleSignal(row: { id: number; signal_video_id: string | null; question: string }, abortSignal?: AbortSignal, onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void): Promise<void> {
     const videoId = row.signal_video_id!;
 
     // Resolve signal context
@@ -289,14 +291,6 @@ export class ChatManager {
       question: row.question,
     }, undefined, formatStyle);
 
-    // Call LLM sync — throws on failure, leaving answer=NULL
-    const rawAnswer = await callLlmSync(this.llmConfig, prompt, { abortSignal });
-
-    // Check abort before persisting
-    if (abortSignal?.aborted) {
-      return;
-    }
-
     // Build signalMap for unified formatter (single-signal passes one entry)
     const sigTitle = this.db.prepare(
       'SELECT title FROM signals WHERE video_id = ?'
@@ -305,15 +299,32 @@ export class ChatManager {
     if (sigTitle) {
       signalMap[videoId] = { title: sigTitle.title };
     }
-    const answer = ChatResponseFormatter.format(rawAnswer, signalMap);
 
-    // Persist answer on success (is_formatted=1: TimestampFormatter already ran)
-    this.db.prepare(
-      'UPDATE signal_chat SET answer = ?, is_formatted = 1 WHERE id = ?'
-    ).run(answer, row.id);
+    // Stream LLM with phase detection — tee pattern: buffer tokens, persist after completion
+    let bufferedAnswer = '';
+    try {
+      for await (const token of callLlmStreamWithPhases(this.llmConfig, prompt, { abortSignal, onPhaseChange })) {
+        bufferedAnswer += token;
+      }
+
+      // Check abort before persisting
+      if (abortSignal?.aborted) {
+        return;
+      }
+
+      const answer = ChatResponseFormatter.format(bufferedAnswer, signalMap);
+
+      // Persist answer on success (is_formatted=1: ChatResponseFormatter ran internally)
+      this.db.prepare(
+        'UPDATE signal_chat SET answer = ?, is_formatted = 1 WHERE id = ?'
+      ).run(answer, row.id);
+    } catch (error) {
+      // Do NOT partial-write to DB on failure — answer remains NULL
+      throw error;
+    }
   }
 
-  private async _processMultiSignal(row: { id: number; question: string; topic_key: string | null; channel_id: string | null; include_irrelevant: number | null }, abortSignal?: AbortSignal): Promise<void> {
+  private async _processMultiSignal(row: { id: number; question: string; topic_key: string | null; channel_id: string | null; include_irrelevant: number | null }, abortSignal?: AbortSignal, onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void): Promise<void> {
     // Build scope from DB columns
     const scope: ChatScope = {
       topicKey: row.topic_key ?? undefined,
@@ -372,21 +383,28 @@ export class ChatManager {
       filterText,
     }, customTemplate, formatStyle);
 
-    // Call LLM sync
-    const rawAnswer = await callLlmSync(this.llmConfig, prompt, { abortSignal });
+    // Stream LLM with phase detection — tee pattern: buffer tokens, persist after completion
+    let bufferedAnswer = '';
+    try {
+      for await (const token of callLlmStreamWithPhases(this.llmConfig, prompt, { abortSignal, onPhaseChange })) {
+        bufferedAnswer += token;
+      }
 
-    // Check abort before persisting
-    if (abortSignal?.aborted) {
-      return;
+      // Check abort before persisting
+      if (abortSignal?.aborted) {
+        return;
+      }
+
+      const answer = ChatResponseFormatter.format(bufferedAnswer, signalMap);
+
+      // Persist answer on success (is_formatted=1: ChatResponseFormatter ran internally)
+      this.db.prepare(
+        'UPDATE signal_chat SET answer = ?, is_formatted = 1 WHERE id = ?'
+      ).run(answer, row.id);
+    } catch (error) {
+      // Do NOT partial-write to DB on failure — answer remains NULL
+      throw error;
     }
-
-    // Transform response with unified formatter
-    const answer = ChatResponseFormatter.format(rawAnswer, signalMap);
-
-    // Persist answer on success (is_formatted=1: CitationFormatter ran TimestampFormatter internally)
-    this.db.prepare(
-      'UPDATE signal_chat SET answer = ?, is_formatted = 1 WHERE id = ?'
-    ).run(answer, row.id);
   }
 
   /**

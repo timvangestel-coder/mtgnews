@@ -74,6 +74,8 @@ describe('chat-router HTMX polling for pending questions', () => {
       // Pending divs have data-chat-status="pending" and data-chat-id for JS polling
       expect(resp.text).toContain('data-chat-status="pending"');
       expect(resp.text).toContain(`data-chat-id="${chatId}"`);
+      // Must include chat-phase-text class so JS polling can update phase label
+      expect(resp.text).toContain('chat-phase-text');
     });
 
     it('renders completed row with answer (no spinner)', async () => {

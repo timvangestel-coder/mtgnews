@@ -130,24 +130,33 @@
              var el = pendingEls[i];
              var chatId = el.getAttribute('data-chat-id');
              if (!chatId) continue;
-             fetch('/chat/' + chatId + '/status')
-               .then(function(r) { return r.json(); })
-               .then(function(data) {
-                 if (data.status === 'done' || data.status === 'failed') {
-                   // Update this specific answer div.
-                   var statusDiv = el;
-                   if (data.status === 'failed') {
-                     statusDiv.innerHTML = '<strong>A:</strong> <span class="font-medium">failed</span>';
-                     statusDiv.setAttribute('data-chat-status', 'failed');
-                   } else {
-                     // For done, we need the answer text — re-fetch history for this entry.
-                     // Simplest: replace with a loading indicator and reload full history.
-                     self.loadHistory();
-                     clearInterval(self._statusPollTimer);
-                     self._statusPollTimer = null;
-                   }
-                 }
-               })
+              fetch('/chat/' + chatId + '/status')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.status === 'done' || data.status === 'failed') {
+                    // Update this specific answer div.
+                    var statusDiv = el;
+                    if (data.status === 'failed') {
+                      statusDiv.innerHTML = '<strong>A:</strong> <span class="font-medium">failed</span>';
+                      statusDiv.setAttribute('data-chat-status', 'failed');
+                    } else {
+                      // For done, we need the answer text — re-fetch history for this entry.
+                      // Simplest: replace with a loading indicator and reload full history.
+                      self.loadHistory();
+                      clearInterval(self._statusPollTimer);
+                      self._statusPollTimer = null;
+                    }
+                  } else if (data.status === 'pending' && data.phase) {
+                    // Update phase text while still processing
+                    var phaseSpan = el.querySelector('.chat-phase-text');
+                    if (phaseSpan) {
+                      var label = self._getPhaseLabel(data.phase, data.tokenCount);
+                      phaseSpan.textContent = label;
+                    }
+                    el.setAttribute('data-chat-phase', data.phase || '');
+                    el.setAttribute('data-chat-token-count', data.tokenCount || 0);
+                  }
+                })
                .catch(function() { /* ignore */ });
            }
          }, 3000);
@@ -161,11 +170,24 @@
          }
        },
 
-       /** Check if two scope objects are equal (used to detect filter changes). */
-       _scopeEqual: function(a, b) {
-         if (!a || !b) return a === b;
-         return a.topicKey === b.topicKey && a.channelId === b.channelId;
-       },
+        /** Check if two scope objects are equal (used to detect filter changes). */
+        _scopeEqual: function(a, b) {
+          if (!a || !b) return a === b;
+          return a.topicKey === b.topicKey && a.channelId === b.channelId;
+        },
+
+        /** Build a human-readable phase label from phase + tokenCount. */
+        _getPhaseLabel: function(phase, tokenCount) {
+          if (!phase) return 'processing...';
+          var countStr = (typeof tokenCount === 'number' && tokenCount > 0) ? ' (' + tokenCount + ' tokens)' : '';
+          switch (phase) {
+            case 'intake': return 'Intaking...';
+            case 'reasoning': return 'Reasoning...' + countStr;
+            case 'answering': return 'Answering...' + countStr;
+            case 'done': return 'Done';
+            default: return 'processing...';
+          }
+        },
 
        async loadHistory() {
          try {

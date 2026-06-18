@@ -3,6 +3,7 @@ import { fetchWithRetry } from './http-retry.ts';
 import { assemble } from './prompt-assembler.ts';
 import { resolveSignalContext } from './signal-context.ts';
 import { markSummarized, markIrrelevant } from './signal-state.ts';
+import type { LlmPhase } from './phase-registry.ts';
 
 export interface LlmConfig {
   endpoint: string;
@@ -11,6 +12,15 @@ export interface LlmConfig {
 
 export interface LlmCallOptions {
   abortSignal?: AbortSignal;
+}
+
+export interface LlmStreamOptions extends LlmCallOptions {
+  onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void;
+}
+
+export interface AnalyzeSignalOptions {
+  abortSignal?: AbortSignal;
+  onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void;
 }
 
 const MAX_RETRIES = 1;
@@ -112,6 +122,120 @@ export async function* callLlmStream(
   }
 }
 
+/**
+ * Streaming LLM call with phase detection — yields content tokens and fires
+ * onPhaseChange callbacks at each phase transition.
+ *
+ * Phases: intake → reasoning → answering → done
+ * - intake: fired at request-send time (tokenCount=0)
+ * - reasoning: fired when first chunk has delta.reasoning_content
+ * - answering: fired when first chunk has delta.content after reasoning
+ * - done: fired when finish_reason === 'stop'
+ *
+ * Generator yields only content tokens; reasoning_content is not yielded.
+ */
+export async function* callLlmStreamWithPhases(
+  config: LlmConfig,
+  prompt: string,
+  options?: LlmStreamOptions
+): AsyncGenerator<string> {
+  const onPhase = options?.onPhaseChange;
+
+  const response = await fetchWithRetry(config.endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [{ role: 'user', content: prompt }],
+      stream: true,
+      stream_options: { include_usage: true },
+    }),
+  }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
+
+  if (!response.ok) {
+    throw new Error(`LLM stream HTTP ${response.status} ${response.statusText}`);
+  }
+
+  if (!response.body) {
+    throw new Error('LLM stream response has no body');
+  }
+
+  // Fire 'intake' phase at request-send time
+  onPhase?.('intake', 0);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let tokenCount = 0;
+  let reasoningFired = false;
+  let answeringFired = false;
+  let actualTokenCount: number | null = null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data: ')) continue;
+
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') return;
+
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta;
+          const finishReason = parsed.choices?.[0]?.finish_reason;
+
+          // Capture usage from final chunk (stream_options: include_usage)
+          if (parsed.usage?.completion_tokens !== undefined) {
+            actualTokenCount = parsed.usage.completion_tokens;
+          }
+
+          // Check for done
+          if (finishReason === 'stop') {
+            // Use actual token count from LLM usage, or fall back to chunk count
+            const finalCount = actualTokenCount ?? tokenCount;
+            onPhase?.('done', finalCount);
+            return;
+          }
+
+          // Handle reasoning_content — each chunk is one token
+          if (delta?.reasoning_content) {
+            tokenCount++;
+            if (!reasoningFired) {
+              reasoningFired = true;
+            }
+            onPhase?.('reasoning', tokenCount);
+            // Do NOT yield reasoning_content
+            continue;
+          }
+
+          // Handle content — each chunk is one token
+          if (delta?.content) {
+            if (!answeringFired) {
+              answeringFired = true;
+            }
+            tokenCount++;
+            onPhase?.('answering', tokenCount);
+            yield delta.content;
+          }
+        } catch {
+          // skip malformed SSE data lines
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:1234/v1/chat/completions';
 const DEFAULT_MODEL = 'qwen/qwen3.6-27b';
 
@@ -159,17 +283,24 @@ function clampScore(score: number): number {
   return Math.max(1, Math.min(5, Math.round(score)));
 }
 
-/** @internal — wraps callLlmSync with domain-specific error context for analyzeSignal */
-async function callLlmWithRetry(
+/** @internal — streams via callLlmStreamWithPhases, buffers tokens, returns full content string */
+async function callLlmStreamBuffered(
   endpoint: string,
   model: string,
   prompt: string,
   callName: string,
   videoId: string,
-  signal?: AbortSignal
+  options?: AnalyzeSignalOptions
 ): Promise<string> {
   try {
-    return await callLlmSync({ endpoint, model }, prompt, { abortSignal: signal });
+    let buffer = '';
+    for await (const token of callLlmStreamWithPhases({ endpoint, model }, prompt, {
+      abortSignal: options?.abortSignal,
+      onPhaseChange: options?.onPhaseChange,
+    })) {
+      buffer += token;
+    }
+    return buffer;
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     if (err.name === 'AbortError') {
@@ -183,7 +314,8 @@ export async function analyzeSignal(
   db: Database.Database,
   videoId: string,
   config: LlmConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void
 ): Promise<AnalysisResult> {
   try {
     // Resolve signal context using single joined query (issue #100)
@@ -197,8 +329,8 @@ export async function analyzeSignal(
     // Assemble prompt using PromptAssembler (issue #100)
     const prompt = assemble(context);
 
-    const analysisContent = await callLlmWithRetry(
-      config.endpoint, config.model, prompt, 'analysis', videoId, signal
+    const analysisContent = await callLlmStreamBuffered(
+      config.endpoint, config.model, prompt, 'analysis', videoId, { abortSignal: signal, onPhaseChange }
     );
 
     // LLM always outputs [prose reasoning] + [JSON object at end].

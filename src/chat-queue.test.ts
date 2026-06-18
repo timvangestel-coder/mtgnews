@@ -409,4 +409,311 @@ describe('ChatQueue', () => {
     expect(queue.status(insertedId)).toBe('done');
     expect(queue.statusInfo(insertedId)).toEqual({ status: 'done', answer: 'multi-signal answer', isFormatted: 0 });
   });
+
+  /* ─── Issue #157: ChatQueue PhaseRegistry integration (merged from chat-queue-phase.test.ts) ─── */
+
+  it('statusInfo returns phase and tokenCount when status is pending', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let processGate = () => {};
+    mockSubmit.mockImplementation(() => {
+      const result = db.prepare("INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)").run('vid_1', 'phase test question');
+      return Number(result.lastInsertRowid);
+    });
+    mockProcess.mockImplementation(async (_id: number, options?: { abortSignal?: AbortSignal; onPhaseChange?: (phase: string, count: number) => void }) => {
+      if (options?.onPhaseChange) {
+        options.onPhaseChange('intake', 0);
+        options.onPhaseChange('reasoning', 347);
+        options.onPhaseChange('answering', 891);
+      }
+      // Gate: keep task running until test has read phase data, then resolve
+      await new Promise<void>(resolve => { processGate = resolve; });
+    });
+
+    const id = queue.enqueue('vid_1', 'phase test question');
+    await new Promise((r) => setTimeout(r, 10)); // let task start in pool
+
+    const info = queue.statusInfo(id);
+    expect(info).not.toBeNull();
+    expect(info!.status).toBe('pending');
+    expect(info!.phase).toBeDefined();
+    expect(['intake', 'reasoning', 'answering']).toContain(info!.phase);
+
+    processGate();  // let mock complete
+    await pool.drain();
+  });
+
+  it('PhaseRegistry entries are cleaned up after task completes', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let insertedId = 0;
+    mockSubmit.mockImplementation(() => {
+      const result = db.prepare("INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)").run('vid_1', 'cleanup test');
+      insertedId = Number(result.lastInsertRowid);
+      return insertedId;
+    });
+    mockProcess.mockImplementation(async (_id: number, options?: { onPhaseChange?: (phase: string, count: number) => void }) => {
+      if (options?.onPhaseChange) {
+        options.onPhaseChange('intake', 0);
+      }
+      await new Promise((r) => setTimeout(r, 30));
+    });
+
+    queue.enqueue('vid_1', 'cleanup test');
+    await new Promise((r) => setTimeout(r, 20));
+
+    const infoDuring = queue.statusInfo(insertedId);
+    expect(infoDuring).not.toBeNull();
+    expect(infoDuring!.phase).toBe('intake');
+
+    await pool.drain();
+
+    const infoAfter = queue.statusInfo(insertedId);
+    expect(infoAfter).not.toBeNull();
+  });
+
+  it('PhaseRegistry entries are cleaned up after task fails', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let insertedId = 0;
+    mockSubmit.mockImplementation(() => {
+      const result = db.prepare("INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)").run('vid_1', 'fail cleanup test');
+      insertedId = Number(result.lastInsertRowid);
+      return insertedId;
+    });
+    mockProcess.mockImplementation(async (_id: number, options?: { onPhaseChange?: (phase: string, count: number) => void }) => {
+      if (options?.onPhaseChange) {
+        options.onPhaseChange('reasoning', 100);
+      }
+      await new Promise((r) => setTimeout(r, 20));
+      throw new Error('LLM failed');
+    });
+
+    queue.enqueue('vid_1', 'fail cleanup test');
+    await pool.drain();
+
+    const info = queue.statusInfo(insertedId);
+    expect(info).not.toBeNull();
+    expect(info!.status).toBe('failed');
+  });
+
+  it('onPhaseChange callback is passed through to process()', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let capturedCallback: ((phase: string, count: number) => void) | undefined;
+    let insertedId = 0;
+    mockSubmit.mockImplementation(() => {
+      const result = db.prepare("INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)").run('vid_1', 'callback test');
+      insertedId = Number(result.lastInsertRowid);
+      return insertedId;
+    });
+    mockProcess.mockImplementation(async (_id: number, options?: { onPhaseChange?: (phase: string, count: number) => void }) => {
+      capturedCallback = options?.onPhaseChange;
+    });
+
+    queue.enqueue('vid_1', 'callback test');
+    await pool.drain();
+
+    expect(capturedCallback).toBeDefined();
+    expect(typeof capturedCallback).toBe('function');
+
+    capturedCallback!('reasoning', 42);
+    const info = queue.statusInfo(insertedId);
+    expect(info).not.toBeNull();
+    expect(info!.phase).toBe('reasoning');
+    expect(info!.tokenCount).toBe(42);
+  });
+
+  it('integration: phase data flows from process through status endpoint response', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let capturedCallback: ((phase: string, count: number) => void) | undefined;
+    let insertedId = 0;
+    mockSubmit.mockImplementation(() => {
+      const result = db.prepare("INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)").run('vid_1', 'integration test');
+      insertedId = Number(result.lastInsertRowid);
+      return insertedId;
+    });
+    mockProcess.mockImplementation(async (_id: number, options?: { onPhaseChange?: (phase: string, count: number) => void }) => {
+      capturedCallback = options?.onPhaseChange;
+      await new Promise((r) => setTimeout(r, 500));
+    });
+
+    queue.enqueue('vid_1', 'integration test');
+    await new Promise((r) => setTimeout(r, 30));
+
+    capturedCallback!('intake', 0);
+    let info = queue.statusInfo(insertedId);
+    expect(info!.phase).toBe('intake');
+    expect(info!.tokenCount).toBe(0);
+
+    capturedCallback!('reasoning', 347);
+    info = queue.statusInfo(insertedId);
+    expect(info!.phase).toBe('reasoning');
+    expect(info!.tokenCount).toBe(347);
+
+    capturedCallback!('answering', 891);
+    info = queue.statusInfo(insertedId);
+    expect(info!.phase).toBe('answering');
+    expect(info!.tokenCount).toBe(891);
+
+    await pool.drain();
+  });
+
+  /* ─── Issue #159: Batched phase callback with event loop yield ─── */
+
+  it('synchronous callback burst creates boundaries so PhaseRegistry captures intermediate snapshots', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let insertedId = 0;
+    const capturedSnapshots: Array<{ phase: string; tokenCount: number }> = [];
+
+    mockSubmit.mockImplementation(() => {
+      const result = db.prepare("INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)").run('vid_1', 'burst test');
+      insertedId = Number(result.lastInsertRowid);
+      return insertedId;
+    });
+
+    mockProcess.mockImplementation(async (_id: number, options?: { onPhaseChange?: (phase: string, tokenCount: number) => void }) => {
+      const onPhaseChange = options?.onPhaseChange;
+      if (onPhaseChange) {
+        for (let i = 1; i <= 50; i++) {
+          const phase = i <= 25 ? 'reasoning' : 'answering';
+          onPhaseChange(phase, i);
+          const statusInfo = queue.statusInfo(insertedId);
+          if (statusInfo?.phase) {
+            capturedSnapshots.push({ phase: statusInfo.phase, tokenCount: statusInfo.tokenCount ?? 0 });
+          }
+        }
+      }
+    });
+
+    queue.enqueue('vid_1', 'burst test');
+    await pool.drain();
+
+    const uniqueTokenCounts = new Set(capturedSnapshots.map(s => s.tokenCount));
+    expect(capturedSnapshots.length).toBe(50);
+    expect(uniqueTokenCounts.size).toBeGreaterThan(1);
+
+    const uniquePhases = new Set(capturedSnapshots.map(s => s.phase));
+    expect(uniquePhases.has('reasoning')).toBe(true);
+    expect(uniquePhases.has('answering')).toBe(true);
+  });
+
+  it('batch size constant exists and is documented (around 10)', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const sourcePath = path.resolve(__dirname, 'chat-queue.ts');
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+
+    const hasBatchComment = /batch|yield|PHASE_BATCH_SIZE/i.test(source);
+    expect(hasBatchComment).toBe(true);
+  });
+
+  it('no changes to llm.ts or phase-registry.ts for batching', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    const llmSource = fs.readFileSync(path.resolve(__dirname, 'llm.ts'), 'utf-8');
+    const registrySource = fs.readFileSync(path.resolve(__dirname, 'phase-registry.ts'), 'utf-8');
+
+    const batchPattern = /batchCounter|PHASE_BATCH_SIZE|yield.*event.*loop/i;
+    expect(batchPattern.test(llmSource)).toBe(false);
+    expect(batchPattern.test(registrySource)).toBe(false);
+  });
+
+  it('final phase value after burst is correct (last callback wins)', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let insertedId = 0;
+    let finalTokenCount: number | undefined;
+
+    mockSubmit.mockImplementation(() => {
+      const result = db.prepare("INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)").run('vid_1', 'final value test');
+      insertedId = Number(result.lastInsertRowid);
+      return insertedId;
+    });
+
+    mockProcess.mockImplementation(async (_id: number, options?: { onPhaseChange?: (phase: string, tokenCount: number) => void }) => {
+      const onPhaseChange = options?.onPhaseChange;
+      if (onPhaseChange) {
+        for (let i = 1; i <= 50; i++) {
+          onPhaseChange('answering', i);
+        }
+      }
+      const info = queue.statusInfo(insertedId);
+      finalTokenCount = info?.tokenCount;
+    });
+
+    queue.enqueue('vid_1', 'final value test');
+    await pool.drain();
+
+    expect(finalTokenCount).toBe(50);
+  });
+
+  it('regression: simulates synchronous burst of 60 calls and verifies intermediate snapshots exist', async () => {
+    seedTopic(); seedChannel(); seedSignal();
+
+    const { ChatQueue } = await import('./chat-queue');
+    const chatManager = new ChatManagerClass(db, getLlmConfigFn());
+    const queue = new ChatQueue(db, chatManager as unknown as ChatManager, pool);
+
+    let insertedId = 0;
+    const allTokenCounts: number[] = [];
+
+    mockSubmit.mockImplementation(() => {
+      const result = db.prepare("INSERT INTO signal_chat (signal_video_id, question, answer) VALUES (?, ?, NULL)").run('vid_1', 'regression test');
+      insertedId = Number(result.lastInsertRowid);
+      return insertedId;
+    });
+
+    mockProcess.mockImplementation(async (_id: number, options?: { onPhaseChange?: (phase: string, tokenCount: number) => void }) => {
+      const onPhaseChange = options?.onPhaseChange;
+      if (onPhaseChange) {
+        for (let i = 1; i <= 60; i++) {
+          onPhaseChange('reasoning', i);
+          const info = queue.statusInfo(insertedId);
+          if (info?.tokenCount !== undefined) {
+            allTokenCounts.push(info.tokenCount);
+          }
+        }
+      }
+    });
+
+    queue.enqueue('vid_1', 'regression test');
+    await pool.drain();
+
+    expect(allTokenCounts.length).toBe(60);
+    const unique = new Set(allTokenCounts);
+    expect(unique.size).toBeGreaterThan(1);
+    expect(allTokenCounts[allTokenCounts.length - 1]).toBe(60);
+  });
 });

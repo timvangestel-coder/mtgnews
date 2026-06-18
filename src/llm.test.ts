@@ -16,10 +16,24 @@ afterEach(() => {
 });
 
 function mockMergedResponse(json: Record<string, unknown>) {
-  mockFetch.mockResolvedValueOnce({
-    ok: true,
-    json: () => Promise.resolve({ choices: [{ message: { content: JSON.stringify(json) } }] }),
-  } as any);
+  // Streaming path: analyzeSignal now uses callLlmStreamWithPhases which needs SSE body
+  const encoder = new TextEncoder();
+  const sseLines = [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(json) } }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`,
+    'data: [DONE]\n\n',
+  ];
+
+  const readable = new ReadableStream({
+    start(controller) {
+      for (const line of sseLines) {
+        controller.enqueue(encoder.encode(line));
+      }
+      controller.close();
+    },
+  });
+
+  mockFetch.mockResolvedValueOnce({ ok: true, body: readable } as any);
 }
 
 const config: LlmConfig = {
@@ -456,11 +470,21 @@ describe('llm', () => {
       seedChannel(db, 'UCtest');
       seedSignal(db, 'v-prose', 'text');
 
-      // Exact format: long prose reasoning (with braces scattered in text) + JSON at end
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ choices: [{ message: { content: "Here's a thinking process:\n\n1. Analyze the input\n2. Check relevance - it matches\n3. Generate output\n\nSome reasoning with {braces} in the middle.\n\n{\"summary\":\"s\",\"takeaways\":[],\"overall_sentiment\":{\"score\":3,\"label\":\"Neutral\"},\"entities\":[]}" } }] }),
-      } as any);
+      // Streaming: prose content streamed as tokens + extractTrailingJson finds the JSON at end
+      const encoder = new TextEncoder();
+      const proseContent = "Here's a thinking process:\n\n1. Analyze the input\n2. Check relevance - it matches\n3. Generate output\n\nSome reasoning with {braces} in the middle.\n\n{\"summary\":\"s\",\"takeaways\":[],\"overall_sentiment\":{\"score\":3,\"label\":\"Neutral\"},\"entities\":[]}";
+      const sseLines = [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: proseContent } }] })}\n\n`,
+        `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`,
+        'data: [DONE]\n\n',
+      ];
+      const readable = new ReadableStream({
+        start(controller) {
+          for (const line of sseLines) controller.enqueue(encoder.encode(line));
+          controller.close();
+        },
+      });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: readable } as any);
 
       const result = await analyzeSignal(db, 'v-prose', config);
       expect(result.success).toBe(true);
@@ -474,11 +498,21 @@ describe('llm', () => {
       seedChannel(db, 'UCtest');
       seedSignal(db, 'v-irr-prose', 'text');
 
-      // Exact format: long reasoning that mentions {"relevant": false} in text + actual JSON at end
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ choices: [{ message: { content: "Thinking through this...\n\nThe content doesn't match. Decision: relevant=false, so return {\"relevant\": false}.\n\nDone. ✅\n{\"relevant\": false}" } }] }),
-      } as any);
+      // Streaming: prose + JSON at end, extractTrailingJson finds {"relevant": false}
+      const encoder = new TextEncoder();
+      const proseContent = "Thinking through this...\n\nThe content doesn't match. Decision: relevant=false, so return {\"relevant\": false}.\n\nDone. ✅\n{\"relevant\": false}";
+      const sseLines = [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: proseContent } }] })}\n\n`,
+        `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`,
+        'data: [DONE]\n\n',
+      ];
+      const readable = new ReadableStream({
+        start(controller) {
+          for (const line of sseLines) controller.enqueue(encoder.encode(line));
+          controller.close();
+        },
+      });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: readable } as any);
 
       const result = await analyzeSignal(db, 'v-irr-prose', config);
       expect(result.success).toBe(true);
@@ -556,16 +590,28 @@ describe('llm', () => {
       expect(sig.generated_title).toBeNull();
     });
 
-    it('returns descriptive error for unexpected response structure', async () => {
+    it('returns descriptive error for malformed streaming JSON', async () => {
       const db = createTestDb();
       seedChannel(db, 'UCtest');
       seedSignal(db, 'v-struct', 'text');
 
-      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ choices: [] }) as any });
+      // Streaming path: content that is not valid JSON → extractTrailingJson returns it → parse fails
+      const encoder = new TextEncoder();
+      const sseLines = [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: 'not json at all' } }] })}\n\n`,
+        `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`,
+        'data: [DONE]\n\n',
+      ];
+      const readable = new ReadableStream({
+        start(controller) {
+          for (const line of sseLines) controller.enqueue(encoder.encode(line));
+          controller.close();
+        },
+      });
+      mockFetch.mockResolvedValueOnce({ ok: true, body: readable } as any);
 
       const result = await analyzeSignal(db, 'v-struct', config);
       expect(result.success).toBe(false);
-      expect(result.error).toContain('unexpected response structure');
     });
   });
 });

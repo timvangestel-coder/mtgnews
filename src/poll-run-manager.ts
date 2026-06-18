@@ -6,6 +6,7 @@ import { preRegisterChannelProgress, getPollRunById, queryPollRunProgress, PollR
 import { deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } from './signal-state.ts';
 import { ConcurrencyPool } from './concurrency-pool.ts';
 import { mapStatus, mapStepStatus, type RunState, type PollRunStep } from './utils/poll-run-view-model.ts';
+import { PhaseRegistry, type LlmPhase, type PhaseEntry } from './phase-registry.ts';
 
 /** Unique identifier for a poll run */
 export type RunId = number;
@@ -35,8 +36,17 @@ interface ActiveRunEntry {
  *
  * Clean interface: startRun(), abortRun(), runState()
  */
+/** Per-signal phase data returned in progress */
+export interface SignalPhaseInfo {
+  videoId: string;
+  phase: LlmPhase;
+  tokenCount: number;
+}
+
 export class PollRunManager {
   private activeRuns = new Map<RunId, ActiveRunEntry>();
+  /** Phase registry keyed by videoId for the current run */
+  private _phaseRegistry = new PhaseRegistry<string>();
 
   constructor(
     private db: Database.Database,
@@ -90,7 +100,7 @@ export class PollRunManager {
     };
   }
 
-  /** Get the latest poll run and its progress rows, or null if no runs exist. */
+   /** Get the latest poll run and its progress rows, or null if no runs exist. */
   currentProgress(): CurrentProgressResult | null {
     const row = this.db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number | null } | undefined;
     const maxId = row?.max_id;
@@ -101,6 +111,20 @@ export class PollRunManager {
 
     const progress = queryPollRunProgress(this.db, run.id);
     return { run, progress };
+  }
+
+  /** Get per-signal phase data from the registry for active signals */
+  getSignalPhases(): SignalPhaseInfo[] {
+    const result: SignalPhaseInfo[] = [];
+    for (const [videoId, entry] of this._phaseRegistry.getAll()) {
+      result.push({ videoId, phase: entry.phase, tokenCount: entry.tokenCount });
+    }
+    return result;
+  }
+
+  /** Expose registry for internal testing */
+  _getPhaseRegistry(): PhaseRegistry<string> {
+    return this._phaseRegistry;
   }
 
   // ── Internal: Enqueue (from poll-scheduler.ts) ────────────────────
@@ -196,17 +220,20 @@ export class PollRunManager {
           // Write progress only after signals discovered
           upsertProgress(channel.channel_id, 'processing', result.newSignals);
 
-          const newSignals = pendingSignalsForChannel(this.db, channel.channel_id, runId);
+           const newSignals = pendingSignalsForChannel(this.db, channel.channel_id, runId);
 
-           // Dispatch analysis tasks immediately to pool
+            // Dispatch analysis tasks immediately to pool with phase tracking
           for (const s of newSignals) {
             taskPool.run(async () => {
               try {
-                await analyzeSignal(this.db, s.video_id, llmConfig, signal);
+                await analyzeSignal(this.db, s.video_id, llmConfig, signal, (phase, tokenCount) => {
+                  this._phaseRegistry.set(s.video_id, phase, tokenCount);
+                });
               } catch (err) {
                 const msg = (err as Error).message;
                 if (msg.includes('AbortError') || msg.includes('aborted')) {
                   // Signal was deleted by abort cleanup — don't count it
+                  this._phaseRegistry.delete(s.video_id);
                   return;
                 }
                 console.error(`analyzeSignal failed for ${s.video_id}: ${msg}`);
@@ -216,6 +243,9 @@ export class PollRunManager {
               if (!signal?.aborted) {
                 incrementDone(channel.channel_id);
               }
+
+              // Clean up registry entry when task settles
+              this._phaseRegistry.delete(s.video_id);
             });
           }
         } else {

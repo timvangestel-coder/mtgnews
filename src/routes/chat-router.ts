@@ -180,11 +180,17 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
         id,
         status: info.status,
         answer: formatAnswer(info.answer, info.isFormatted),
+        phase: info.phase,
+        tokenCount: info.tokenCount,
         layout: false,
       });
     } else {
-      // Non-HTMX requests get JSON (for API consumers / tests)
-      res.json({ id, ...info });
+    // Non-HTMX requests get JSON (for API consumers / tests)
+      // Spread includes status, answer, isFormatted, phase, tokenCount
+      const jsonResponse: Record<string, unknown> = { id, ...info };
+      // Remove undefined fields for clean JSON
+      Object.keys(jsonResponse).forEach(k => jsonResponse[k] === undefined && delete jsonResponse[k]);
+      res.json(jsonResponse);
     }
   });
 

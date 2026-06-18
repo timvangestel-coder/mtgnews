@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { ConcurrencyPool } from './concurrency-pool.ts';
 import { ChatManager } from './services/chat-manager.ts';
 import { ChatScope } from './signal-chat-scope.ts';
+import { PhaseRegistry, type LlmPhase } from './phase-registry.ts';
 
 /**
  * ChatQueue — manages chat question processing through the global ConcurrencyPool.
@@ -13,6 +14,12 @@ import { ChatScope } from './signal-chat-scope.ts';
 export class ChatQueue {
   /** Registry of AbortControllers for in-flight tasks, keyed by question id. */
   private _controllers = new Map<number, AbortController>();
+
+  /** Registry of LLM phase progress, keyed by question id. */
+  private _phaseRegistry = new PhaseRegistry<number>();
+
+  /** Yield to the event loop every N phase-change callbacks so external observers (e.g. HTTP polling) can capture intermediate PhaseRegistry snapshots during synchronous callback bursts. */
+  private static readonly PHASE_BATCH_SIZE = 10;
 
   constructor(
     private db: Database.Database,
@@ -55,8 +62,21 @@ export class ChatQueue {
     this._controllers.set(id, controller);
 
     this.pool.run(async () => {
+      let batchCounter = 0;
+
       try {
-        await this.chatManager.process(id, { abortSignal: controller.signal });
+        await this.chatManager.process(id, {
+          abortSignal: controller.signal,
+          onPhaseChange: (phase: LlmPhase, tokenCount: number) => {
+            batchCounter++;
+            // Update registry synchronously so value is immediately observable
+            this._phaseRegistry.set(id, phase, tokenCount);
+            // Schedule a macrotask yield every PHASE_BATCH_SIZE calls so external observers can see intermediate values during synchronous bursts
+            if (batchCounter % ChatQueue.PHASE_BATCH_SIZE === 0) {
+              setTimeout(() => {}, 0);
+            }
+          },
+        });
       } catch (err) {
         // Silently ignore AbortError — aborted tasks are not marked as failed
         const message = (err as Error).message ?? '';
@@ -64,11 +84,12 @@ export class ChatQueue {
         if (name === 'AbortError' || message.includes('AbortError') || message.includes('aborted')) {
           return;
         }
-        // Process failure leaves answer=NULL → mark as failed for status tracking
+        // Process failure leaves answer=NULL → mark as failed
         this.markFailed(id);
       } finally {
-        // Cleanup: remove controller from map when task settles
+        // Cleanup: remove controller and phase data when task settles
         this._controllers.delete(id);
+        this._phaseRegistry.delete(id);
       }
     });
   }
@@ -89,10 +110,10 @@ export class ChatQueue {
   }
 
   /**
-    * Rich status info for HTMX polling responses.
-    * Returns status + answer text when done, so the UI can swap in the result.
-    */
-  statusInfo(id: number): { status: 'pending' | 'done' | 'failed'; answer?: string; isFormatted?: number } | null {
+   * Rich status info for HTMX polling responses.
+   * Returns status + answer text when done, so the UI can swap in the result.
+   */
+  statusInfo(id: number): { status: 'pending' | 'done' | 'failed'; answer?: string; isFormatted?: number; phase?: LlmPhase; tokenCount?: number } | null {
     const row = this.db.prepare(
       'SELECT answer, COALESCE(is_formatted, 0) AS is_formatted FROM signal_chat WHERE id = ?'
     ).get(id) as { answer: string | null; is_formatted: number } | undefined;
@@ -101,7 +122,14 @@ export class ChatQueue {
 
     if (this._failedIds.has(id)) return { status: 'failed' };
     if (row.answer !== null && row.answer !== undefined) return { status: 'done', answer: row.answer, isFormatted: row.is_formatted };
-    return { status: 'pending' };
+
+    // Include phase data from registry when pending
+    const phaseEntry = this._phaseRegistry.get(id);
+    return {
+      status: 'pending',
+      phase: phaseEntry?.phase,
+      tokenCount: phaseEntry?.tokenCount,
+    };
   }
 
   /**
