@@ -10,6 +10,40 @@ export interface LlmConfig {
   model: string;
 }
 
+/** OpenAI-compatible function tool definition */
+export type FunctionTool = {
+  type: 'function';
+  function: {
+    name: string;
+    description?: string;
+    parameters: Record<string, unknown>;
+  };
+};
+
+/** A single tool call returned by the LLM */
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string; // JSON-encoded string
+  };
+}
+
+/** Result of a tool-calling LLM request */
+export interface ToolCallResult {
+  toolCalls: ToolCall[];
+  content?: string | null;
+}
+
+/** Result of a streaming tool-calling LLM request */
+export interface StreamToolCallResult {
+  /** AsyncGenerator yielding content tokens as they arrive */
+  tokens: AsyncGenerator<string>;
+  /** Accumulated tool calls — populated as the stream is consumed */
+  toolCalls: ToolCall[];
+}
+
 export interface LlmCallOptions {
   abortSignal?: AbortSignal;
 }
@@ -234,6 +268,277 @@ export async function* callLlmStreamWithPhases(
   } finally {
     reader.releaseLock();
   }
+}
+
+/**
+ * Parse Qwen-style `<tool_code>` XML from accumulated content text.
+ * Qwen models running via LM Studio return tool calls as XML in delta.content
+ * rather than structured delta.tool_calls.
+ *
+ * Format:
+ *   <tool_code>
+ *   <parameter_code>function_name</parameter_code>
+ *   <parameter_code>{"arg1": "value1"}</parameter_code>
+ *   </tool_code>
+ *
+ * Returns parsed ToolCall[] and the remaining non-XML text.
+ */
+function parseQwenXmlToolCalls(content: string, toolCallsList: ToolCall[]): string {
+  let remaining = content;
+
+  // Match <tool_code>...</tool_code> blocks
+  const blockRegex = /<tool_code>([\s\S]*?)<\/tool_code>/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = blockRegex.exec(content)) !== null) {
+    const blockContent = match[1];
+
+    // Extract <parameter_code> values — first is function name, rest are args
+    const paramValues: string[] = [];
+    const paramRegex = /<parameter_code>([\s\S]*?)<\/parameter_code>/g;
+    let paramMatch: RegExpExecArray | null;
+
+    while ((paramMatch = paramRegex.exec(blockContent)) !== null) {
+      paramValues.push(paramMatch[1].trim());
+    }
+
+    if (paramValues.length >= 2) {
+      const funcName = paramValues[0];
+      const argsJson = paramValues.slice(1).join(' ');
+
+      toolCallsList.push({
+        id: `call_qwen_${Date.now()}_${toolCallsList.length}`,
+        type: 'function',
+        function: { name: funcName, arguments: argsJson },
+      });
+    }
+
+    // Remove this tool_code block from remaining for yield
+    remaining = remaining.replace(match[0], '');
+  }
+
+  return remaining;
+}
+
+/**
+ * Streaming tool-calling LLM call — yields content tokens via SSE while
+ * accumulating `tool_calls` from delta chunks. Fires phase transitions:
+ * intake → answering → retrieving (on first tool_call) → done.
+ *
+ * Also handles Qwen XML format where tool calls appear as <tool_code> XML
+ * in delta.content instead of structured delta.tool_calls.
+ */
+export async function callLlmStreamWithTools(
+  config: LlmConfig,
+  prompt: string,
+  tools: FunctionTool[],
+  options?: LlmStreamOptions
+): Promise<StreamToolCallResult> {
+  const onPhase = options?.onPhaseChange;
+
+  const response = await fetchWithRetry(config.endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [{ role: 'user', content: prompt }],
+      tools,
+      stream: true,
+    }),
+  }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
+
+  if (!response.ok) {
+    throw new Error(`LLM stream tools HTTP ${response.status} ${response.statusText}`);
+  }
+
+  if (!response.body) {
+    throw new Error('LLM stream tools response has no body');
+  }
+
+  // Fire 'intake' phase at request-send time
+  onPhase?.('intake', 0);
+
+  const toolCalls: ToolCall[] = [];
+  const toolAccum = new Map<number, { id: string; type: string; name: string; args: string }>();
+  let retrievingFired = false;
+  let answeringFired = false;
+  // Accumulate content for Qwen XML detection across chunks
+  let qwenXmlBuffer = '';
+
+  function parseChunks(): AsyncGenerator<string> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    return (async function* () {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data: ')) continue;
+
+            const data = trimmed.slice(6);
+            if (data === '[DONE]') {
+              // Finalize openai tool_calls
+              for (const tc of toolAccum.values()) {
+                toolCalls.push({
+                  id: tc.id,
+                  type: tc.type as 'function',
+                  function: { name: tc.name, arguments: tc.args },
+                });
+              }
+              // Finalize any remaining qwen xml buffer
+              if (qwenXmlBuffer.trim()) {
+                parseQwenXmlToolCalls(qwenXmlBuffer, toolCalls);
+              }
+              onPhase?.('done', toolCalls.length);
+              return;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta;
+              const finishReason = parsed.choices?.[0]?.finish_reason;
+
+              if (finishReason === 'stop') {
+                // Finalize openai tool_calls
+                for (const tc of toolAccum.values()) {
+                  toolCalls.push({
+                    id: tc.id,
+                    type: tc.type as 'function',
+                    function: { name: tc.name, arguments: tc.args },
+                  });
+                }
+                // Finalize any remaining qwen xml buffer
+                if (qwenXmlBuffer.trim()) {
+                  parseQwenXmlToolCalls(qwenXmlBuffer, toolCalls);
+                }
+                onPhase?.('done', toolCalls.length);
+                return;
+              }
+
+              // Handle tool_calls in delta (standard OpenAI format)
+              if (delta?.tool_calls && Array.isArray(delta.tool_calls)) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index;
+                  let entry = toolAccum.get(idx);
+                  if (!entry) {
+                    entry = { id: tc.id ?? '', type: tc.type ?? 'function', name: '', args: '' };
+                    toolAccum.set(idx, entry);
+                  }
+                  if (tc.id) entry.id = tc.id;
+                  if (tc.type) entry.type = tc.type;
+                  if (tc.function?.name) entry.name = tc.function.name;
+                  if (tc.function?.arguments) entry.args += tc.function.arguments;
+
+                  if (!retrievingFired) {
+                    retrievingFired = true;
+                    onPhase?.('retrieving', 0);
+                  }
+                }
+              }
+
+              // Handle content tokens — may contain Qwen XML tool calls
+              if (delta?.content) {
+                qwenXmlBuffer += delta.content;
+
+                // Check if we have a complete <tool_code> block
+                if (qwenXmlBuffer.includes('</tool_code>')) {
+                  const hadToolCallsBefore = toolCalls.length;
+                  const remaining = parseQwenXmlToolCalls(qwenXmlBuffer, toolCalls);
+                  qwenXmlBuffer = remaining;
+
+                  // Fire retrieving phase if new tool calls were found
+                  if (toolCalls.length > hadToolCallsBefore && !retrievingFired) {
+                    retrievingFired = true;
+                    onPhase?.('retrieving', 0);
+                  }
+
+                  // Yield only the non-XML remainder
+                  if (remaining.trim()) {
+                    if (!answeringFired) {
+                      answeringFired = true;
+                      onPhase?.('answering', 0);
+                    }
+                    yield remaining;
+                  }
+                } else {
+                  // No complete tool_code block yet — still yield for streaming
+                  if (!answeringFired) {
+                    answeringFired = true;
+                    onPhase?.('answering', 0);
+                  }
+                  yield delta.content;
+                }
+              }
+            } catch {
+              // skip malformed SSE data lines
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    })();
+  }
+
+  return {
+    tokens: parseChunks(),
+    toolCalls,
+  };
+}
+
+/**
+ * Tool-calling LLM call — sends a request with `tools` and returns the
+ * `tool_calls` array from the response in OpenAI-compatible format.
+ *
+ * Use this to verify LLM tool calling support or to build function-calling flows.
+ */
+export async function callLlmWithTools(
+  config: LlmConfig,
+  prompt: string,
+  tools: FunctionTool[],
+  options?: LlmCallOptions
+): Promise<ToolCallResult> {
+  const response = await fetchWithRetry(config.endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [{ role: 'user', content: prompt }],
+      tools,
+    }),
+  }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
+
+  if (!response.ok) {
+    throw new Error(`LLM tool calling HTTP ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const rawToolCalls = data.choices?.[0]?.message?.tool_calls;
+
+  if (!rawToolCalls || !Array.isArray(rawToolCalls) || rawToolCalls.length === 0) {
+    throw new Error('LLM tool calling returned unexpected response structure — no tool_calls found');
+  }
+
+  const toolCalls: ToolCall[] = rawToolCalls.map((tc: any) => ({
+    id: tc.id,
+    type: tc.type,
+    function: typeof tc.function === 'string' ? JSON.parse(tc.function) : tc.function,
+  }));
+
+  return {
+    toolCalls,
+    content: data.choices?.[0]?.message?.content ?? null,
+  };
 }
 
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:1234/v1/chat/completions';
