@@ -9,15 +9,21 @@
 <% } else if (status === 'pending') { %>
 <%
   var phaseLabel = 'processing...';
+  var roundText = '';
   if (typeof phase !== 'undefined') {
+    // Build round indicator: "Round 2/3" when multiple rounds detected
+    if (typeof round !== 'undefined' && round > 1) {
+      roundText = ' <span class="text-xs text-gray-400">(Round ' + round + ')</span>';
+    }
     if (phase === 'intake') phaseLabel = 'Intaking...';
     else if (phase === 'reasoning') phaseLabel = 'Reasoning...' + (typeof tokenCount !== 'undefined' ? ' (' + tokenCount + ' tokens)' : '');
     else if (phase === 'answering') phaseLabel = 'Answering...' + (typeof tokenCount !== 'undefined' ? ' (' + tokenCount + ' tokens)' : '');
+    else if (phase === 'retrieving') phaseLabel = 'Retrieving context...';
     else if (phase === 'done') phaseLabel = 'Done';
   }
 %>
-<div class="chat-answer text-sm text-gray-500 mt-1" data-chat-phase="<%= typeof phase !== 'undefined' ? phase : '' %>" data-chat-token-count="<%= typeof tokenCount !== 'undefined' ? tokenCount : 0 %>">
-  <strong>A:</strong> <span class="animate-pulse chat-phase-text"><%= phaseLabel %></span>
+<div class="chat-answer text-sm text-gray-500 mt-1 chat-phase-container" data-chat-phase="<%= typeof phase !== 'undefined' ? phase : '' %>" data-chat-token-count="<%= typeof tokenCount !== 'undefined' ? tokenCount : 0 %>" data-chat-round="<%= typeof round !== 'undefined' ? round : 1 %>">
+  <strong>A:</strong> <span class="animate-pulse chat-phase-text transition-opacity duration-200"><%= phaseLabel %></span><%= roundText %>
 </div>
 <% } else { %>
 <div class="chat-answer text-sm text-gray-700 mt-1">

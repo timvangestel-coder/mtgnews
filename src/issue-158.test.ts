@@ -172,8 +172,8 @@ describe('issue #158 — analyzeSignal streaming migration', () => {
       registry.set('vid1', 'reasoning', 234);
       registry.set('vid2', 'answering', 567);
 
-      expect(registry.get('vid1')).toEqual({ phase: 'reasoning', tokenCount: 234 });
-      expect(registry.get('vid2')).toEqual({ phase: 'answering', tokenCount: 567 });
+      expect(registry.get('vid1')).toEqual({ phase: 'reasoning', tokenCount: 234, round: 1 });
+      expect(registry.get('vid2')).toEqual({ phase: 'answering', tokenCount: 567, round: 1 });
     });
 
     it('PhaseRegistry.delete removes entry', () => {

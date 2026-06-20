@@ -155,6 +155,18 @@
                     }
                     el.setAttribute('data-chat-phase', data.phase || '');
                     el.setAttribute('data-chat-token-count', data.tokenCount || 0);
+                    // Update round indicator when available
+                    if (typeof data.round === 'number' && data.round > 1) {
+                      var existingRound = el.querySelector('.chat-round-indicator');
+                      if (!existingRound) {
+                        var roundSpan = document.createElement('span');
+                        roundSpan.className = 'text-xs text-gray-400 ml-1 chat-round-indicator';
+                        roundSpan.textContent = '(Round ' + data.round + ')';
+                        phaseSpan.parentNode.appendChild(roundSpan);
+                      } else {
+                        existingRound.textContent = '(Round ' + data.round + ')';
+                      }
+                    }
                   }
                 })
                .catch(function() { /* ignore */ });
@@ -176,7 +188,7 @@
           return a.topicKey === b.topicKey && a.channelId === b.channelId;
         },
 
-        /** Build a human-readable phase label from phase + tokenCount. */
+         /** Build a human-readable phase label from phase + tokenCount. */
         _getPhaseLabel: function(phase, tokenCount) {
           if (!phase) return 'processing...';
           var countStr = (typeof tokenCount === 'number' && tokenCount > 0) ? ' (' + tokenCount + ' tokens)' : '';
@@ -184,6 +196,7 @@
             case 'intake': return 'Intaking...';
             case 'reasoning': return 'Reasoning...' + countStr;
             case 'answering': return 'Answering...' + countStr;
+            case 'retrieving': return 'Retrieving context...';
             case 'done': return 'Done';
             default: return 'processing...';
           }

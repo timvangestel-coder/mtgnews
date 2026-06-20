@@ -4,12 +4,24 @@ import { createTestDb } from '../tests/fixtures/test-db';
 
 // Mock callLlmStreamWithPhases so tests don't hit real LLM
 const mockCallLlmStreamWithPhases = vi.fn();
+// Mock for tool-calling path used by multi-signal agent loop (issue #165)
+let lastToolCallOptions: unknown;
+const mockCallLlmStreamWithTools = vi.fn(async (_config, _prompt, _tools, options) => {
+  lastToolCallOptions = options;
+  return {
+    tokens: (async function* () { yield 'token'; })(),
+    toolCalls: [],
+  };
+});
 
 vi.mock('./llm', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./llm')>();
   return {
     ...actual,
     callLlmStreamWithPhases: (...args: unknown[]) => mockCallLlmStreamWithPhases(...args),
+    get callLlmStreamWithTools() {
+      return mockCallLlmStreamWithTools;
+    },
   };
 });
 
@@ -76,6 +88,7 @@ describe('ChatManager AbortSignal seam', () => {
     expect(row.answer).toBeNull();
   });
 
+  // Issue #165: multi-signal now uses agent loop with callLlmStreamWithTools
   it('process() with pre-aborted signal skips DB write for multi-signal', async () => {
     seedTopic(); seedChannel(); seedSignal();
 
@@ -86,23 +99,20 @@ describe('ChatManager AbortSignal seam', () => {
     ).run(null, 'compare all', 'tech');
     const chatId = Number(result.lastInsertRowid);
 
-    mockCallLlmStreamWithPhases.mockImplementation(async function* (config, prompt, options) {
-      yield 'partial';
-      if (options?.abortSignal?.aborted) return;
-      yield 'more';
-    });
+    // Agent loop checks abortSignal before first round — pre-aborted skips immediately
 
     const controller = new AbortController();
     controller.abort();
 
     await chatManager.process(chatId, { abortSignal: controller.signal });
 
-    // Answer must still be NULL
+    // Answer must still be NULL (abort detected before persist)
     const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(chatId) as { answer: string | null };
     expect(row.answer).toBeNull();
   });
 
-  it('process() threads abortSignal into callLlmStreamWithPhases for single-signal', async () => {
+  // Issue #166: single-signal now uses agent loop with callLlmStreamWithTools
+  it('process() threads abortSignal into callLlmStreamWithTools for single-signal', async () => {
     seedTopic(); seedChannel(); seedSignal();
 
     const chatManager = new ChatManager(db, getLlmConfigFn());
@@ -112,21 +122,16 @@ describe('ChatManager AbortSignal seam', () => {
     ).run('vid_1', 'what is this?');
     const chatId = Number(result.lastInsertRowid);
 
-    let capturedOptions: unknown;
-    mockCallLlmStreamWithPhases.mockImplementation(async function* (config, prompt, options) {
-      capturedOptions = options;
-      yield 'token';
-    });
-
     const controller = new AbortController();
     await chatManager.process(chatId, { abortSignal: controller.signal });
 
-    // callLlmStreamWithPhases must have been called with options including abortSignal
-    expect(capturedOptions).toBeDefined();
-    expect((capturedOptions as { abortSignal?: AbortSignal }).abortSignal).toBe(controller.signal);
+    // callLlmStreamWithTools must have been called with options including abortSignal
+    expect(lastToolCallOptions).toBeDefined();
+    expect((lastToolCallOptions as { abortSignal?: AbortSignal }).abortSignal).toBe(controller.signal);
   });
 
-  it('process() threads abortSignal into callLlmStreamWithPhases for multi-signal', async () => {
+  // Issue #165: multi-signal uses agent loop with callLlmStreamWithTools
+  it('process() threads abortSignal into callLlmStreamWithTools for multi-signal', async () => {
     seedTopic(); seedChannel(); seedSignal();
 
     const chatManager = new ChatManager(db, getLlmConfigFn());
@@ -136,17 +141,12 @@ describe('ChatManager AbortSignal seam', () => {
     ).run(null, 'compare all', 'tech');
     const chatId = Number(result.lastInsertRowid);
 
-    let capturedOptions: unknown;
-    mockCallLlmStreamWithPhases.mockImplementation(async function* (config, prompt, options) {
-      capturedOptions = options;
-      yield 'token';
-    });
-
     const controller = new AbortController();
     await chatManager.process(chatId, { abortSignal: controller.signal });
 
-    expect(capturedOptions).toBeDefined();
-    expect((capturedOptions as { abortSignal?: AbortSignal }).abortSignal).toBe(controller.signal);
+    // callLlmStreamWithTools must have been called with options including abortSignal
+    expect(lastToolCallOptions).toBeDefined();
+    expect((lastToolCallOptions as { abortSignal?: AbortSignal }).abortSignal).toBe(controller.signal);
   });
 
   it('process() with no signal works as before (no regression)', async () => {
@@ -171,6 +171,7 @@ describe('ChatManager AbortSignal seam', () => {
     expect(row.is_formatted).toBe(1);
   });
 
+  // Issue #166: single-signal now uses agent loop — abort error propagates via callLlmStreamWithTools
   it('process() propagates AbortError from stream', async () => {
     seedTopic(); seedChannel(); seedSignal();
 
@@ -183,8 +184,7 @@ describe('ChatManager AbortSignal seam', () => {
 
     const controller = new AbortController();
     const abortError = new DOMException('The operation was aborted', 'AbortError');
-    mockCallLlmStreamWithPhases.mockImplementation(async function* () {
-      yield 'partial';
+    mockCallLlmStreamWithTools.mockImplementation(async () => {
       throw abortError;
     });
 

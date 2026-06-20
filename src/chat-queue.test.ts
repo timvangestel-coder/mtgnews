@@ -624,7 +624,7 @@ describe('ChatQueue', () => {
     expect(uniquePhases.has('answering')).toBe(true);
   });
 
-  it('batch size constant exists and is documented (around 10)', async () => {
+  it('batch size constant exists and is documented (reduced to 1 for immediate event loop yields)', async () => {
     const fs = await import('fs');
     const path = await import('path');
     const sourcePath = path.resolve(__dirname, 'chat-queue.ts');

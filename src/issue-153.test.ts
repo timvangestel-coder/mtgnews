@@ -139,8 +139,8 @@ describe('Issue 153 — FORMAT_INSTRUCTIONS[annotated-index] populated', () => {
     // Must contain concrete table example with header row and separator row
     expect(result).toMatch(/\| Timestamp \| Finding \|/);
     expect(result).toMatch(/\|-----------\|---------\|/);
-    // Table columns should use [T:ss] format (LLM copies exact T:ss from source, no arithmetic conversion)
-    expect(result).toMatch(/\[T:ss\]/);
+    // Table columns should use [MM:SS] format converted from T:ss markers in the source
+    expect(result).toMatch(/\[MM:SS\]/);
   });
 
   it('assembled chat prompt contains bold source title instruction (not ### heading)', () => {

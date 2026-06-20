@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { fetchWithRetry } from './http-retry.ts';
 import { assemble } from './prompt-assembler.ts';
+import { logRequest, logResponse, logStreamResponse } from './llm-log.ts';
 import { resolveSignalContext } from './signal-context.ts';
 import { markSummarized, markIrrelevant } from './signal-state.ts';
 import type { LlmPhase } from './phase-registry.ts';
@@ -69,13 +70,16 @@ export async function callLlmSync(
   prompt: string,
   options?: LlmCallOptions
 ): Promise<string> {
+  const payload = {
+    model: config.model,
+    messages: [{ role: 'user', content: prompt }],
+  };
+  logRequest(payload);
+
   const response = await fetchWithRetry(config.endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [{ role: 'user', content: prompt }],
-    }),
+    body: JSON.stringify(payload),
   }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
 
   if (!response.ok) {
@@ -83,6 +87,7 @@ export async function callLlmSync(
   }
 
   const data = await response.json();
+  logResponse(data);
 
   if (!data.choices?.[0]?.message?.content) {
     throw new Error('LLM sync returned unexpected response structure');
@@ -100,14 +105,17 @@ export async function* callLlmStream(
   prompt: string,
   options?: LlmCallOptions
 ): AsyncGenerator<string> {
+  const payload = {
+    model: config.model,
+    messages: [{ role: 'user', content: prompt }],
+    stream: true,
+  };
+  logRequest(payload);
+
   const response = await fetchWithRetry(config.endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [{ role: 'user', content: prompt }],
-      stream: true,
-    }),
+    body: JSON.stringify(payload),
   }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
 
   if (!response.ok) {
@@ -121,6 +129,7 @@ export async function* callLlmStream(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let accumulatedContent = '';
 
   try {
     while (true) {
@@ -138,12 +147,13 @@ export async function* callLlmStream(
         if (!trimmed.startsWith('data: ')) continue;
 
         const data = trimmed.slice(6);
-        if (data === '[DONE]') return;
+        if (data === '[DONE]') break;
 
         try {
           const parsed = JSON.parse(data);
           const content = parsed.choices?.[0]?.delta?.content;
           if (content) {
+            accumulatedContent += content;
             yield content;
           }
         } catch {
@@ -151,6 +161,7 @@ export async function* callLlmStream(
         }
       }
     }
+    logStreamResponse(accumulatedContent);
   } finally {
     reader.releaseLock();
   }
@@ -175,15 +186,18 @@ export async function* callLlmStreamWithPhases(
 ): AsyncGenerator<string> {
   const onPhase = options?.onPhaseChange;
 
+  const payload = {
+    model: config.model,
+    messages: [{ role: 'user', content: prompt }],
+    stream: true,
+    stream_options: { include_usage: true },
+  };
+  logRequest(payload);
+
   const response = await fetchWithRetry(config.endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [{ role: 'user', content: prompt }],
-      stream: true,
-      stream_options: { include_usage: true },
-    }),
+    body: JSON.stringify(payload),
   }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
 
   if (!response.ok) {
@@ -201,6 +215,7 @@ export async function* callLlmStreamWithPhases(
   const decoder = new TextDecoder();
   let buffer = '';
   let tokenCount = 0;
+  let accumulatedContent = '';
   let reasoningFired = false;
   let answeringFired = false;
   let actualTokenCount: number | null = null;
@@ -220,7 +235,10 @@ export async function* callLlmStreamWithPhases(
         if (!trimmed.startsWith('data: ')) continue;
 
         const data = trimmed.slice(6);
-        if (data === '[DONE]') return;
+        if (data === '[DONE]') {
+          logStreamResponse(accumulatedContent);
+          return;
+        }
 
         try {
           const parsed = JSON.parse(data);
@@ -237,6 +255,7 @@ export async function* callLlmStreamWithPhases(
             // Use actual token count from LLM usage, or fall back to chunk count
             const finalCount = actualTokenCount ?? tokenCount;
             onPhase?.('done', finalCount);
+            logStreamResponse(accumulatedContent);
             return;
           }
 
@@ -258,6 +277,7 @@ export async function* callLlmStreamWithPhases(
             }
             tokenCount++;
             onPhase?.('answering', tokenCount);
+            accumulatedContent += delta.content;
             yield delta.content;
           }
         } catch {
@@ -265,56 +285,91 @@ export async function* callLlmStreamWithPhases(
         }
       }
     }
+    logStreamResponse(accumulatedContent);
   } finally {
     reader.releaseLock();
   }
 }
 
 /**
- * Parse Qwen-style `<tool_code>` XML from accumulated content text.
+ * Parse Qwen-style XML tool calls from accumulated content text.
  * Qwen models running via LM Studio return tool calls as XML in delta.content
  * rather than structured delta.tool_calls.
  *
- * Format:
+ * Supports two formats observed in practice:
+ *
+ * Format A (original):
  *   <tool_code>
  *   <parameter_code>function_name</parameter_code>
  *   <parameter_code>{"arg1": "value1"}</parameter_code>
  *   </tool_code>
+ *
+ * Format B (observed live — anthropic-style tool use):
+ *   <tool_call> <function=fn_name> <parameter=key> value </parameter> </function> </tool_call>
  *
  * Returns parsed ToolCall[] and the remaining non-XML text.
  */
 function parseQwenXmlToolCalls(content: string, toolCallsList: ToolCall[]): string {
   let remaining = content;
 
-  // Match <tool_code>...</tool_code> blocks
-  const blockRegex = /<tool_code>([\s\S]*?)<\/tool_code>/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = blockRegex.exec(content)) !== null) {
-    const blockContent = match[1];
-
-    // Extract <parameter_code> values — first is function name, rest are args
+  // Format A: <tool_code><parameter_code>...</parameter_code></tool_code>
+  const blockRegexA = /<tool_code>([\s\S]*?)<\/tool_code>/g;
+  let matchA: RegExpExecArray | null;
+  while ((matchA = blockRegexA.exec(content)) !== null) {
+    const blockContent = matchA[1];
     const paramValues: string[] = [];
     const paramRegex = /<parameter_code>([\s\S]*?)<\/parameter_code>/g;
-    let paramMatch: RegExpExecArray | null;
-
-    while ((paramMatch = paramRegex.exec(blockContent)) !== null) {
-      paramValues.push(paramMatch[1].trim());
+    let pm: RegExpExecArray | null;
+    while ((pm = paramRegex.exec(blockContent)) !== null) {
+      paramValues.push(pm[1].trim());
     }
-
     if (paramValues.length >= 2) {
-      const funcName = paramValues[0];
-      const argsJson = paramValues.slice(1).join(' ');
-
       toolCallsList.push({
         id: `call_qwen_${Date.now()}_${toolCallsList.length}`,
         type: 'function',
-        function: { name: funcName, arguments: argsJson },
+        function: { name: paramValues[0], arguments: paramValues.slice(1).join(' ') },
+      });
+    }
+    remaining = remaining.replace(matchA[0], '');
+  }
+
+  // Format B: <tool_call> <function=name> <parameter=key> value </parameter> </function> </tool_call>
+  const blockRegexB = /<function=(\w+)>([\s\S]*?)<\/function>/g;
+  let matchB: RegExpExecArray | null;
+  while ((matchB = blockRegexB.exec(content)) !== null) {
+    const funcName = matchB[1];
+    const innerBlock = matchB[2];
+
+    // Extract <parameter=key> value </parameter> pairs and build JSON args
+    const paramValues: Record<string, unknown> = {};
+    const paramRegexB = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
+    let pmB: RegExpExecArray | null;
+    while ((pmB = paramRegexB.exec(innerBlock)) !== null) {
+      const raw = pmB[2].trim();
+      // Try to parse as JSON (e.g. ["id1","id2"]) — fall back to raw string
+      try {
+        paramValues[pmB[1]] = JSON.parse(raw);
+      } catch {
+        paramValues[pmB[1]] = raw;
+      }
+    }
+
+    if (Object.keys(paramValues).length > 0) {
+      toolCallsList.push({
+        id: `call_qwen_${Date.now()}_${toolCallsList.length}`,
+        type: 'function',
+        function: { name: funcName, arguments: JSON.stringify(paramValues) },
       });
     }
 
-    // Remove this tool_code block from remaining for yield
-    remaining = remaining.replace(match[0], '');
+    // Remove the full <tool_call> ... </tool_call> wrapper if present
+    const fullMatchStart = content.lastIndexOf('<tool_call>', matchB.index);
+    const fullMatchEnd = content.indexOf('</tool_call>', matchB.index + matchB[0].length);
+    if (fullMatchStart >= 0 && fullMatchEnd >= matchB.index) {
+      remaining = remaining.substring(0, fullMatchStart) + remaining.substring(fullMatchEnd + 1);
+    } else {
+      remaining = remaining.replace(matchB[0], '');
+    }
   }
 
   return remaining;
@@ -336,15 +391,18 @@ export async function callLlmStreamWithTools(
 ): Promise<StreamToolCallResult> {
   const onPhase = options?.onPhaseChange;
 
+  const payload = {
+    model: config.model,
+    messages: [{ role: 'user', content: prompt }],
+    tools,
+    stream: true,
+  };
+  logRequest(payload);
+
   const response = await fetchWithRetry(config.endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [{ role: 'user', content: prompt }],
-      tools,
-      stream: true,
-    }),
+    body: JSON.stringify(payload),
   }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
 
   if (!response.ok) {
@@ -355,15 +413,20 @@ export async function callLlmStreamWithTools(
     throw new Error('LLM stream tools response has no body');
   }
 
-  // Fire 'intake' phase at request-send time
-  onPhase?.('intake', 0);
+  // NOTE: 'intake' phase is NOT fired here — the caller (chat-manager._runAgentLoop)
+  // fires it before calling this function to maintain accurate round tracking.
+  // Firing intake in both places would cause PhaseRegistry to increment round from 1→2
+  // before the LLM even starts processing, making the UI show "Round 2" immediately.
 
   const toolCalls: ToolCall[] = [];
   const toolAccum = new Map<number, { id: string; type: string; name: string; args: string }>();
   let retrievingFired = false;
   let answeringFired = false;
+  let reasoningTokenCount = 0;
   // Accumulate content for Qwen XML detection across chunks
   let qwenXmlBuffer = '';
+  // Accumulate response tokens for logging
+  let accumulatedResponse = '';
 
   function parseChunks(): AsyncGenerator<string> {
     const reader = response.body!.getReader();
@@ -400,6 +463,7 @@ export async function callLlmStreamWithTools(
                 parseQwenXmlToolCalls(qwenXmlBuffer, toolCalls);
               }
               onPhase?.('done', toolCalls.length);
+              logStreamResponse(accumulatedResponse);
               return;
             }
 
@@ -422,7 +486,16 @@ export async function callLlmStreamWithTools(
                   parseQwenXmlToolCalls(qwenXmlBuffer, toolCalls);
                 }
                 onPhase?.('done', toolCalls.length);
+                logStreamResponse(accumulatedResponse);
                 return;
+              }
+
+              // Handle reasoning_content — each chunk is one token (issue #175)
+              if (delta?.reasoning_content) {
+                reasoningTokenCount++;
+                onPhase?.('reasoning', reasoningTokenCount);
+                // Do NOT yield reasoning_content
+                continue;
               }
 
               // Handle tool_calls in delta (standard OpenAI format)
@@ -450,8 +523,12 @@ export async function callLlmStreamWithTools(
               if (delta?.content) {
                 qwenXmlBuffer += delta.content;
 
-                // Check if we have a complete <tool_code> block
-                if (qwenXmlBuffer.includes('</tool_code>')) {
+                // Check for complete tool call blocks:
+                // Format A: </tool_code>  Format B: </function> ... _
+                const hasCompleteBlock = qwenXmlBuffer.includes('</tool_code>') ||
+                  (qwenXmlBuffer.includes('</function>') && qwenXmlBuffer.includes('</tool_call>'));
+
+                if (hasCompleteBlock) {
                   const hadToolCallsBefore = toolCalls.length;
                   const remaining = parseQwenXmlToolCalls(qwenXmlBuffer, toolCalls);
                   qwenXmlBuffer = remaining;
@@ -468,14 +545,16 @@ export async function callLlmStreamWithTools(
                       answeringFired = true;
                       onPhase?.('answering', 0);
                     }
+                    accumulatedResponse += remaining;
                     yield remaining;
                   }
                 } else {
-                  // No complete tool_code block yet — still yield for streaming
+                  // No complete tool block yet — still yield for streaming
                   if (!answeringFired) {
                     answeringFired = true;
                     onPhase?.('answering', 0);
                   }
+                  accumulatedResponse += delta.content;
                   yield delta.content;
                 }
               }
@@ -484,6 +563,7 @@ export async function callLlmStreamWithTools(
             }
           }
         }
+        logStreamResponse(accumulatedResponse);
       } finally {
         reader.releaseLock();
       }
@@ -508,14 +588,17 @@ export async function callLlmWithTools(
   tools: FunctionTool[],
   options?: LlmCallOptions
 ): Promise<ToolCallResult> {
+  const payload = {
+    model: config.model,
+    messages: [{ role: 'user', content: prompt }],
+    tools,
+  };
+  logRequest(payload);
+
   const response = await fetchWithRetry(config.endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [{ role: 'user', content: prompt }],
-      tools,
-    }),
+    body: JSON.stringify(payload),
   }, { maxRetries: MAX_RETRIES, timeoutMs: FETCH_TIMEOUT_MS, abortSignal: options?.abortSignal });
 
   if (!response.ok) {
@@ -523,6 +606,7 @@ export async function callLlmWithTools(
   }
 
   const data = await response.json();
+  logResponse(data);
   const rawToolCalls = data.choices?.[0]?.message?.tool_calls;
 
   if (!rawToolCalls || !Array.isArray(rawToolCalls) || rawToolCalls.length === 0) {

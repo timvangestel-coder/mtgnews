@@ -25,3 +25,6 @@ Single-context repo: one `CONTEXT.md` and `docs/adr/` at the root. See `docs/age
 
 ### Repository github info
 The master branch is called: main
+
+### No auto-commit
+Never commit changes automatically. Always stage files and let the user run `git commit` manually. The user retains full control over when commits happen.

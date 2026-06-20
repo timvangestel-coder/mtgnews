@@ -3,6 +3,17 @@ import type { ChatSignalContext } from './signal-chat-scope.ts';
 
 export type FormatStyle = 'plain' | 'annotated-index';
 
+/**
+ * Lightweight signal entry for AgentChat index.
+ * Contains only metadata needed for the LLM to decide which signals to retrieve via tool calls.
+ * ~50 tokens per entry when serialized to XML. Excludes compact_text and transcription.
+ */
+export interface SignalIndexEntry {
+  videoId: string;
+  title: string;
+  summary: string;
+}
+
 const FORMAT_INSTRUCTIONS: Record<FormatStyle, string> = {
   plain: '',
   'annotated-index': `RESPONSE FORMAT INSTRUCTIONS:
@@ -15,29 +26,29 @@ const FORMAT_INSTRUCTIONS: Record<FormatStyle, string> = {
 
 | Timestamp | Finding |
 |-----------|---------|
-| [T:133]   | Relay nodes proposed as fuel stations for missions |
-| [T:580]   | Impossibilities usually engineering challenges not physics violations |
+| [02:13]   | Relay nodes proposed as fuel stations for missions |
+| [09:40]   | Impossibilities usually engineering challenges not physics violations |
 
 **Second Source Title**
 
 | Timestamp | Finding |
 |-----------|---------|
-| [T:425]   | ISS decommissioning by 2031 transitions to commercial operators |
-| [T:690]   | Self-assembling magnetic tiles for in-orbit construction |
+| [07:05]   | ISS decommissioning by 2031 transitions to commercial operators |
+| [11:30]   | Self-assembling magnetic tiles for in-orbit construction |
 
 CRITICAL RULES FOR TABLES:
 - Each source gets its own **bold title** on a separate line above the table
 - The table MUST have exactly 4 lines: header row, separator row, then data rows
 - Header row is: \`| Timestamp | Finding |\`
 - Separator row is: \`|-----------|---------|\`
-- Each finding is ONE row: \`| [T:ss]   | Finding text here |\` where ss is the EXACT number from the T:ss marker in the source material
+- Each finding is ONE row: \`| [MM:SS]   | Finding text here |\` where MM:SS is the timestamp converted from T:ss markers in the source material (divide seconds by 60 for minutes, remainder for seconds)
 - Blank line between the last table and the next **Source Title**
 
 3. End with thematic tags on one line (e.g., "cyclusvergelijking · diversificatie · IPO-impact")
 
 Rules:
 - Max 12 words per finding — be telegraphic, drop filler, keep only the core fact
-- Timestamps MUST use [T:ss] format where ss is the EXACT integer from the source T:ss markers — do NOT convert to minutes:seconds, just copy the number as-is
+- Timestamps MUST use [MM:SS] format converted from T:ss markers in the source (T:420 becomes [07:00], T:538 becomes [08:58])
 - Source title as **bold** text above each table, NOT a markdown heading (no ###)
 - The source title provides video context — do NOT add inline citations or repeat video titles after individual findings
 - No repetitive closing paragraph`,
@@ -307,6 +318,7 @@ function formatSignals(signals: ChatSignalContext[]): string {
  * Assembles a multi-signal chat prompt from a MultiSignalChatContext.
  * Pure function: MultiSignalChatContext → string. No DB access, no side effects.
  * Three-tier template resolution: customTemplate → defaultMultiSignalChatPromptTemplate()
+ * @deprecated Use assembleAgentChat() for AgentChat with LLM tool calling
  */
 export function assembleMultiSignalChat(context: MultiSignalChatContext, customTemplate?: string, formatStyle: FormatStyle = 'annotated-index'): string {
   const template = customTemplate ?? defaultMultiSignalChatPromptTemplate();
@@ -319,4 +331,61 @@ export function assembleMultiSignalChat(context: MultiSignalChatContext, customT
     .replace(/{SIGNALS}/g, signalsText)
     .replace(/{HISTORY}/g, historyText)
     .replace(/{QUESTION}/g, context.question);
+}
+
+// ─── AgentChat (issue #163) ──────────────────────────────────────
+
+/**
+ * Default agent chat prompt template with XML signal index and tool instructions.
+ * Used for AgentChat: LLM reads signal index, decides relevance, calls get_compact_text tool.
+ */
+export function defaultAgentChatPromptTemplate(): string {
+  return `You are a content analyst. Answer the user's question based on the video summaries provided.
+
+You have access to a tool called get_compact_text that retrieves detailed transcription text for specific videos.
+
+TOOL INSTRUCTIONS:
+- First, read the signal index below to understand what videos are available and their topics.
+- Based on the user's question, determine which videos are relevant.
+- Call get_compact_text with the videoIds parameter containing an array of video IDs you want to retrieve.
+- The tool will return {videoId, title, content} for each requested signal.
+- Use the retrieved content to formulate your answer.
+
+<signal_index>{SIGNAL_INDEX}</signal_index>
+
+{HISTORY}
+
+<question>{QUESTION}</question>`;
+}
+
+/**
+ * Formats SignalIndexEntry[] into an XML block string.
+ */
+function formatSignalIndex(entries: SignalIndexEntry[]): string {
+  if (entries.length === 0) return '';
+
+  return entries.map((e) => `  <entry video_id="${e.videoId}" title="${e.title}">
+    <summary>${e.summary}</summary>
+  </entry>`).join('\n');
+}
+
+/**
+ * Assembles an AgentChat prompt from lightweight signal index data.
+ * Pure function: (signals, question, history) → string. No DB access, no side effects.
+ * Three-tier template resolution: customTemplate → defaultAgentChatPromptTemplate()
+ */
+export function assembleAgentChat(
+  signals: SignalIndexEntry[],
+  question: string,
+  history: Array<{ question: string; answer: string }>,
+  customTemplate?: string
+): string {
+  const template = customTemplate ?? defaultAgentChatPromptTemplate();
+  const signalIndexText = formatSignalIndex(signals);
+  const historyText = formatHistory(history);
+
+  return template
+    .replace(/{SIGNAL_INDEX}/g, signalIndexText)
+    .replace(/{HISTORY}/g, historyText)
+    .replace(/{QUESTION}/g, question);
 }

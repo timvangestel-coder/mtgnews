@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { SignalContext } from './signal-context';
+import type { SignalIndexEntry } from './prompt-assembler';
 
 /**
  * Describes the scope of a multi-signal chat session.
@@ -137,5 +138,72 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
     channelDisplayName: row.channel_display_name,
     summary: row.summary ?? '',
     compactText: row.compact_text ?? undefined,
+  }));
+}
+
+// ─── AgentChat lightweight index (issue #163) ──────────────────────
+
+/**
+ * Resolves a lightweight signal index for AgentChat scope resolution.
+ * Returns only { videoId, title, summary } per signal — no compact_text, no transcription.
+ * Uses the same scope resolution rules as resolveScope().
+ */
+export function resolveIndexScope(db: Database.Database, scope: ChatScope): SignalIndexEntry[] {
+  // Single-video scope
+  if (scope.videoId) {
+    const row = db.prepare(`
+      SELECT s.video_id, s.summary, s.title
+      FROM signals s
+      WHERE s.video_id = ?
+    `).get(scope.videoId) as
+      | { video_id: string; summary: string | null; title: string }
+      | undefined;
+
+    if (!row) {
+      throw new Error(`Signal ${scope.videoId} not found`);
+    }
+
+    return [
+      {
+        videoId: row.video_id,
+        title: row.title,
+        summary: row.summary ?? '',
+      },
+    ];
+  }
+
+  // Multi-signal scope (topic-based or no-filters)
+  const conditions: string[] = [];
+  const params: (string | number | boolean)[] = [];
+
+  if (scope.topicKey) {
+    conditions.push('t.key = ?');
+    params.push(scope.topicKey);
+  }
+
+  if (scope.channelId) {
+    conditions.push('c.channel_id = ?');
+    params.push(scope.channelId);
+  }
+
+  if (!scope.includeIrrelevant) {
+    conditions.push("s.processing_state != 'irrelevant'");
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const rows = db.prepare(`
+    SELECT s.video_id, s.summary, s.title
+    FROM signals s
+    JOIN channels c ON s.channel_id = c.channel_id
+    LEFT JOIN topics t ON c.topic_id = t.id
+    ${whereClause}
+    ORDER BY s.published_at DESC
+  `).all(...params) as Array<{ video_id: string; summary: string | null; title: string }>;
+
+  return rows.map((row) => ({
+    videoId: row.video_id,
+    title: row.title,
+    summary: row.summary ?? '',
   }));
 }

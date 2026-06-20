@@ -355,6 +355,56 @@ describe('getHistory with filter criteria — issue #127', () => {
   });
 });
 
+// ─── resolveIndexScope ordering — issue #168 ──────────────
+
+describe('resolveIndexScope — issue #168 published_at DESC ordering', () => {
+  it('orders multi-signal results by published_at DESC not created_at DESC', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+
+    // Insert signals where published_at order differs from created_at order.
+    // v_recently_created: highest created_at (3000) but oldest published_at -> should be LAST
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_recently_created', 'UC_mtg', 'Recently Created', JSON.stringify({ segments: [] }), 3000, 'summarized', '2025-01-01T00:00:00Z');
+
+    // v_oldest_created: lowest created_at (1000) but newest published_at -> should be FIRST
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_oldest_created', 'UC_mtg', 'Oldest Created', JSON.stringify({ segments: [] }), 1000, 'summarized', '2025-12-01T00:00:00Z');
+
+    // v_middle: middle values
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_middle', 'UC_mtg', 'Middle Video', JSON.stringify({ segments: [] }), 2000, 'summarized', '2025-06-01T00:00:00Z');
+
+    const { resolveIndexScope } = await import('./signal-chat-scope');
+    const results = resolveIndexScope(db, { topicKey: 'mtg' });
+
+    expect(results).toHaveLength(3);
+    // Must be ordered by published_at DESC: newest publish date first
+    // created_at DESC would give: v_recently_created, v_middle, v_oldest_created (WRONG)
+    // published_at DESC gives:     v_oldest_created, v_middle, v_recently_created (CORRECT)
+    expect(results[0].videoId).toBe('v_oldest_created');
+    expect(results[1].videoId).toBe('v_middle');
+    expect(results[2].videoId).toBe('v_recently_created');
+  });
+
+  it('does not change single-video scope (no ordering)', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+    seedSignal(db, 'v_single', 'UC_mtg', 'Single Video');
+
+    const { resolveIndexScope } = await import('./signal-chat-scope');
+    const results = resolveIndexScope(db, { videoId: 'v_single' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].videoId).toBe('v_single');
+  });
+});
+
 // ─── Regression: existing per-signal chat unchanged ──────────
 
 describe('regression — per-signal chat behavior unchanged', () => {

@@ -15,11 +15,14 @@ export class ChatQueue {
   /** Registry of AbortControllers for in-flight tasks, keyed by question id. */
   private _controllers = new Map<number, AbortController>();
 
-  /** Registry of LLM phase progress, keyed by question id. */
-  private _phaseRegistry = new PhaseRegistry<number>();
+  /** Registry of LLM phase progress, keyed by question id. Exposed for testing so assertions can read phase/round/tokenCount without casts. */
+  readonly _phaseRegistry = new PhaseRegistry<number>();
 
-  /** Yield to the event loop every N phase-change callbacks so external observers (e.g. HTTP polling) can capture intermediate PhaseRegistry snapshots during synchronous callback bursts. */
-  private static readonly PHASE_BATCH_SIZE = 10;
+  /** Token stream callbacks per question id, so consumers can receive live tokens during processing. */
+  private _tokenCallbacks = new Map<number, ((token: string) => void)[]>();
+
+  /** Yield to the event loop every N phase-change callbacks so external observers (e.g. HTTP polling) can capture intermediate PhaseRegistry snapshots during synchronous callback bursts. Reduced from 10 for faster UI updates. */
+  private static readonly PHASE_BATCH_SIZE = 1;
 
   constructor(
     private db: Database.Database,
@@ -76,6 +79,12 @@ export class ChatQueue {
               setTimeout(() => {}, 0);
             }
           },
+          onToken: (token: string) => {
+            const callbacks = this._tokenCallbacks.get(id);
+            if (callbacks) {
+              for (const cb of callbacks) cb(token);
+            }
+          },
         });
       } catch (err) {
         // Silently ignore AbortError — aborted tasks are not marked as failed
@@ -87,9 +96,10 @@ export class ChatQueue {
         // Process failure leaves answer=NULL → mark as failed
         this.markFailed(id);
       } finally {
-        // Cleanup: remove controller and phase data when task settles
+        // Cleanup: remove controller, phase data, and token callbacks when task settles
         this._controllers.delete(id);
         this._phaseRegistry.delete(id);
+        this._tokenCallbacks.delete(id);
       }
     });
   }
@@ -113,7 +123,7 @@ export class ChatQueue {
    * Rich status info for HTMX polling responses.
    * Returns status + answer text when done, so the UI can swap in the result.
    */
-  statusInfo(id: number): { status: 'pending' | 'done' | 'failed'; answer?: string; isFormatted?: number; phase?: LlmPhase; tokenCount?: number } | null {
+  statusInfo(id: number): { status: 'pending' | 'done' | 'failed'; answer?: string; isFormatted?: number; phase?: LlmPhase; tokenCount?: number; round?: number } | null {
     const row = this.db.prepare(
       'SELECT answer, COALESCE(is_formatted, 0) AS is_formatted FROM signal_chat WHERE id = ?'
     ).get(id) as { answer: string | null; is_formatted: number } | undefined;
@@ -129,6 +139,7 @@ export class ChatQueue {
       status: 'pending',
       phase: phaseEntry?.phase,
       tokenCount: phaseEntry?.tokenCount,
+      round: phaseEntry?.round,
     };
   }
 

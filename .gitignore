@@ -4,4 +4,5 @@ data/
 *.db
 .env
 test-results/
+log/
 %TEMP%/

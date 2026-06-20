@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PhaseRegistry, type LlmPhase, type PhaseEntry } from './phase-registry';
 
 describe('PhaseRegistry', () => {
-  it('set() stores phase and tokenCount for a given key', () => {
+  it('set() stores phase, tokenCount and round for a given key', () => {
     const registry = new PhaseRegistry<string>();
     registry.set('chat-1', 'intake', 0);
 
@@ -10,9 +10,10 @@ describe('PhaseRegistry', () => {
     expect(entry).toBeDefined();
     expect(entry!.phase).toBe('intake');
     expect(entry!.tokenCount).toBe(0);
+    expect(entry!.round).toBe(1);
   });
 
-  it('set() overwrites existing entry with new phase and tokenCount', () => {
+  it('set() overwrites existing entry with new phase, tokenCount and round', () => {
     const registry = new PhaseRegistry<string>();
     registry.set('chat-1', 'intake', 0);
     registry.set('chat-1', 'reasoning', 42);
@@ -20,6 +21,7 @@ describe('PhaseRegistry', () => {
     const entry = registry.get('chat-1');
     expect(entry!.phase).toBe('reasoning');
     expect(entry!.tokenCount).toBe(42);
+    expect(entry!.round).toBe(1);
   });
 
   it('get() returns undefined for missing keys', () => {
@@ -44,12 +46,15 @@ describe('PhaseRegistry', () => {
 
     expect(registry.get('chat-1')!.phase).toBe('intake');
     expect(registry.get('chat-1')!.tokenCount).toBe(0);
+    expect(registry.get('chat-1')!.round).toBe(1);
 
     expect(registry.get('chat-2')!.phase).toBe('reasoning');
     expect(registry.get('chat-2')!.tokenCount).toBe(50);
+    expect(registry.get('chat-2')!.round).toBe(1);
 
     expect(registry.get('chat-3')!.phase).toBe('answering');
     expect(registry.get('chat-3')!.tokenCount).toBe(200);
+    expect(registry.get('chat-3')!.round).toBe(1);
   });
 
   it('supports all LlmPhase values', () => {
@@ -70,12 +75,44 @@ describe('PhaseRegistry', () => {
 
     expect(registry.get(1)!.phase).toBe('intake');
     expect(registry.get(2)!.tokenCount).toBe(999);
+    expect(registry.get(2)!.round).toBe(1);
     expect(registry.get(3)).toBeUndefined();
   });
 
-  it('PhaseEntry type has phase and tokenCount properties', () => {
-    const entry: PhaseEntry = { phase: 'done', tokenCount: 42 };
+  it('PhaseEntry type has phase, tokenCount and round properties', () => {
+    const entry: PhaseEntry = { phase: 'done', tokenCount: 42, round: 1 };
     expect(entry.phase).toBe('done');
     expect(entry.tokenCount).toBe(42);
+    expect(entry.round).toBe(1);
+  });
+
+  it('round increments when intake fires after existing entries (new agent loop)', () => {
+    const registry = new PhaseRegistry<string>();
+    registry.set('chat-1', 'intake', 0);
+    registry.set('chat-1', 'reasoning', 100);
+    registry.set('chat-1', 'answering', 200);
+
+    expect(registry.get('chat-1')!.round).toBe(1);
+
+    // Second agent loop iteration: intake fires again
+    registry.set('chat-1', 'intake', 0);
+    expect(registry.get('chat-1')!.round).toBe(2);
+
+    registry.set('chat-1', 'reasoning', 300);
+    expect(registry.get('chat-1')!.round).toBe(2);
+
+    // Third agent loop iteration
+    registry.set('chat-1', 'intake', 0);
+    expect(registry.get('chat-1')!.round).toBe(3);
+  });
+
+  it('round stays at 1 when intake fires first (no existing entry)', () => {
+    const registry = new PhaseRegistry<string>();
+    registry.set('chat-1', 'intake', 0);
+    expect(registry.get('chat-1')!.round).toBe(1);
+
+    // Non-intake phases keep round at 1
+    registry.set('chat-1', 'reasoning', 50);
+    expect(registry.get('chat-1')!.round).toBe(1);
   });
 });

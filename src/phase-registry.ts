@@ -5,18 +5,25 @@
  * Each entry tracks the current phase and associated token count.
  */
 
-export type LlmPhase = 'intake' | 'reasoning' | 'answering' | 'done';
+export type LlmPhase = 'intake' | 'reasoning' | 'answering' | 'retrieving' | 'done';
 
 export interface PhaseEntry {
   phase: LlmPhase;
   tokenCount: number;
+  /** Agent loop round number (increments when intake fires, indicating a new processing cycle). */
+  round: number;
 }
 
 export class PhaseRegistry<K> {
   private entries = new Map<K, PhaseEntry>();
 
   set(id: K, phase: LlmPhase, tokenCount: number): void {
-    this.entries.set(id, { phase, tokenCount });
+    const existing = this.entries.get(id);
+    // Increment round when intake fires and we already have data (new agent loop iteration)
+    const round = (phase === 'intake' && existing !== undefined && existing.round > 0)
+      ? existing.round + 1
+      : existing?.round ?? 1;
+    this.entries.set(id, { phase, tokenCount, round });
   }
 
   get(id: K): PhaseEntry | undefined {

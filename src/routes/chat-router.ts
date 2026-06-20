@@ -182,6 +182,7 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
         answer: formatAnswer(info.answer, info.isFormatted),
         phase: info.phase,
         tokenCount: info.tokenCount,
+        round: info.round,
         layout: false,
       });
     } else {

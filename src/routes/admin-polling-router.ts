@@ -81,8 +81,12 @@ export function createAdminPollingRouter(manager: PollRunManager) {
       return;
     }
 
+    // Issue #158: Include per-signal phase data for UI rendering
+    const signalPhases = manager.getSignalPhases();
+
     res.render('admin/_pollProgress', {
       state,
+      signalPhases,
       layout: false,
     });
   });

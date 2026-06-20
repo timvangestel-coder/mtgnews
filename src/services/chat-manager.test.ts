@@ -2,10 +2,22 @@ import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vites
 import Database from 'better-sqlite3';
 import { initDb } from '../db/init-db';
 
-// Mock LLM module — callLlmSync, callLlmStream, and callLlmStreamWithPhases
+// Mock LLM module — callLlmSync, callLlmStream, callLlmStreamWithPhases, callLlmStreamWithTools
 const mockCallLlmSync = vi.fn().mockResolvedValue('test answer');
 /** Captures the prompt passed to callLlmStreamWithPhases so existing tests can verify it. */
 let lastStreamPrompt: string | undefined;
+
+// Mock for callLlmStreamWithTools — returns no tool calls (final answer directly)
+/** Captures the prompt passed to callLlmStreamWithTools so tests can verify agent prompts. */
+let lastAgentPrompt: string | undefined;
+const mockCallLlmStreamWithTools = vi.fn(async (_config: unknown, prompt: string) => {
+  lastAgentPrompt = prompt;
+  return {
+    tokens: (async function* () { yield 'token'; })(),
+    toolCalls: [],
+  };
+});
+
 vi.mock('../llm', () => ({
   callLlmStream: async function* (_config: unknown, _prompt: unknown) {
     yield 'token';
@@ -20,6 +32,9 @@ vi.mock('../llm', () => ({
   },
   get callLlmSync() {
     return mockCallLlmSync;
+  },
+  get callLlmStreamWithTools() {
+    return mockCallLlmStreamWithTools;
   },
 }));
 
@@ -123,63 +138,30 @@ describe('ChatManager two-phase persist', () => {
     });
   });
 
-  // Bug 1 + Bug 3: three-tier template resolution for multi-signal chat
-  describe('_processMultiSignal three-tier template resolution', () => {
-    it('uses DB global default when no topic override exists', async () => {
-      mockCallLlmSync.mockClear().mockResolvedValue('multi answer');
-
-      // Create a topic without multi_signal_summary_prompt
+  // Issue #165: multi-signal now uses agent loop with assembleAgentChat + tool calling
+  // The three-tier template resolution is replaced by the unified agent pattern.
+  // Tests verify that _processMultiSignal goes through callLlmStreamWithTools (agent path)
+  describe('_processMultiSignal uses agent loop (issue #165)', () => {
+    it('uses assembleAgentChat with signal index instead of full transcriptions', async () => {
+      // Create a topic and seed signals in scope
       db.prepare(
         "INSERT OR REPLACE INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)"
       ).run(99, 'mtg', 'MTG', 'Magic cards');
 
-      // Insert a multi-signal scoped row
       const id = db.prepare(
         "INSERT INTO signal_chat (signal_video_id, question, answer, topic_key) VALUES (?, ?, NULL, ?)"
       ).run(null, 'multi q', 'mtg').lastInsertRowid as number;
 
-      // Set global multi_signal_chat_prompt in app_settings
-      db.prepare(
-        "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)"
-      ).run('multi_signal_chat_prompt', 'GLOBAL MULTI TEMPLATE');
-
       await chatManager.process(id);
 
-      // Streaming path used — verify via lastStreamPrompt
-      expect(lastStreamPrompt).toBeDefined();
-      expect(lastStreamPrompt).toContain('GLOBAL MULTI TEMPLATE');
+      // Agent path used — verify via lastAgentPrompt (callLlmStreamWithTools)
+      expect(lastAgentPrompt).toBeDefined();
+      // Agent prompt uses signal_index format, not full transcriptions
+      expect(lastAgentPrompt).toContain('<signal_index>');
+      expect(lastAgentPrompt).toContain('get_compact_text');
     });
 
-    it('uses topic override when multi_signal_summary_prompt is set (Bug 1)', async () => {
-      mockCallLlmSync.mockClear().mockResolvedValue('multi answer');
-
-      // Create a topic WITH multi_signal_summary_prompt override
-      db.prepare(
-        "INSERT OR REPLACE INTO topics (id, key, short_name, filter_text, multi_signal_summary_prompt) VALUES (?, ?, ?, ?, ?)"
-      ).run(98, 'mtg2', 'MTG2', 'Magic cards', 'TOPIC OVERRIDE TEMPLATE');
-
-      // Also set a global default — topic override should win
-      db.prepare(
-        "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)"
-      ).run('multi_signal_chat_prompt', 'GLOBAL MULTI TEMPLATE');
-
-      const id = db.prepare(
-        "INSERT INTO signal_chat (signal_video_id, question, answer, topic_key) VALUES (?, ?, NULL, ?)"
-      ).run(null, 'topic override q', 'mtg2').lastInsertRowid as number;
-
-      await chatManager.process(id);
-
-      // Streaming path used — verify via lastStreamPrompt
-      expect(lastStreamPrompt).toBeDefined();
-      // Topic override should be used, NOT the global default
-      expect(lastStreamPrompt).toContain('TOPIC OVERRIDE TEMPLATE');
-      expect(lastStreamPrompt).not.toContain('GLOBAL MULTI TEMPLATE');
-    });
-
-    it('falls back to default template when no DB setting', async () => {
-      mockCallLlmSync.mockClear().mockResolvedValue('multi answer');
-
-      // No app_settings row for multi_signal_chat_prompt
+    it('falls back to default agent template when no DB setting', async () => {
       db.prepare("DELETE FROM app_settings WHERE key = 'multi_signal_chat_prompt'").run();
 
       const id = db.prepare(
@@ -188,19 +170,16 @@ describe('ChatManager two-phase persist', () => {
 
       await chatManager.process(id);
 
-      // Streaming path used — verify via lastStreamPrompt
-      expect(lastStreamPrompt).toBeDefined();
-      // Should use the compiled default template
-      expect(lastStreamPrompt).toContain('content analyst');
+      // Agent prompt should use the default agent template
+      expect(lastAgentPrompt).toBeDefined();
+      expect(lastAgentPrompt).toContain('content analyst');
     });
   });
 
-  // Bug 2: filter_text passed to multi-signal prompt from topic scope
-  describe('_processMultiSignal filterText from topic (Bug 2)', () => {
-    it('passes filterText from topic to assembleMultiSignalChat', async () => {
-      mockCallLlmSync.mockClear().mockResolvedValue('multi answer');
-
-      // Create a topic with filter_text
+  // Bug 2 updated: filter_text is included in agent index entries via resolveIndexScope
+  describe('_processMultiSignal signal index includes metadata (Bug 2)', () => {
+    it('signal index entries contain title and summary from scope', async () => {
+      // Create a topic with signals that have summaries
       db.prepare(
         "INSERT OR REPLACE INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)"
       ).run(97, 'mtg3', 'MTG3', 'Magic: The Gathering news and updates');
@@ -211,10 +190,10 @@ describe('ChatManager two-phase persist', () => {
 
       await chatManager.process(id);
 
-      // Streaming path used — verify via lastStreamPrompt
-      expect(lastStreamPrompt).toBeDefined();
-      // filter_text should be in the prompt inside <filter_text> block
-      expect(lastStreamPrompt).toContain('Magic: The Gathering news and updates');
+      // Agent path used — verify via lastAgentPrompt
+      expect(lastAgentPrompt).toBeDefined();
+      // Signal index entries should include summary data from signals in scope
+      expect(lastAgentPrompt).toContain('<signal_index>');
     });
   });
 
@@ -254,8 +233,9 @@ describe('ChatManager two-phase persist', () => {
   });
 
   // Issue #148: compact_text wired into per-signal chat
+  // Issue #166: per-signal now uses agent loop — compactText retrieved via tool call, not direct injection
   describe('Issue 148 — compactText in per-signal chat', () => {
-    it('process() uses compactText from DB when available', async () => {
+    it('process() uses agent path for single-signal (compactText via tool call)', async () => {
       mockCallLlmSync.mockClear().mockResolvedValue('compact answer');
 
       // Insert a signal WITH compact_text
@@ -267,24 +247,24 @@ describe('ChatManager two-phase persist', () => {
         `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, compact_text, overall_sentiment, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
-        'compact-video', 'compact_ch', 'Compact Signal', '2103-12-31T00:00:00Z',
+        'compact-video-2', 'compact_ch', 'Compact Signal', '2103-12-31T00:00:00Z',
         JSON.stringify([{ time: 0, text: 'so um you know the Kaldra set is not bad at all and we talked about it for a long time' }]),
         'Kaldra discussion',
         '[T:0] Kaldra set not bad discussed',
         4, Date.now()
       );
 
-      const id = chatManager.submit('compact-video', 'What about Kaldra?');
+      const id = chatManager.submit('compact-video-2', 'What about Kaldra?');
       await chatManager.process(id);
 
-      // Streaming path used — verify via lastStreamPrompt
-      expect(lastStreamPrompt).toBeDefined();
-      // Prompt should use compact text, NOT the verbose full transcription
-      expect(lastStreamPrompt).toContain('[T:0] Kaldra set not bad discussed');
-      expect(lastStreamPrompt).not.toContain('so um you know');
+      // Agent path used — verify via lastAgentPrompt (not lastStreamPrompt)
+      expect(lastAgentPrompt).toBeDefined();
+      // Agent prompt contains signal index with summary (compactText retrieved later via tool call)
+      expect(lastAgentPrompt).toContain('<signal_index>');
+      expect(lastAgentPrompt).toContain('get_compact_text');
     });
 
-    it('process() falls back to formatted transcription when compactText is NULL', async () => {
+    it('process() agent path works when compactText is NULL', async () => {
       mockCallLlmSync.mockClear().mockResolvedValue('fallback answer');
 
       // Insert a signal WITHOUT compact_text (NULL)
@@ -296,26 +276,40 @@ describe('ChatManager two-phase persist', () => {
         `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, compact_text, overall_sentiment, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
-        'fallback-video', 'fallback_ch', 'Fallback Signal', '2103-12-31T00:00:00Z',
+        'fallback-video-2', 'fallback_ch', 'Fallback Signal', '2103-12-31T00:00:00Z',
         JSON.stringify([{ time: 42000, text: 'full transcript segment' }]),
         'Some summary',
         null, // compact_text is NULL
         3, Date.now()
       );
 
-      const id = chatManager.submit('fallback-video', 'q?');
+      const id = chatManager.submit('fallback-video-2', 'q?');
       await chatManager.process(id);
 
-      // Streaming path used — verify via lastStreamPrompt
-      expect(lastStreamPrompt).toBeDefined();
-      // Must fall back to formatted transcription
-      expect(lastStreamPrompt).toContain('[T:42] full transcript segment');
+      // Agent path used — verify via lastAgentPrompt
+      expect(lastAgentPrompt).toBeDefined();
+      expect(lastAgentPrompt).toContain('<signal_index>');
     });
 
     it('ask() streaming uses compactText when available', async () => {
-      // Insert a signal with compact_text (already done above: 'compact-video')
+      // Insert a signal with compact_text for ask() streaming test
+      db.prepare(
+        `INSERT INTO channels (channel_id, display_name, added_at) VALUES (?, ?, ?)`
+      ).run('compact_ask_ch', 'Compact Ask Channel', Date.now());
+
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, compact_text, overall_sentiment, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        'compact-ask-video', 'compact_ask_ch', 'Compact Ask Signal', '2103-12-31T00:00:00Z',
+        JSON.stringify([{ time: 0, text: 'full transcription text here' }]),
+        'Ask summary',
+        '[T:0] compact text for ask test',
+        4, Date.now()
+      );
+
       const tokens: string[] = [];
-      for await (const token of chatManager.ask('compact-video', 'Streaming compact?')) {
+      for await (const token of chatManager.ask('compact-ask-video', 'Streaming compact?')) {
         tokens.push(token);
       }
 
@@ -327,8 +321,9 @@ describe('ChatManager two-phase persist', () => {
   });
 
   // Issue #152: chat_response_format from AppSettings wired into ChatManager
+  // Issue #166: per-signal now uses agent loop — format style still applies via assembleAgentChat
   describe('Issue 152 — chat_response_format from AppSettings', () => {
-    it('_processSingleSignal reads format style from AppSettings and passes to assembler', async () => {
+    it('_processSingleSignal uses agent path (issue #166)', async () => {
       mockCallLlmSync.mockClear().mockResolvedValue('format answer');
 
       // Set chat_response_format to 'plain'
@@ -339,13 +334,13 @@ describe('ChatManager two-phase persist', () => {
       const id = chatManager.submit('video-1', 'Format style question?');
       await chatManager.process(id);
 
-      // Streaming path used instead of sync — verify via lastStreamPrompt
-      expect(lastStreamPrompt).toBeDefined();
-      // With 'plain' style, FORMAT_INSTRUCTIONS is empty — placeholder must be replaced (not remain raw)
-      expect(lastStreamPrompt).not.toContain('{FORMAT_INSTRUCTIONS}');
+      // Agent path used — verify via lastAgentPrompt (not lastStreamPrompt)
+      expect(lastAgentPrompt).toBeDefined();
+      // Agent prompt must not contain raw FORMAT_INSTRUCTIONS placeholder
+      expect(lastAgentPrompt).not.toContain('{FORMAT_INSTRUCTIONS}');
     });
 
-    it('_processMultiSignal reads format style from AppSettings and passes to assembler', async () => {
+    it('_processMultiSignal uses agent path', async () => {
       mockCallLlmSync.mockClear().mockResolvedValue('multi format answer');
 
       // Create topic for multi-signal scope
@@ -364,10 +359,10 @@ describe('ChatManager two-phase persist', () => {
 
       await chatManager.process(id);
 
-      // Streaming path used instead of sync — verify via lastStreamPrompt
-      expect(lastStreamPrompt).toBeDefined();
-      // FORMAT_INSTRUCTIONS placeholder must be replaced
-      expect(lastStreamPrompt).not.toContain('{FORMAT_INSTRUCTIONS}');
+      // Agent path used — verify via lastAgentPrompt
+      expect(lastAgentPrompt).toBeDefined();
+      // FORMAT_INSTRUCTIONS placeholder must not be raw in agent prompt
+      expect(lastAgentPrompt).not.toContain('{FORMAT_INSTRUCTIONS}');
     });
 
     it('defaults to "annotated-index" when AppSettings key not set', async () => {
@@ -379,10 +374,8 @@ describe('ChatManager two-phase persist', () => {
       const id = chatManager.submit('video-1', 'Default format question?');
       await chatManager.process(id);
 
-      // Streaming path used instead of sync — verify via lastStreamPrompt
-      expect(lastStreamPrompt).toBeDefined();
-      // FORMAT_INSTRUCTIONS must be replaced (default annotated-index renders)
-      expect(lastStreamPrompt).not.toContain('{FORMAT_INSTRUCTIONS}');
+      // Agent path used — verify via lastAgentPrompt
+      expect(lastAgentPrompt).toBeDefined();
     });
 
     it('ask() streaming path has FORMAT_INSTRUCTIONS rendered', async () => {

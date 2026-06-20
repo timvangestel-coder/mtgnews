@@ -1,10 +1,61 @@
 import Database from 'better-sqlite3';
-import { LlmConfig, callLlmStream, callLlmSync, callLlmStreamWithPhases } from '../llm';
+import { LlmConfig, callLlmStream, callLlmSync, callLlmStreamWithTools, FunctionTool } from '../llm';
 import type { LlmPhase } from '../phase-registry.ts';
-import { assembleChat, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate, type FormatStyle } from '../prompt-assembler';
-import { ChatScope, resolveScope, ChatSignalContext } from '../signal-chat-scope';
+import { assembleChat, type FormatStyle, type SignalIndexEntry } from '../prompt-assembler';
+import { ChatScope, resolveIndexScope, ChatSignalContext } from '../signal-chat-scope';
 import { ChatResponseFormatter } from '../chat-response-formatter';
+import { createAgentConversation } from '../chat-conversation-state';
 import { getAppSetting } from '../db/app-settings';
+
+/** Maximum number of agent loop rounds before forcing final answer */
+const MAX_AGENT_ROUNDS = 3;
+
+/** Fallback message when the agent loop reaches max rounds without a final answer */
+const EMPTY_ANSWER_FALLBACK = '[The system reached the maximum number of retrieval rounds without a final answer.]';
+
+/** Tool definition for get_compact_text */
+const GET_COMPACT_TEXT_TOOL: FunctionTool = {
+  type: 'function',
+  function: {
+    name: 'get_compact_text',
+    description: 'Retrieve compact transcription text for specific videos by their video IDs',
+    parameters: {
+      type: 'object',
+      properties: {
+        videoIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of video IDs to retrieve compact text for',
+        },
+      },
+      required: ['videoIds'],
+    },
+  },
+};
+
+/**
+ * Executes the get_compact_text tool by querying SQLite for compact_text rows.
+ * Returns a formatted string suitable as a tool response message.
+ */
+function executeGetCompactText(db: Database.Database, videoIds: string[]): string {
+  const results: Array<{ videoId: string; title: string; content: string }> = [];
+
+  for (const vid of videoIds) {
+    const row = db.prepare(
+      'SELECT video_id, title, compact_text FROM signals WHERE video_id = ?'
+    ).get(vid) as { video_id: string; title: string; compact_text: string | null } | undefined;
+
+    if (row && row.compact_text) {
+      results.push({
+        videoId: row.video_id,
+        title: row.title,
+        content: row.compact_text,
+      });
+    }
+  }
+
+  return JSON.stringify(results);
+}
 
 /**
  * Resolves the chat response format style from AppSettings.
@@ -56,6 +107,8 @@ function resolveSignalForChat(db: Database.Database, videoId: string): { transcr
 export interface ProcessOptions {
   abortSignal?: AbortSignal;
   onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void;
+  /** Called for each token emitted during agent loop rounds. Enables streaming retrieval thoughts and final answer to external consumers (UI via SSE/HTMX). */
+  onToken?: (token: string) => void;
 }
 
 export class ChatManager {
@@ -258,73 +311,41 @@ export class ChatManager {
     const isListScoped = row.topic_key !== null || row.channel_id !== null;
 
     if (isListScoped) {
-      await this._processMultiSignal(row, options?.abortSignal, options?.onPhaseChange);
+      await this._processMultiSignal(row, options?.abortSignal, options?.onPhaseChange, options?.onToken);
     } else {
-      await this._processSingleSignal(row, options?.abortSignal, options?.onPhaseChange);
+      await this._processSingleSignal(row, options?.abortSignal, options?.onPhaseChange, options?.onToken);
     }
   }
 
-  private async _processSingleSignal(row: { id: number; signal_video_id: string | null; question: string }, abortSignal?: AbortSignal, onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void): Promise<void> {
+  /**
+   * Thin adapter: resolves index via resolveIndexScope({ videoId }) and delegates to _runAgentLoop.
+   */
+  private async _processSingleSignal(row: { id: number; signal_video_id: string | null; question: string }, abortSignal?: AbortSignal, onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void, onToken?: (token: string) => void): Promise<void> {
     const videoId = row.signal_video_id!;
 
-    // Resolve signal context
-    const signal = resolveSignalForChat(this.db, videoId);
-    if (!signal) {
-      throw new Error(`Signal ${videoId} not found`);
-    }
+    // Resolve index via resolveIndexScope (uniform with multi-signal path)
+    const indexEntries = resolveIndexScope(this.db, { videoId });
 
-    // Fetch recent Q&A history for context (exclude this pending row which has no answer yet)
+    // Fetch recent Q&A history for this signal (exclude this pending row)
     const historyRows = this.db.prepare(`
       SELECT question, answer FROM signal_chat
       WHERE signal_video_id = ? AND answer IS NOT NULL
       ORDER BY created_at DESC LIMIT 10
     `).all(videoId) as Array<{ question: string; answer: string }>;
 
-    // Assemble chat prompt with format style from AppSettings
-    const formatStyle = resolveFormatStyle(this.db);
-    const prompt = assembleChat({
-      transcriptionJson: signal.transcriptionJson,
-      summary: signal.summary,
-      compactText: signal.compactText,
-      filterText: signal.filterText,
-      history: historyRows,
-      question: row.question,
-    }, undefined, formatStyle);
-
-    // Build signalMap for unified formatter (single-signal passes one entry)
-    const sigTitle = this.db.prepare(
-      'SELECT title FROM signals WHERE video_id = ?'
-    ).get(videoId) as { title: string } | undefined;
+    // Build signalMap for citation formatting
     const signalMap: Record<string, { title: string }> = {};
-    if (sigTitle) {
-      signalMap[videoId] = { title: sigTitle.title };
+    for (const e of indexEntries) {
+      signalMap[e.videoId] = { title: e.title };
     }
 
-    // Stream LLM with phase detection — tee pattern: buffer tokens, persist after completion
-    let bufferedAnswer = '';
-    try {
-      for await (const token of callLlmStreamWithPhases(this.llmConfig, prompt, { abortSignal, onPhaseChange })) {
-        bufferedAnswer += token;
-      }
-
-      // Check abort before persisting
-      if (abortSignal?.aborted) {
-        return;
-      }
-
-      const answer = ChatResponseFormatter.format(bufferedAnswer, signalMap);
-
-      // Persist answer on success (is_formatted=1: ChatResponseFormatter ran internally)
-      this.db.prepare(
-        'UPDATE signal_chat SET answer = ?, is_formatted = 1 WHERE id = ?'
-      ).run(answer, row.id);
-    } catch (error) {
-      // Do NOT partial-write to DB on failure — answer remains NULL
-      throw error;
-    }
+    await this._runAgentLoop(indexEntries, signalMap, row.question, row.id, historyRows, abortSignal, onPhaseChange, onToken);
   }
 
-  private async _processMultiSignal(row: { id: number; question: string; topic_key: string | null; channel_id: string | null; include_irrelevant: number | null }, abortSignal?: AbortSignal, onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void): Promise<void> {
+  /**
+   * Thin adapter: resolves index via resolveIndexScope(scope) and delegates to _runAgentLoop.
+   */
+  private async _processMultiSignal(row: { id: number; question: string; topic_key: string | null; channel_id: string | null; include_irrelevant: number | null }, abortSignal?: AbortSignal, onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void, onToken?: (token: string) => void): Promise<void> {
     // Build scope from DB columns
     const scope: ChatScope = {
       topicKey: row.topic_key ?? undefined,
@@ -332,62 +353,92 @@ export class ChatManager {
       includeIrrelevant: row.include_irrelevant ? true : false,
     };
 
-    // Resolve all signals in scope
-    const signals: ChatSignalContext[] = resolveScope(this.db, scope);
+    // Resolve index via resolveIndexScope
+    const indexEntries = resolveIndexScope(this.db, scope);
 
     // Fetch recent Q&A history for this scope (exclude this pending row)
     const historyRows = this.getHistory(scope).filter((r) => r.id !== row.id).map((r) => ({ question: r.question, answer: r.answer }));
 
-    // Build signal map for citation formatting
+    // Build signalMap for citation formatting from index entries
     const signalMap: Record<string, { title: string }> = {};
-    for (const s of signals) {
-      signalMap[s.videoId] = { title: s.title };
+    for (const e of indexEntries) {
+      signalMap[e.videoId] = { title: e.title };
     }
 
-    // Three-tier template resolution: topic override → DB global default → compiled fallback
-    let customTemplate: string | undefined;
+    await this._runAgentLoop(indexEntries, signalMap, row.question, row.id, historyRows, abortSignal, onPhaseChange, onToken);
+  }
 
-    // Tier 1: topic-level multi_signal_summary_prompt override
-    if (scope.topicKey) {
-      const topicRow = this.db.prepare(
-        'SELECT multi_signal_summary_prompt FROM topics WHERE key = ?'
-      ).get(scope.topicKey) as { multi_signal_summary_prompt: string | null } | undefined;
+  /**
+   * Shared agent loop: runs up to MAX_AGENT_ROUNDS rounds of LLM + tool calling.
+   * After the loop, applies empty-answer guard and persists via ChatResponseFormatter.
+   * 
+   * Both single-signal and multi-signal paths delegate here.
+   */
+  private async _runAgentLoop(
+    indexEntries: SignalIndexEntry[],
+    signalMap: Record<string, { title: string }>,
+    question: string,
+    rowId: number,
+    historyRows: Array<{ question: string; answer: string }>,
+    abortSignal?: AbortSignal,
+    onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void,
+    onToken?: (token: string) => void
+  ): Promise<void> {
+    // Round-aware conversation: signal index emitted only on Round 1, dropped on Round 2+
+    const conversation = createAgentConversation(indexEntries, question, historyRows);
 
-      if (topicRow?.multi_signal_summary_prompt) {
-        customTemplate = topicRow.multi_signal_summary_prompt;
-      }
-    }
-
-    // Tier 2: DB global default
-    if (!customTemplate) {
-      customTemplate = getAppSetting(this.db, 'multi_signal_chat_prompt') ?? undefined;
-    }
-    // Tier 3: compiled fallback (defaultMultiSignalChatPromptTemplate()) — used by assembleMultiSignalChat when customTemplate is undefined
-
-    // Resolve filterText from scope's topic
-    let filterText: string | undefined;
-    if (scope.topicKey) {
-      const topicRow = this.db.prepare(
-        'SELECT filter_text FROM topics WHERE key = ?'
-      ).get(scope.topicKey) as { filter_text: string | null } | undefined;
-
-      filterText = topicRow?.filter_text || undefined;
-    }
-
-    // Assemble multi-signal chat prompt with format style from AppSettings
-    const formatStyle = resolveFormatStyle(this.db);
-    const prompt = assembleMultiSignalChat({
-      signals,
-      history: historyRows,
-      question: row.question,
-      filterText,
-    }, customTemplate, formatStyle);
-
-    // Stream LLM with phase detection — tee pattern: buffer tokens, persist after completion
     let bufferedAnswer = '';
+
     try {
-      for await (const token of callLlmStreamWithPhases(this.llmConfig, prompt, { abortSignal, onPhaseChange })) {
-        bufferedAnswer += token;
+      // Agent loop with get_compact_text tool, hard cap at MAX_AGENT_ROUNDS rounds
+      for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
+        // Check abort between rounds
+        if (abortSignal?.aborted) {
+          return;
+        }
+
+        onPhaseChange?.(round === 0 ? 'intake' : 'retrieving', round);
+
+        // Call LLM with tool definition — buildNextPrompt() drops signal index after Round 1
+        // Pass onPhaseChange so reasoning phase + token counts reach the UI (issues #174, #175)
+        const result = await callLlmStreamWithTools(this.llmConfig, conversation.buildNextPrompt(), [GET_COMPACT_TEXT_TOOL], { abortSignal, onPhaseChange });
+
+        // Consume tokens, stream to onToken, and accumulate answer content
+        // Track answerTokenCount per token and fire onPhaseChange every 5 tokens (issue #174)
+        let roundContent = '';
+        let answerTokenCount = 0;
+        for await (const token of result.tokens) {
+          onToken?.(token);
+          roundContent += token;
+          answerTokenCount++;
+          if (answerTokenCount % 5 === 0) {
+            onPhaseChange?.('answering', answerTokenCount);
+          }
+        }
+        // Fire final count when stream completes (issue #174)
+        if (answerTokenCount > 0 && answerTokenCount % 5 !== 0) {
+          onPhaseChange?.('answering', answerTokenCount);
+        }
+
+        if (result.toolCalls.length === 0) {
+          // No tool calls: this is the final answer - only this content persisted
+          bufferedAnswer += roundContent;
+          break;
+        }
+
+        // Handle tool calls — execute get_compact_text for each
+        for (const toolCall of result.toolCalls) {
+          if (toolCall.function.name === 'get_compact_text') {
+            const args = JSON.parse(toolCall.function.arguments);
+            const videoIds = args.videoIds as string[];
+
+            // Execute SQLite query for compact_text
+            const toolResult = executeGetCompactText(this.db, videoIds);
+
+            // Record tool call + result in conversation (signal index dropped after Round 1)
+            conversation.addToolCall(toolCall, toolResult);
+          }
+        }
       }
 
       // Check abort before persisting
@@ -395,12 +446,19 @@ export class ChatManager {
         return;
       }
 
+      // Empty answer guard: if LLM returned only tool calls without a final answer
+      if (!bufferedAnswer.trim()) {
+        bufferedAnswer = EMPTY_ANSWER_FALLBACK;
+      }
+
+      onPhaseChange?.('answering', 0);
+
       const answer = ChatResponseFormatter.format(bufferedAnswer, signalMap);
 
-      // Persist answer on success (is_formatted=1: ChatResponseFormatter ran internally)
+      // Persist answer to DB
       this.db.prepare(
         'UPDATE signal_chat SET answer = ?, is_formatted = 1 WHERE id = ?'
-      ).run(answer, row.id);
+      ).run(answer, rowId);
     } catch (error) {
       // Do NOT partial-write to DB on failure — answer remains NULL
       throw error;

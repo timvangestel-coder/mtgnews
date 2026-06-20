@@ -251,6 +251,28 @@ describe('admin-polling-router', () => {
       expect(res.text).toContain('text-gray-400');
     });
 
+    it('passes signalPhases to template when run is running and phases exist', async () => {
+      // Issue #158: UI displays per-signal phase labels during active poll runs
+      const insertResult = db.prepare(
+        "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, 'running', 3, 2)"
+      ).run(Date.now());
+      const runId = Number(insertResult.lastInsertRowid);
+
+      // Seed a progress row so the run has signal data
+      db.prepare(
+        "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, signals_done, updated_at) VALUES (?, 'UC_test', 'running', 3, 1, ?)"
+      ).run(runId, Date.now());
+
+      // Manually add phase entries to the registry (simulating active analysis)
+      manager._getPhaseRegistry().set('v-phase-test-1', 'reasoning', 234);
+      manager._getPhaseRegistry().set('v-phase-test-2', 'answering', 567);
+
+      const res = await request(app).get('/admin/poll/progress');
+      expect(res.status).toBe(200);
+      // Template should receive phase data — rendered as per-signal labels
+      expect(res.text).toContain('v-phase-test-1');
+    });
+
     it('renders pending channels with gray color', async () => {
       db.prepare("INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)").run('test', 'Test', 'test');
       db.prepare(

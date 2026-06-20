@@ -170,6 +170,76 @@ describe('Qwen XML tool call parsing', () => {
     expect(result.toolCalls[0].id.length).toBeGreaterThan(0);
   });
 
+  // ─── Format B (anthropic-style tool use) ──────────────────────
+
+  it('parses Format B anthropic-style tool call', async () => {
+    const formatB = '<tool_call> <function=get_compact_text> <parameter=videoIds> ["SG3tuA8zqs8"] </parameter> </function> </tool_call>';
+
+    mockSseResponse([sseContent(formatB), 'data: {"choices":[{"finish_reason":"stop"}]}\n\n']);
+
+    const result = await callLlmStreamWithTools(
+      config,
+      'Tell me about this video',
+      [{ type: 'function', function: { name: 'get_compact_text', parameters: {} } }]
+    );
+
+    const tokens: string[] = [];
+    for await (const token of result.tokens) {
+      tokens.push(token);
+    }
+
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0].function.name).toBe('get_compact_text');
+    // Parameter values are JSON-parsed, so videoIds is an array
+    const args = JSON.parse(result.toolCalls[0].function.arguments);
+    expect(args.videoIds).toEqual(['SG3tuA8zqs8']);
+  });
+
+  it('parses Format B with reasoning text before tool call', async () => {
+    const content = 'Let me retrieve the compact transcription.\n<tool_call> <function=get_compact_text> <parameter=videoIds> ["ABC123"] </parameter> </function> </tool_call>';
+
+    mockSseResponse([sseContent(content), 'data: {"choices":[{"finish_reason":"stop"}]}\n\n']);
+
+    const result = await callLlmStreamWithTools(
+      config,
+      'test',
+      [{ type: 'function', function: { name: 'get_compact_text', parameters: {} } }]
+    );
+
+    const tokens: string[] = [];
+    for await (const token of result.tokens) {
+      tokens.push(token);
+    }
+
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0].function.name).toBe('get_compact_text');
+    // Remaining text (reasoning before tool call) should be yielded
+    const joined = tokens.join('');
+    expect(joined).toContain('compact transcription');
+  });
+
+  it('fires retrieving phase when Format B tool call is detected', async () => {
+    const phases: LlmPhase[] = [];
+    const formatB = '<tool_call> <function=lookup> <parameter=x> 1 </parameter> </function> </tool_call>';
+
+    mockSseResponse([sseContent(formatB), 'data: {"choices":[{"finish_reason":"stop"}]}\n\n']);
+
+    const options: LlmStreamOptions = {
+      onPhaseChange: (phase) => phases.push(phase),
+    };
+
+    const result = await callLlmStreamWithTools(
+      config,
+      'test',
+      [{ type: 'function', function: { name: 'lookup', parameters: {} } }],
+      options
+    );
+
+    for await (const _ of result.tokens) { /* consume */ }
+
+    expect(phases).toContain('retrieving');
+  });
+
   it('handles Qwen XML with heavily fragmented single characters', async () => {
     // Extreme fragmentation: each SSE chunk is a single character of the XML
     const xmlParts = [
