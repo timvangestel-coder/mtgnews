@@ -3,7 +3,7 @@
 <html lang="en">
 
 <head>
-    <title>Code coverage report for src/prompt-builder.ts</title>
+    <title>Code coverage report for src/phase-registry.ts</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="../prettify.css" />
     <link rel="stylesheet" href="../base.css" />
@@ -19,34 +19,34 @@
 <body>
 <div class='wrapper'>
     <div class='pad1'>
-        <h1><a href="../index.html">All files</a> / <a href="index.html">src</a> prompt-builder.ts</h1>
+        <h1><a href="../index.html">All files</a> / <a href="index.html">src</a> phase-registry.ts</h1>
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>11/11</span>
+                <span class='fraction'>19/19</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>9/9</span>
+                <span class='fraction'>11/11</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>1/1</span>
+                <span class='fraction'>5/5</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>11/11</span>
+                <span class='fraction'>19/19</span>
             </div>
         
             
@@ -104,36 +104,7 @@
 <a name='L39'></a><a href='#L39'>39</a>
 <a name='L40'></a><a href='#L40'>40</a>
 <a name='L41'></a><a href='#L41'>41</a>
-<a name='L42'></a><a href='#L42'>42</a>
-<a name='L43'></a><a href='#L43'>43</a>
-<a name='L44'></a><a href='#L44'>44</a>
-<a name='L45'></a><a href='#L45'>45</a>
-<a name='L46'></a><a href='#L46'>46</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">17x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">17x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">15x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">17x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">17x</span>
+<a name='L42'></a><a href='#L42'>42</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -149,63 +120,80 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">217x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">217x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">214x</span>
+<span class="cline-any cline-yes">217x</span>
+<span class="cline-any cline-yes">217x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">172x</span>
+<span class="cline-any cline-yes">172x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">36x</span>
+<span class="cline-any cline-yes">36x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">17x</span>
-<span class="cline-any cline-yes">17x</span></td><td class="text"><pre class="prettyprint lang-js">export function buildMergedPrompt(transcriptionText: string, filterText?: string): string {
-  const relevanceSection = filterText
-    ? `Channel filter text: ${filterText}
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/**
+ * PhaseRegistry — a generic in-memory module for tracking LLM phase progress.
+ *
+ * Provides type-safe set/get/delete operations keyed by any type K.
+ * Each entry tracks the current phase and associated token count.
+ */
 &nbsp;
-First, judge whether the content meets the channel's filter criteria. Include "relevant": true or "relevant": false in your JSON response. If content does not meet the criteria, set relevant to false.`
-    : '';
+export type LlmPhase = 'intake' | 'reasoning' | 'answering' | 'retrieving' | 'done';
 &nbsp;
-  const minimalInstruction = filterText
-    ? `\n\nIMPORTANT: If content is NOT relevant, return ONLY {"relevant": false} without generating summary, takeaways, sentiment, or entities.`
-    : '';
-&nbsp;
-  return `You are a content analyst. Analyze the following video transcription and produce a structured JSON response containing summary, key takeaways, overall sentiment, and entity mentions.${relevanceSection ? '\n\n' + relevanceSection : ''}${minimalInstruction}
-&nbsp;
-Return ONLY valid JSON with this structure:
-{
-  "summary": "A concise 2-3 sentence summary of the relevant content",
-  "takeaways": [
-    { "text": "Key takeaway description", "timestamp": "T:ss" }
-  ],
-  "overall_sentiment": {
-    "score": 3,
-    "label": "Neutral"
-  },
-  "entities": [
-    { "entity_name": "ExampleEntity", "entity_type": "other", "sentiment": "Positive" }
-  ]${relevanceSection ? ',\n  "relevant": true' : ''}
+export interface PhaseEntry {
+  phase: LlmPhase;
+  tokenCount: number;
+  /** Agent loop round number (increments when intake fires, indicating a new processing cycle). */
+  round: number;
 }
 &nbsp;
-Rules:
-- Each takeaway must include a timestamp in "T:ss" format where ss is the start seconds as an integer
-- Focus only on topics matching the channel filter text
-- Keep takeaways concise and actionable
+export class PhaseRegistry&lt;K&gt; {
+  private entries = new Map&lt;K, PhaseEntry&gt;();
 &nbsp;
-Sentiment score scale (integer 1-5):
-1 = Very Negative
-2 = Negative
-3 = Neutral
-4 = Positive
-5 = Very Positive
+  set(id: K, phase: LlmPhase, tokenCount: number): void {
+    const existing = this.entries.get(id);
+    // Increment round when intake fires and we already have data (new agent loop iteration)
+    const round = (phase === 'intake' &amp;&amp; existing !== undefined &amp;&amp; existing.round &gt; 0)
+      ? existing.round + 1
+      : existing?.round ?? 1;
+    this.entries.set(id, { phase, tokenCount, round });
+  }
 &nbsp;
-Entity types: card, set, player, format, archetype, company, event, rules, other
-Sentiment labels for entities: Positive, Negative, Neutral
+  get(id: K): PhaseEntry | undefined {
+    return this.entries.get(id);
+  }
 &nbsp;
-Transcription:
-${transcriptionText}`;
-}</pre></td></tr></table></pre>
+  delete(id: K): void {
+    this.entries.delete(id);
+  }
+&nbsp;
+  /** Return all entries as an array of [key, value] pairs */
+  getAll(): Array&lt;[K, PhaseEntry]&gt; {
+    return Array.from(this.entries.entries());
+  }
+}
+&nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
             </div><!-- /wrapper -->
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-06-04T20:44:42.086Z
+                at 2026-06-20T09:30:42.144Z
             </div>
         <script src="../prettify.js"></script>
         <script>

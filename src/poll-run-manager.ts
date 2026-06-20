@@ -39,6 +39,8 @@ interface ActiveRunEntry {
 /** Per-signal phase data returned in progress */
 export interface SignalPhaseInfo {
   videoId: string;
+  /** Human-readable label: "Channel Name — YouTube Title" or fallback to videoId */
+  displayLabel: string;
   phase: LlmPhase;
   tokenCount: number;
 }
@@ -47,6 +49,8 @@ export class PollRunManager {
   private activeRuns = new Map<RunId, ActiveRunEntry>();
   /** Phase registry keyed by videoId for the current run */
   private _phaseRegistry = new PhaseRegistry<string>();
+  /** Display labels keyed by videoId: "Channel Name — YouTube Title" */
+  private _displayLabels = new Map<string, string>();
 
   constructor(
     private db: Database.Database,
@@ -117,7 +121,12 @@ export class PollRunManager {
   getSignalPhases(): SignalPhaseInfo[] {
     const result: SignalPhaseInfo[] = [];
     for (const [videoId, entry] of this._phaseRegistry.getAll()) {
-      result.push({ videoId, phase: entry.phase, tokenCount: entry.tokenCount });
+      result.push({
+        videoId,
+        displayLabel: this._displayLabels.get(videoId) ?? videoId,
+        phase: entry.phase,
+        tokenCount: entry.tokenCount,
+      });
     }
     return result;
   }
@@ -224,6 +233,10 @@ export class PollRunManager {
 
             // Dispatch analysis tasks immediately to pool with phase tracking
           for (const s of newSignals) {
+            // Build display label: "Channel Name — YouTube Title"
+            const signalTitle = s.title ?? s.video_id;
+            this._displayLabels.set(s.video_id, `${channel.display_name ?? channel.channel_id} — ${signalTitle}`);
+
             taskPool.run(async () => {
               try {
                 await analyzeSignal(this.db, s.video_id, llmConfig, signal, (phase, tokenCount) => {
@@ -263,9 +276,13 @@ export class PollRunManager {
     // Check if aborted before marking done
     if (signal?.aborted) {
       console.log(`Worker runId=${runId} stopped due to abort`);
+      this._displayLabels.clear();
       this.activeRuns.delete(runId);
       return;
     }
+
+    // Clear display labels after run completes
+    this._displayLabels.clear();
 
     // Mark run as complete
     this.db.prepare(

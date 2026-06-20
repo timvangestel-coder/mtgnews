@@ -83,8 +83,8 @@
             }
           %>
           <div class="text-xs flex justify-between mt-1">
-            <span class="truncate max-w-[200px] text-gray-600" title="<%= sp.videoId %>"><%= sp.videoId %></span>
-            <span class="<%= phaseColor %> ml-auto"><%= phaseLabel %> (<%= sp.tokenCount %> tok)</span>
+            <span class="truncate flex-1 mr-4 text-gray-600" title="<%= sp.displayLabel %><%= sp.videoId !== sp.displayLabel ? ' (' + sp.videoId + ')' : '' %>"><%= sp.displayLabel %></span>
+            <span class="<%= phaseColor %> whitespace-nowrap"><%= phaseLabel %> (<%= sp.tokenCount %> tok)</span>
           </div>
         <% }); %>
       </div>

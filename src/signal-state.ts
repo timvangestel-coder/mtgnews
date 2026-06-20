@@ -62,13 +62,13 @@ export function countProcessedForRun(db: Database.Database, runId: number): numb
   return row.cnt;
 }
 
-/** Query pending signals for a channel and run, for analysis dispatch. Returns rows with video_id. */
+/** Query pending signals for a channel and run, for analysis dispatch. Returns rows with video_id and title. */
 export function pendingSignalsForChannel(
   db: Database.Database,
   channelId: string,
   runId: number
-): Array<{ video_id: string }> {
+): Array<{ video_id: string; title: string | null }> {
   return db.prepare(
-    "SELECT video_id FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processing_state = 'pending'"
-  ).all(channelId, runId) as Array<{ video_id: string }>;
+    "SELECT video_id, title FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processing_state = 'pending'"
+  ).all(channelId, runId) as Array<{ video_id: string; title: string | null }>;
 }
