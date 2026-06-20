@@ -121,3 +121,70 @@ describe('ScopeSource.fromURL() — single truth for chat scope', () => {
     });
   });
 });
+
+// =============================================================================
+// Consolidated from chat-panel-history.test.ts
+// =============================================================================
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+function readChatPanelSource() {
+  const srcPath = path.resolve(__dirname, '../views/scripts/chat-panel.js');
+  return fs.readFileSync(srcPath, 'utf-8');
+}
+
+describe('chat-panel.js — uses ScopeSource for scope reads', () => {
+  it('reads scope via ScopeSource.fromCurrentURL in loadHistory', () => {
+    const source = readChatPanelSource();
+    expect(source).toMatch(/ScopeSource\.fromCurrentURL/);
+    expect(source).toMatch(/ScopeSource\.buildHistoryURL/);
+  });
+
+  it('reads scope via ScopeSource.fromCurrentURL in sendQuestion', () => {
+    const source = readChatPanelSource();
+    expect(source).toMatch(/ScopeSource\.buildAskBody/);
+  });
+
+  it('does NOT maintain stale topicKey/channelId Alpine state', () => {
+    const source = readChatPanelSource();
+    expect(source).not.toMatch(/this\.topicKey\s*[=]/);
+    expect(source).not.toMatch(/this\.channelId\s*[=]/);
+  });
+
+  it('does NOT use _syncScopeFromUrl (replaced by ScopeSource)', () => {
+    const source = readChatPanelSource();
+    expect(source).not.toMatch(/_syncScopeFromUrl/);
+  });
+
+  it('does NOT use savedTopicKey/savedChannelId drift-prone state', () => {
+    const source = readChatPanelSource();
+    expect(source).not.toMatch(/savedTopicKey/);
+    expect(source).not.toMatch(/savedChannelId/);
+  });
+});
+
+describe('_signalsTable.ejs — pagination preserves topicKey', () => {
+  it('Previous/Next buttons include topicKey in query params', () => {
+    const srcPath = path.resolve(__dirname, '../views/_signalsTable.ejs');
+    const source = fs.readFileSync(srcPath, 'utf-8');
+
+    expect(source).toMatch(/prevParams\.set\(['"]topicKey/);
+    expect(source).toMatch(/nextParams\.set\(['"]topicKey/);
+  });
+});
+
+describe('scope-source.js — ScopeSource module exists', () => {
+  it('scope-source.js is present in views/scripts/', () => {
+    const srcPath = path.resolve(__dirname, '../views/scripts/scope-source.js');
+    expect(fs.existsSync(srcPath)).toBe(true);
+  });
+
+  it('exports fromCurrentURL, buildHistoryURL, and buildAskBody', () => {
+    const srcPath = path.resolve(__dirname, '../views/scripts/scope-source.js');
+    const source = fs.readFileSync(srcPath, 'utf-8');
+    expect(source).toMatch(/fromCurrentURL/);
+    expect(source).toMatch(/buildHistoryURL/);
+    expect(source).toMatch(/buildAskBody/);
+  });
+});

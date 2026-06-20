@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assemble, assembleChat, formatTranscription, defaultPromptTemplate, defaultChatPromptTemplate, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate, type FormatStyle } from './prompt-assembler';
+import { assemble, assembleChat, formatTranscription, defaultPromptTemplate, defaultChatPromptTemplate, assembleMultiSignalChat, defaultMultiSignalChatPromptTemplate, assembleAgentChat, defaultAgentChatPromptTemplate, type FormatStyle } from './prompt-assembler';
 import type { SignalContext } from './signal-context';
 import type { ChatContext } from './prompt-assembler';
 import type { ChatSignalContext } from './signal-chat-scope';
@@ -771,5 +771,191 @@ describe('Issue 146 — compactText in multi-signal signal blocks', () => {
     // Per-signal chat still uses <transcription> tag (not <content>)
     expect(result).toContain('<transcription>');
     expect(result).toContain('[T:30] per signal chat');
+  });
+});
+
+// =============================================================================
+// Regression: issue-153 — FORMAT_INSTRUCTIONS[annotated-index] populated
+// =============================================================================
+
+describe('Regression: issue-153 — annotated-index format instructions', () => {
+  it('assembled chat prompt contains table syntax instruction for annotated-index format', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context, undefined, 'annotated-index');
+
+    expect(result).toMatch(/\| Timestamp \| Finding \|/);
+    expect(result).toMatch(/\|-----------\|---------\|/);
+    expect(result).toMatch(/\[MM:SS\]/);
+  });
+
+  it('assembled chat prompt contains bold source title instruction', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context, undefined, 'annotated-index');
+
+    expect(result).toMatch(/\*\*.*[Ss]ource\s+Title/i);
+    expect(result).toMatch(/bold.*text.*above.*table/i);
+  });
+
+  it('assembled chat prompt contains no-inline-citation instruction', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context, undefined, 'annotated-index');
+
+    expect(result).toMatch(/do\s*not.*cit/i);
+  });
+
+  it('assembled chat prompt contains conciseness constraints', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context, undefined, 'annotated-index');
+
+    expect(result).toMatch(/\b\d+\s*words?/i);
+  });
+
+  it('plain style still produces empty format instructions (no regression)', () => {
+    const context: ChatContext = {
+      transcriptionJson: 't',
+      summary: 's',
+      history: [],
+      question: 'q?',
+    };
+
+    const result = assembleChat(context, undefined, 'plain');
+
+    expect(result).not.toMatch(/markdown\s*table/i);
+  });
+
+  it('multi-signal assembled prompt contains same format instructions as single-signal', () => {
+    function makeChatSignal(): import('./signal-chat-scope').ChatSignalContext {
+      return {
+        signalContext: {
+          transcriptionJson: JSON.stringify([{ time: 10000, text: 'signal content' }]),
+          topicId: 1,
+          filterText: 'Magic cards',
+          summaryPrompt: null,
+        },
+        videoId: 'vid_1',
+        title: 'Test Video',
+        channelDisplayName: 'Test Channel',
+      };
+    }
+
+    const signal = makeChatSignal();
+
+    const result = assembleMultiSignalChat(
+      { signals: [signal], history: [], question: 'q?' },
+      undefined,
+      'annotated-index'
+    );
+
+    expect(result).toMatch(/\| Timestamp \| Finding \|/);
+    expect(result).toMatch(/\*\*.*[Ss]ource\s+Title/i);
+    expect(result).toMatch(/do\s*not.*cit/i);
+    expect(result).toMatch(/Group findings by source/i);
+  });
+});
+
+// =============================================================================
+// Regression: issue-163 — assembleAgentChat lightweight index
+// =============================================================================
+
+describe('Regression: issue-163 — assembleAgentChat', () => {
+  function makeIndexEntry(overrides: Partial<import('./prompt-assembler').SignalIndexEntry> = {}): import('./prompt-assembler').SignalIndexEntry {
+    return {
+      videoId: 'vid_1',
+      title: 'Test Video Title',
+      summary: 'This is a concise summary of the video content for agent retrieval.',
+      ...overrides,
+    };
+  }
+
+  it('template has signal index and question placeholders', () => {
+    const template = defaultAgentChatPromptTemplate();
+    expect(template).toContain('{SIGNAL_INDEX}');
+    expect(template).toContain('{QUESTION}');
+    expect(template).toMatch(/get_compact_text/i);
+  });
+
+  it('produces XML signal index block with video_id, title, summary', () => {
+    const result = assembleAgentChat(
+      [makeIndexEntry()],
+      'What cards were mentioned?',
+      []
+    );
+
+    expect(result).toContain('<signal_index>');
+    expect(result).toContain('video_id="vid_1"');
+    expect(result).not.toContain('<transcription>');
+  });
+
+  it('produces XML block for each signal in scope', () => {
+    const entries = [
+      makeIndexEntry({ videoId: 'vid_1', title: 'Video One', summary: 'Summary one' }),
+      makeIndexEntry({ videoId: 'vid_2', title: 'Video Two', summary: 'Summary two' }),
+    ];
+
+    const result = assembleAgentChat(entries, 'Compare these videos', []);
+
+    expect(result).toContain('video_id="vid_1"');
+    expect(result).toContain('video_id="vid_2"');
+  });
+
+  it('includes history exchanges in XML format', () => {
+    const result = assembleAgentChat(
+      [makeIndexEntry()],
+      'What about Innistrad?',
+      [{ question: 'Previous Q', answer: 'Previous A' }]
+    );
+
+    expect(result).toContain('<history>');
+    expect(result).not.toContain('<a href=');
+  });
+
+  it('strips HTML from history answers', () => {
+    const result = assembleAgentChat(
+      [makeIndexEntry()],
+      'Current Q',
+      [{ question: 'Previous Q', answer: '<a href="/signals/abc">Title</a> plain text' }]
+    );
+
+    expect(result).toContain('Title');
+    expect(result).not.toContain('<a href=');
+  });
+
+  it('produces prompt with empty signal index block when signals array is empty', () => {
+    const result = assembleAgentChat([], 'Any news?', []);
+
+    expect(result).toContain('<signal_index>');
+    expect(result).toContain('</signal_index>');
+  });
+
+  it('uses custom template over default', () => {
+    const custom = 'AGENT: {SIGNAL_INDEX} Q:{QUESTION}';
+    const result = assembleAgentChat([makeIndexEntry()], 'q?', [], custom);
+
+    expect(result).toContain('AGENT:');
+    expect(result).not.toContain('content analyst');
   });
 });

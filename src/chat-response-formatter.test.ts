@@ -324,3 +324,110 @@ describe('ChatResponseFormatter', () => {
     });
   });
 });
+
+// =============================================================================
+// Regression: issue-153 — citation pills inside markdown table cells
+// =============================================================================
+
+describe('Regression: issue-153 — citation pills inside markdown table cells', () => {
+  const formatter = new ChatResponseFormatterImpl();
+
+  it('T:ss timestamps inside GFM table cells produce valid <table> HTML with working pill links inside <td> cells', () => {
+    const signalMap = { vid_abc123: { title: 'Source Video' } };
+    const input = [
+      '| Timestamp | Finding |',
+      '|-----------|---------|',
+      '| <vid_abc123:T:142> S&P 500 correction expected |',
+      '| T:734 Broad index funds strategy |'
+    ].join('\n');
+
+    const result = formatter.format(input, signalMap);
+
+    expect(result).toContain('<table>');
+    expect(result).toContain('</table>');
+    expect(result).toContain('href="/signals/vid_abc123#t-142000"');
+    expect(result).toContain('[02:22]');
+    expect(result).toContain('href="/signals/vid_abc123#t-734000"');
+    expect(result).toContain('[12:14]');
+  });
+
+  it('<videoId:T:ss> citations inside table cells produce full pill links', () => {
+    const signalMap = { vid_xyz: { title: 'My Video' } };
+    const input = [
+      '| Timestamp | Finding |',
+      '|-----------|---------|',
+      '| <vid_xyz:T:60> | Important finding |'
+    ].join('\n');
+
+    const result = formatter.format(input, signalMap);
+
+    expect(result).toContain('<table>');
+    expect(result).toContain('href="/signals/vid_xyz#t-60000"');
+    expect(result).toContain('[01:00]');
+  });
+
+  it('mixed citation styles in table cells all produce pills', () => {
+    const signalMap = { v1: { title: 'Video A' }, v2: { title: 'Video B' } };
+    const input = [
+      '| Timestamp | Finding |',
+      '|-----------|---------|',
+      '| <v1:T:30> | First finding |',
+      '| T:90 | Second finding with inherited video |',
+      '| <v2:T:200> | Third from different video |'
+    ].join('\n');
+
+    const result = formatter.format(input, signalMap);
+
+    expect(result).toContain('href="/signals/v1#t-30000"');
+    expect(result).toContain('href="/signals/v1#t-90000"');
+    expect(result).toContain('href="/signals/v2#t-200000"');
+  });
+
+  it('table with thematic tags line survives markdown processing', () => {
+    const signalMap = { vid1: { title: 'V' } };
+    const input = [
+      '| Timestamp | Finding |',
+      '|-----------|---------|',
+      '| T:10 | Key point |',
+      '',
+      'cyclusvergelijking · diversificatie · IPO-impact'
+    ].join('\n');
+
+    const result = formatter.format(input, signalMap);
+
+    expect(result).toContain('<table>');
+    expect(result).toContain('href="#t-10000"');
+    expect(result).toContain('cyclusvergelijking');
+  });
+});
+
+// =============================================================================
+// Regression: issue-153 — timestamp accuracy regression
+// =============================================================================
+
+describe('Regression: issue-153 — timestamp accuracy regression', () => {
+  const formatter = new ChatResponseFormatterImpl();
+
+  it('[T:ss] converts to correct MM:SS display and exact ms deep link', () => {
+    const signalMap = { vid_abc: { title: 'Test Video' } };
+    const result = formatter.format(
+      '**Test Video**\n\n| Timestamp | Finding |\n|-----------|---------|\n| [T:1921]  | Space solar power shifts to infrared beaming |',
+      signalMap
+    );
+
+    expect(result).toContain('[32:01]');
+    expect(result).toContain('href="/signals/vid_abc#t-1921000"');
+    expect(result).not.toContain('[31:61]');
+  });
+
+  it('large T:ss values convert correctly without LLM arithmetic errors', () => {
+    const signalMap = { vid_x: { title: 'V' } };
+    const result = formatter.format(
+      '**V**\n\n| Timestamp | Finding |\n|-----------|---------|\n| [T:1602]  | Universal constants simulated parameters |',
+      signalMap
+    );
+
+    expect(result).toContain('[26:42]');
+    expect(result).toContain('href="/signals/vid_x#t-1602000"');
+  });
+});

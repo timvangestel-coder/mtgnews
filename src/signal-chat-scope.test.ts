@@ -427,3 +427,56 @@ describe('regression — per-signal chat behavior unchanged', () => {
     expect(history[0].question).toBe('old style q');
   });
 });
+
+// =============================================================================
+// Regression: issue-163 — resolveIndexScope lightweight index data
+// =============================================================================
+
+describe('Regression: issue-163 — resolveIndexScope returns SignalIndexEntry', () => {
+  it('excludes irrelevant signals by default', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+    seedSignal(db, 'v1', 'UC_mtg', 'Good Video', 'summarized');
+    seedSignal(db, 'v2', 'UC_mtg', 'Irrelevant Video', 'irrelevant');
+
+    const { resolveIndexScope } = await import('./signal-chat-scope');
+    const results = resolveIndexScope(db, {});
+
+    expect(results.length).toBe(1);
+    expect(results[0].videoId).toBe('v1');
+  });
+
+  it('includes irrelevant signals when includeIrrelevant is true', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+    seedSignal(db, 'v1', 'UC_mtg', 'Good Video', 'summarized');
+    seedSignal(db, 'v2', 'UC_mtg', 'Irrelevant Video', 'irrelevant');
+
+    const { resolveIndexScope } = await import('./signal-chat-scope');
+    const results = resolveIndexScope(db, { includeIrrelevant: true });
+
+    expect(results).toHaveLength(2);
+  });
+
+  it('result shape matches SignalIndexEntry interface exactly (videoId, title, summary only)', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+    seedSignal(db, 'v1', 'UC_mtg', 'Test');
+    db.prepare("UPDATE signals SET summary = ? WHERE video_id = ?").run('sum', 'v1');
+
+    const { resolveIndexScope } = await import('./signal-chat-scope');
+    const results = resolveIndexScope(db, { videoId: 'v1' });
+
+    expect(Object.keys(results[0]).sort()).toEqual(['summary', 'title', 'videoId']);
+  });
+
+  it('throws for non-existent videoId', async () => {
+    const db = createTestDb();
+
+    const { resolveIndexScope } = await import('./signal-chat-scope');
+    expect(() => resolveIndexScope(db, { videoId: 'nonexistent' })).toThrow();
+  });
+});

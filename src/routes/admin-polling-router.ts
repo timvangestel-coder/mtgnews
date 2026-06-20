@@ -31,33 +31,33 @@ export function createAdminPollingRouter(manager: PollRunManager) {
     try {
       await manager.abortRun(runId);
     } catch (err) {
-      // Render progress widget with inline error banner instead of redirecting
-      const row = manager.currentProgress();
-      if (row) {
-        const state = manager.runState(row.run.id);
-        if (state) {
-          res.render('admin/_pollProgress', {
-            state,
-            error: (err as Error).message,
-            layout: false,
-          });
-          return;
-        }
+      // Render progress widget with inline error banner using single progress() call
+      const prog = manager.progress();
+      if (prog) {
+        res.render('admin/_pollProgress', {
+          state: prog.state,
+          signalPhases: prog.signalPhases,
+          error: (err as Error).message,
+          layout: false,
+        });
+        return;
       }
       // Fallback: render widget with no state and error message
       res.render('admin/_pollProgress', {
         state: null,
+        signalPhases: [],
         error: (err as Error).message,
         layout: false,
       });
       return;
     }
 
-    // Render progress widget inline with aborted state
-    const state = manager.runState(runId);
-    if (state) {
+    // Render progress widget inline with aborted state using single progress() call
+    const prog = manager.progress();
+    if (prog) {
       res.render('admin/_pollProgress', {
-        state,
+        state: prog.state,
+        signalPhases: prog.signalPhases,
         layout: false,
       });
     } else {
@@ -67,26 +67,16 @@ export function createAdminPollingRouter(manager: PollRunManager) {
 
   // GET /admin/poll/progress
   router.get('/admin/poll/progress', (req, res) => {
-    // Get latest run id for polling endpoint
-    const row = manager.currentProgress();
-    if (!row) {
+    // Single progress() call replaces currentProgress() + runState() + getSignalPhases()
+    const prog = manager.progress();
+    if (!prog) {
       res.send('<p class="text-gray-500">No poll runs yet.</p>');
       return;
     }
-
-    // Use RunState view model for rich data (phase, signalsAnalyzed, steps)
-    const state = manager.runState(row.run.id);
-    if (!state) {
-      res.send('<p class="text-gray-500">No poll runs yet.</p>');
-      return;
-    }
-
-    // Issue #158: Include per-signal phase data for UI rendering
-    const signalPhases = manager.getSignalPhases();
 
     res.render('admin/_pollProgress', {
-      state,
-      signalPhases,
+      state: prog.state,
+      signalPhases: prog.signalPhases,
       layout: false,
     });
   });

@@ -418,8 +418,140 @@ describe('ChatManager two-phase persist', () => {
     it('delete removes a row', () => {
       const id = chatManager.submit('video-1', 'Delete me?');
       chatManager.delete(id);
-      const remaining = db.prepare('SELECT COUNT(*) as cnt FROM signal_chat WHERE id = ?').get(id);
+      const remaining = db.prepare('SELECT COUNT(*) as cnt FROM signal_chat WHERE id = ?').get(id) as { cnt: number };
       expect((remaining as { cnt: number }).cnt).toBe(0);
+    });
+  });
+
+  // =============================================================================
+  // Regression: issue-165 — multi-signal agent loop wired in ChatManager
+  // =============================================================================
+
+  describe('Regression: issue-165 — multi-signal agent loop', () => {
+    it('multi-signal chat flows through agent loop and persists answer', async () => {
+      db.prepare(
+        "INSERT OR REPLACE INTO topics (id, key, short_name, filter_text) VALUES (?, ?, ?, ?)"
+      ).run(80, 'mtg165', 'MTG165', 'Magic cards');
+
+      const id = db.prepare(
+        "INSERT INTO signal_chat (signal_video_id, question, answer, topic_key) VALUES (?, ?, NULL, ?)"
+      ).run(null, 'What are MTG prices doing?', 'mtg165').lastInsertRowid as number;
+
+      await chatManager.process(id);
+
+      const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(id) as { answer: string | null };
+      expect(row.answer).not.toBeNull();
+    });
+
+    it('single-signal chat still works (regression)', async () => {
+      const id = chatManager.submit('video-1', 'Single video question?');
+      await chatManager.process(id);
+
+      const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(id) as { answer: string | null };
+      expect(row.answer).not.toBeNull();
+    });
+  });
+
+  // =============================================================================
+  // Regression: issue-166 — per-signal chat uses unified agent loop
+  // =============================================================================
+
+  describe('Regression: issue-166 — per-signal uses agent loop', () => {
+    it('per-signal process() uses callLlmStreamWithTools (agent path)', async () => {
+      const id = chatManager.submit('video-1', 'Agent path check?');
+      await chatManager.process(id);
+
+      // Agent path was called — verify via lastAgentPrompt (not lastStreamPrompt)
+      expect(lastAgentPrompt).toBeDefined();
+    });
+
+    it('answer persisted with is_formatted=1 after agent loop completes', async () => {
+      const id = chatManager.submit('video-1', 'Formatted check?');
+      await chatManager.process(id);
+
+      const row = db.prepare('SELECT answer, is_formatted FROM signal_chat WHERE id = ?').get(id) as { answer: string | null; is_formatted: number };
+      expect(row.answer).not.toBeNull();
+    });
+  });
+
+  // =============================================================================
+  // Regression: issue-170 — consolidated agent loop
+  // =============================================================================
+
+  describe('Regression: issue-170 — consolidated agent loop', () => {
+    it('single-signal chat persists normal answer when LLM returns content', async () => {
+      const id = chatManager.submit('video-1', 'Normal single question?');
+      await chatManager.process(id);
+
+      const row = db.prepare('SELECT answer FROM signal_chat WHERE id = ?').get(id) as { answer: string | null };
+      expect(row.answer).not.toBeNull();
+    });
+  });
+
+  // =============================================================================
+  // Consolidated from chat-router-polymorphic.test.ts: ChatManager.submit polymorphism
+  // =============================================================================
+
+  describe('ChatManager.submit — polymorphic (issue #130)', () => {
+    it('accepts ChatScope with topicKey and inserts list-scoped pending row', () => {
+      const id = chatManager.submit({ topicKey: 'mtg', question: 'What is the MTG meta?' });
+
+      expect(id).toBeGreaterThan(0);
+
+      const row = db.prepare('SELECT * FROM signal_chat WHERE id = ?').get(id) as {
+        signal_video_id: string | null;
+        question: string;
+        answer: string | null;
+        topic_key: string | null;
+        channel_id: string | null;
+        include_irrelevant: number | null;
+      };
+
+      expect(row.signal_video_id).toBeNull();
+      expect(row.question).toBe('What is the MTG meta?');
+      expect(row.answer).toBeNull();
+      expect(row.topic_key).toBe('mtg');
+    });
+
+    it('accepts ChatScope with topicKey+channelId and inserts list-scoped row', () => {
+      const id = chatManager.submit({ topicKey: 'mtg', channelId: 'video-1_ch', question: 'Channel A question?' });
+
+      expect(id).toBeGreaterThan(0);
+
+      const row = db.prepare('SELECT * FROM signal_chat WHERE id = ?').get(id) as {
+        signal_video_id: string | null;
+        topic_key: string | null;
+        channel_id: string | null;
+        include_irrelevant: number | null;
+      };
+
+      expect(row.signal_video_id).toBeNull();
+      expect(row.topic_key).toBe('mtg');
+      expect(row.channel_id).toBe('video-1_ch');
+    });
+
+    it('accepts ChatScope with includeIrrelevant and persists it', () => {
+      const id = chatManager.submit({ topicKey: 'mtg', includeIrrelevant: true, question: 'Include all?' });
+
+      const row = db.prepare('SELECT * FROM signal_chat WHERE id = ?').get(id) as {
+        include_irrelevant: number | null;
+      };
+
+      expect(row.include_irrelevant).toBe(1);
+    });
+
+    it('existing videoId submit still works (regression)', () => {
+      const id = chatManager.submit('video-1', 'What about this video?');
+
+      expect(id).toBeGreaterThan(0);
+
+      const row = db.prepare('SELECT * FROM signal_chat WHERE id = ?').get(id) as {
+        signal_video_id: string | null;
+        topic_key: string | null;
+      };
+
+      expect(row.signal_video_id).toBe('video-1');
+      expect(row.topic_key).toBeNull();
     });
   });
 });

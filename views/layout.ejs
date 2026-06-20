@@ -7,6 +7,13 @@
   <style>
     /* Hide table headers in chat answer tables — keeps two-column tbody layout */
     .chat-answer table thead { display: none; }
+    /* Phase transition animation — smooth fade between phase label changes */
+    .chat-phase-text {
+      transition: opacity 0.15s ease;
+    }
+    .chat-phase-text.phase-fading {
+      opacity: 0;
+    }
   </style>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@2.0.0"></script>

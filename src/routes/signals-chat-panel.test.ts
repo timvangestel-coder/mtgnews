@@ -246,3 +246,103 @@ describe('Signals Page Chat Panel (Issue #131)', () => {
     });
   });
 });
+
+// =============================================================================
+// Consolidated from chat-panel-timestamp-close.test.ts
+// =============================================================================
+
+import { JSDOM } from 'jsdom';
+
+function loadChatPanel() {
+  const fsMod = require('fs');
+  const pathMod = require('path');
+  const src = fsMod.readFileSync(pathMod.join(__dirname, '..', '..', 'views', 'scripts', 'chat-panel.js'), 'utf-8');
+  const dom = new JSDOM(`<!DOCTYPE html><html><body></body></html>`);
+  const ctx = {
+    document: dom.window.document,
+    window: dom.window,
+    console: console,
+  };
+  const fn = new Function('window', 'document', 'console', src);
+  fn(ctx.window, ctx.document, ctx.console);
+  return { dom, module: ctx.window.chatPanel };
+}
+
+describe('ChatPanel chat-timestamp-clicked event seam', () => {
+  describe('init() listens for chat-timestamp-clicked', () => {
+    it('closes the chat panel when chat-timestamp-clicked event is dispatched', () => {
+      const { dom, module: chatPanelMod } = loadChatPanel();
+      dom.window.document.body.innerHTML = `
+        <div data-chat-panel>
+          <div id="chat-history-content"></div>
+        </div>
+      `;
+
+      const scope = { hasVideoId: false, signalCount: 3 };
+      const instance = chatPanelMod(scope);
+      instance.init();
+
+      // Open the chat first
+      instance.toggleChat();
+      expect(instance.chatOpen).toBe(true);
+
+      // Dispatch the custom event (simulating timestamp pill click from signal-detail)
+      const event = new dom.window.CustomEvent('chat-timestamp-clicked', {
+        bubbles: true,
+        detail: { ms: 5000 }
+      });
+      dom.window.document.dispatchEvent(event);
+
+      expect(instance.chatOpen).toBe(false);
+    });
+
+    it('does not close when chat is already closed', () => {
+      const { dom, module: chatPanelMod } = loadChatPanel();
+      dom.window.document.body.innerHTML = `
+        <div data-chat-panel>
+          <div id="chat-history-content"></div>
+        </div>
+      `;
+
+      const scope = { hasVideoId: false, signalCount: 3 };
+      const instance = chatPanelMod(scope);
+      instance.init();
+
+      // Chat is closed by default
+      expect(instance.chatOpen).toBe(false);
+
+      dom.window.document.dispatchEvent(new dom.window.CustomEvent('chat-timestamp-clicked', {
+        bubbles: true,
+        detail: { ms: 5000 }
+      }));
+
+      // Should remain closed — listener only closes when open (if (self.chatOpen) self.toggleChat())
+      expect(instance.chatOpen).toBe(false);
+    });
+
+    it('per-signal mode also listens for the event', () => {
+      const { dom, module: chatPanelMod } = loadChatPanel();
+      dom.window.document.body.innerHTML = `
+        <div data-chat-panel>
+          <div id="chat-history-content"></div>
+        </div>
+      `;
+
+      // Per-signal mode (hasVideoId: true) — event listener is added before the _isMulti check
+      const scope = { hasVideoId: true, videoId: 'abc123' };
+      const instance = chatPanelMod(scope);
+      instance.init();
+
+      // Open the chat
+      instance.toggleChat();
+      expect(instance.chatOpen).toBe(true);
+
+      dom.window.document.dispatchEvent(new dom.window.CustomEvent('chat-timestamp-clicked', {
+        bubbles: true,
+        detail: { ms: 10000 }
+      }));
+
+      expect(instance.chatOpen).toBe(false);
+    });
+  });
+});

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PollRunManager } from './poll-run-manager';
+import { ConcurrencyPool } from './concurrency-pool';
 import { queryPollRunProgress, preRegisterChannelProgress } from './db/poll-runs';
 import { createTestDb } from '../tests/fixtures/test-db';
 
@@ -148,6 +149,43 @@ describe('PollRunManager', () => {
       const run = db.prepare('SELECT status, abort_time FROM poll_runs WHERE id = ?').get(runId);
       expect(run.status).toBe('done-forced');
       expect(run.abort_time).toBeDefined();
+    });
+  });
+
+  describe('progress', () => {
+    it('returns null when no runs exist', () => {
+      expect(manager.progress()).toBeNull();
+    });
+
+    it('returns PollProgress with state and signalPhases after run', async () => {
+      const runId = await manager.startRun();
+      await new Promise((r) => setTimeout(r, 300));
+      const prog = manager.progress();
+      expect(prog).not.toBeNull();
+      expect(prog!.state.id).toBe(runId);
+      expect(Array.isArray(prog!.signalPhases)).toBe(true);
+    });
+
+    it('returns state with correct status and steps', async () => {
+      seedTopic(); seedChannel('UC_test', 'Test Channel');
+      const runId = await manager.startRun();
+      await new Promise((r) => setTimeout(r, 300));
+      const prog = manager.progress();
+      expect(prog).not.toBeNull();
+      expect(prog!.state.status).toBe('complete');
+      expect(Array.isArray(prog!.state.steps)).toBe(true);
+    });
+
+    it('returns null when no runs exist', () => {
+      expect(manager.progress()).toBeNull();
+    });
+
+    it('includes empty signalPhases when run completes with no active signals', async () => {
+      const runId = await manager.startRun();
+      await new Promise((r) => setTimeout(r, 300));
+      const prog = manager.progress();
+      expect(prog).not.toBeNull();
+      expect(prog!.signalPhases).toEqual([]);
     });
   });
 
@@ -395,6 +433,264 @@ describe('PollRunManager', () => {
       seedSignal('abort_1', 'UC_test3', 500, 'pending');
       db.prepare("DELETE FROM signals WHERE poll_run_id = ? AND processing_state = 'pending'").run(500);
       expect(db.prepare("SELECT COUNT(*) as cnt FROM signals WHERE poll_run_id = ? AND processing_state = 'pending'").get(500).cnt).toBe(0);
+    });
+  });
+
+  // ─── Merged from poll-run-done-on-fail.test.ts ───
+  describe('Done counter on analysis failure', () => {
+    it('increments done counter even when analyzeSignal throws', async () => {
+      seedTopic(1, 'tech');
+      db.prepare(
+        "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+      ).run('UC_fail', 'Fail Channel', Date.now(), 1);
+
+      vi.mock('./poll', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./poll')>();
+        return {
+          ...actual,
+          pollChannel: vi.fn().mockImplementation(async (database, channelId, options?: any) => {
+            if (channelId === 'UC_fail') {
+              const runId = options?.runId;
+              database.prepare(
+                "INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at, poll_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+              ).run('fail_vid1', channelId, 'Fail Video', new Date().toISOString(), JSON.stringify([{ start: 0, text: 'test' }]), Date.now(), runId);
+              return { newSignals: 1, skippedDuplicates: 0, skippedNoCaptions: [] };
+            }
+            return { newSignals: 0, skippedDuplicates: 0, skippedNoCaptions: [] };
+          }),
+        };
+      });
+
+      vi.mock('./llm', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./llm')>();
+        return {
+          ...actual,
+          analyzeSignal: vi.fn().mockRejectedValue(new Error('LLM endpoint unreachable')),
+          getLlmConfig: actual.getLlmConfig,
+        };
+      });
+
+      const { PollRunManager: PRM } = await import('./poll-run-manager');
+      const failManager = new PRM(db);
+      const runId = await failManager.startRun();
+
+      // Wait for worker to complete (including failed analysis)
+      await new Promise((r) => setTimeout(r, 500));
+
+      const state = failManager.runState(runId);
+      expect(state).not.toBeNull();
+      // Channel had 1 signal discovered → total=1
+      expect(state!.steps[0].total).toBe(1);
+      // Even though analysis failed, done counter was incremented
+      expect(state!.steps[0].done).toBe(1);
+    });
+  });
+
+  // ─── Merged from poll-run-manager-pool.test.ts ───
+  describe('Concurrency pool integration', () => {
+    it('accepts ConcurrencyPool as constructor dependency', () => {
+      const pool = new ConcurrencyPool(2);
+      const mgr = new PollRunManager(db, pool);
+      expect(mgr).toBeDefined();
+    });
+
+    it('uses external pool instead of creating its own', async () => {
+      seedTopic(); seedChannel('UC_test');
+      const pool = new ConcurrencyPool(2);
+      const mgr = new PollRunManager(db, pool);
+
+      const runId = await mgr.startRun();
+      await new Promise((r) => setTimeout(r, 300));
+
+      // Run should complete without errors when using external pool
+      const state = mgr.runState(runId);
+      expect(state).not.toBeNull();
+      expect(state!.status).toBe('complete');
+    });
+
+    it('works with default pool when none provided', async () => {
+      seedTopic(); seedChannel('UC_test');
+
+      // No pool passed — should use internal default
+      const runId = await manager.startRun();
+      await new Promise((r) => setTimeout(r, 300));
+
+      const state = manager.runState(runId);
+      expect(state).not.toBeNull();
+      expect(state!.status).toBe('complete');
+    });
+  });
+
+  // ─── Merged from poll-run-manager-simplified.test.ts ───
+  describe('Simplified streaming pipeline', () => {
+    describe('PollRunStep interface', () => {
+      it('has displayName, status, total, done — no channelId, signalsFound, signalsDone', async () => {
+        seedTopic(1, 'tech');
+        db.prepare(
+          "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+        ).run('UC_test', 'Test Channel', Date.now(), 1);
+
+        const runId = await manager.startRun();
+        await new Promise((r) => setTimeout(r, 200));
+
+        const state = manager.runState(runId);
+        expect(state).not.toBeNull();
+        expect(state!.steps).toHaveLength(1);
+
+        const step = state!.steps[0];
+        // New shape
+        expect(step.displayName).toBeDefined();
+        expect(typeof step.status).toBe('string');
+        expect(typeof step.total).toBe('number');
+        expect(typeof step.done).toBe('number');
+        // Old fields must NOT exist
+        expect((step as any).channelId).toBeUndefined();
+        expect((step as any).signalsFound).toBeUndefined();
+        expect((step as any).signalsDone).toBeUndefined();
+      });
+
+      it('uses "processing" status instead of "running"', async () => {
+        seedTopic(1, 'tech');
+        db.prepare(
+          "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+        ).run('UC_test', 'Test Channel', Date.now(), 1);
+
+        // Manually insert a running poll run with progress to test mapping
+        db.prepare(
+          "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)"
+        ).run(Date.now());
+        const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+        db.prepare(
+          "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, 'running', 0, ?)"
+        ).run(runId, 'UC_test', Date.now());
+
+        const state = manager.runState(runId);
+        expect(state).not.toBeNull();
+        // The step status should be mapped to 'processing' (not 'running')
+        expect(state!.steps[0].status).toBe('processing');
+      });
+    });
+
+    describe('RunState interface', () => {
+      it('only has id, status, steps — no phase, signalsAnalyzed, summary, analysis', async () => {
+        const runId = await manager.startRun();
+        await new Promise((r) => setTimeout(r, 200));
+
+        const state = manager.runState(runId);
+        expect(state).not.toBeNull();
+
+        // Required fields exist
+        expect(state!.id).toBeDefined();
+        expect(typeof state!.status).toBe('string');
+        expect(Array.isArray(state!.steps)).toBe(true);
+
+        // Old fields must NOT exist
+        expect((state as any).phase).toBeUndefined();
+        expect((state as any).signalsAnalyzed).toBeUndefined();
+        expect((state as any).summary).toBeUndefined();
+        expect((state as any).analysis).toBeUndefined();
+      });
+    });
+
+    describe('DB query columns', () => {
+      it('PollRunRow does not include phase, signals_analyzed, signals_to_analyze', async () => {
+        const runId = await manager.startRun();
+        await new Promise((r) => setTimeout(r, 200));
+
+        // Check what currentProgress returns (exposes raw DB rows)
+        const result = manager.currentProgress();
+        expect(result).not.toBeNull();
+
+        const row = result!.run;
+        // Old columns must NOT be on the returned row
+        expect((row as any).phase).toBeUndefined();
+        expect((row as any).signals_analyzed).toBeUndefined();
+        expect((row as any).signals_to_analyze).toBeUndefined();
+      });
+    });
+
+    describe('5-branch step display logic data', () => {
+      it('fetching step has status "fetching"', async () => {
+        seedTopic(1, 'tech');
+        db.prepare(
+          "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+        ).run('UC_test', 'Test Channel', Date.now(), 1);
+
+        db.prepare(
+          "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)"
+        ).run(Date.now());
+        const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+        db.prepare(
+          "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, 'fetching', 0, ?)"
+        ).run(runId, 'UC_test', Date.now());
+
+        const state = manager.runState(runId);
+        expect(state).not.toBeNull();
+        expect(state!.steps[0].status).toBe('fetching');
+      });
+
+      it('done step with total=0 shows "none" semantically (total is 0)', async () => {
+        seedTopic(1, 'tech');
+        db.prepare(
+          "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+        ).run('UC_test', 'Test Channel', Date.now(), 1);
+
+        const runId = await manager.startRun();
+        await new Promise((r) => setTimeout(r, 200));
+
+        const state = manager.runState(runId);
+        expect(state).not.toBeNull();
+        // Channel had no signals → total=0
+        expect(state!.steps[0].total).toBe(0);
+      });
+
+      it('failed step has status "failed"', async () => {
+        seedTopic(1, 'tech');
+        db.prepare(
+          "INSERT INTO channels (channel_id, display_name, active, added_at, topic_id) VALUES (?, ?, 1, ?, ?)"
+        ).run('UC_test', 'Test Channel', Date.now(), 1);
+
+        db.prepare(
+          "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)"
+        ).run(Date.now());
+        const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+        db.prepare(
+          "INSERT INTO poll_run_progress (poll_run_id, channel_id, status, signals_found, updated_at) VALUES (?, ?, 'failed', 0, ?)"
+        ).run(runId, 'UC_test', Date.now());
+
+        const state = manager.runState(runId);
+        expect(state).not.toBeNull();
+        expect(state!.steps[0].status).toBe('failed');
+      });
+    });
+
+    describe('no regression in abort display', () => {
+      it('aborted run has status "aborted"', async () => {
+        db.prepare(
+          "INSERT INTO poll_runs (triggered_at, status, new_signal_count) VALUES (?, 'running', 0)"
+        ).run(Date.now());
+        const runId = (db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number }).max_id;
+
+        await manager.abortRun(runId);
+
+        const state = manager.runState(runId);
+        expect(state).not.toBeNull();
+        expect(state!.status).toBe('aborted');
+      });
+    });
+
+    describe('no regression in completed run display', () => {
+      it('completed run has status "complete"', async () => {
+        const runId = await manager.startRun();
+        await new Promise((r) => setTimeout(r, 200));
+
+        const state = manager.runState(runId);
+        expect(state).not.toBeNull();
+        expect(state!.status).toBe('complete');
+      });
     });
   });
 });

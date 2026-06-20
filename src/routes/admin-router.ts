@@ -18,11 +18,11 @@ export function createAdminRouter(
     const channels = channelManager.listAll();
     const topics = topicManager.listWithCounts();
 
-    // Use RunState view model for rich progress data
-    const progressResult = pollRunManager.currentProgress();
+    // Use deep progress() method for composed view model
+    const prog = pollRunManager.progress();
     let currentRunState = null;
-    if (progressResult && progressResult.run.status === 'running') {
-      currentRunState = pollRunManager.runState(progressResult.run.id);
+    if (prog && prog.state.status === 'running') {
+      currentRunState = prog.state;
     }
 
     const tab = req.query.tab as string | undefined;

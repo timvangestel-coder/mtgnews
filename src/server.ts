@@ -90,7 +90,7 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
 
   // polls — mounted via router (Issue #71)
   const pollQueryService = new PollQueryService(useDb);
-  app.use('/', createPollsRouter(pollQueryService));
+  app.use('/', createPollsRouter(pollQueryService, pollRunManager));
 
   // admin polling — mounted via router (Issue #70)
   app.use('/', createAdminPollingRouter(pollRunManager));

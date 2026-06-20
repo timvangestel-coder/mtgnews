@@ -14,7 +14,7 @@ export type RunId = number;
 // Re-export view model types for consumers of this module
 export { RunState, PollRunStep } from './utils/poll-run-view-model.ts';
 
-/** Legacy-compatible progress result */
+/** @internal Legacy-compatible progress result — kept for internal test use only. Use {@link PollProgress} instead. */
 export interface CurrentProgressResult {
   run: PollRunRow;
   progress: PollRunProgressRow[];
@@ -43,6 +43,12 @@ export interface SignalPhaseInfo {
   displayLabel: string;
   phase: LlmPhase;
   tokenCount: number;
+}
+
+/** Composed progress view model replacing the leaky three-call interface */
+export interface PollProgress {
+  state: RunState;
+  signalPhases: SignalPhaseInfo[];
 }
 
 export class PollRunManager {
@@ -104,7 +110,7 @@ export class PollRunManager {
     };
   }
 
-   /** Get the latest poll run and its progress rows, or null if no runs exist. */
+  /** @internal Get the latest poll run and its raw progress rows. Use {@link progress()} instead. */
   currentProgress(): CurrentProgressResult | null {
     const row = this.db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number | null } | undefined;
     const maxId = row?.max_id;
@@ -134,6 +140,21 @@ export class PollRunManager {
   /** Expose registry for internal testing */
   _getPhaseRegistry(): PhaseRegistry<string> {
     return this._phaseRegistry;
+  }
+
+  /** Get composed progress view model for the latest run, or null if no runs exist. */
+  progress(): PollProgress | null {
+    const row = this.db.prepare('SELECT MAX(id) as max_id FROM poll_runs').get() as { max_id: number | null } | undefined;
+    const maxId = row?.max_id;
+    if (!maxId) return null;
+
+    const state = this.runState(maxId);
+    if (!state) return null;
+
+    return {
+      state,
+      signalPhases: this.getSignalPhases(),
+    };
   }
 
   // ── Internal: Enqueue (from poll-scheduler.ts) ────────────────────

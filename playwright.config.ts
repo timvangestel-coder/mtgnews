@@ -7,6 +7,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: [['list']],
+  globalSetup: './playwright.setup.ts',
   use: {
     trace: 'on-first-retry',
   },

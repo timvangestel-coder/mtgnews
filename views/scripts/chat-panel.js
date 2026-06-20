@@ -146,28 +146,38 @@
                       clearInterval(self._statusPollTimer);
                       self._statusPollTimer = null;
                     }
-                  } else if (data.status === 'pending' && data.phase) {
-                    // Update phase text while still processing
-                    var phaseSpan = el.querySelector('.chat-phase-text');
-                    if (phaseSpan) {
-                      var label = self._getPhaseLabel(data.phase, data.tokenCount);
-                      phaseSpan.textContent = label;
-                    }
-                    el.setAttribute('data-chat-phase', data.phase || '');
-                    el.setAttribute('data-chat-token-count', data.tokenCount || 0);
-                    // Update round indicator when available
-                    if (typeof data.round === 'number' && data.round > 1) {
-                      var existingRound = el.querySelector('.chat-round-indicator');
-                      if (!existingRound) {
-                        var roundSpan = document.createElement('span');
-                        roundSpan.className = 'text-xs text-gray-400 ml-1 chat-round-indicator';
-                        roundSpan.textContent = '(Round ' + data.round + ')';
-                        phaseSpan.parentNode.appendChild(roundSpan);
-                      } else {
-                        existingRound.textContent = '(Round ' + data.round + ')';
-                      }
-                    }
-                  }
+                   } else if (data.status === 'pending' && data.phase) {
+                     // Update phase text while still processing
+                     var phaseSpan = el.querySelector('.chat-phase-text');
+                     if (phaseSpan) {
+                       var newLabel = self._getPhaseLabel(data.phase, data.tokenCount);
+                       // Trigger fade animation: fade out, change text, fade in
+                       var currentPhase = el.getAttribute('data-chat-phase');
+                       if (currentPhase && currentPhase !== data.phase) {
+                         phaseSpan.classList.add('phase-fading');
+                         setTimeout(function() {
+                           phaseSpan.textContent = newLabel;
+                           phaseSpan.classList.remove('phase-fading');
+                         }, 150);
+                       } else {
+                         phaseSpan.textContent = newLabel;
+                       }
+                     }
+                     el.setAttribute('data-chat-phase', data.phase || '');
+                     el.setAttribute('data-chat-token-count', data.tokenCount || 0);
+                     // Update round indicator when available
+                     if (typeof data.round === 'number' && data.round > 1) {
+                       var existingRound = el.querySelector('.chat-round-indicator');
+                       if (!existingRound) {
+                         var roundSpan = document.createElement('span');
+                         roundSpan.className = 'text-xs text-gray-400 ml-1 chat-round-indicator';
+                         roundSpan.textContent = '(Round ' + data.round + ')';
+                         phaseSpan.parentNode.appendChild(roundSpan);
+                       } else {
+                         existingRound.textContent = '(Round ' + data.round + ')';
+                       }
+                     }
+                   }
                 })
                .catch(function() { /* ignore */ });
            }

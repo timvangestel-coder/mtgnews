@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { PollQueryService } from '../services/poll-query-service';
+import { PollRunManager } from '../poll-run-manager';
 import { stepDisplay } from '../utils/poll-run-view-model';
 
-export function createPollsRouter(service: PollQueryService) {
+export function createPollsRouter(service: PollQueryService, manager?: PollRunManager) {
   const router = Router();
 
   // Register stepDisplay as an Express view helper via res.locals
@@ -38,12 +39,16 @@ export function createPollsRouter(service: PollQueryService) {
       return;
     }
 
+    // Include per-signal phase data for running runs (live in-memory data from manager)
+    const signalPhases = manager ? manager.getSignalPhases() : [];
+
     res.render('poll-detail', {
       activePage: 'polls',
       title: `Run #${id} Detail`,
       run: detail.run,
       progress: detail.progress,
       state: detail.state,
+      signalPhases,
     });
   });
 
@@ -52,11 +57,15 @@ export function createPollsRouter(service: PollQueryService) {
     const runId = parseInt(req.params.id, 10);
     const state = service.getRunState(runId);
 
+    // Include per-signal phase data for running runs (live in-memory data from manager)
+    const signalPhases = manager ? manager.getSignalPhases() : [];
+
     const progressUrl = `/polls/${runId}/progress`;
 
     res.render('admin/_pollProgress', {
       layout: false,
       state,
+      signalPhases,
       progressUrl,
     });
   });
