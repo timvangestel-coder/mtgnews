@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { markSummarized, markIrrelevant, isPending, isIrrelevant, isSummarized, deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } from './signal-state';
+import { markSummarized, markIrrelevant, markRelevant, isPending, isIrrelevant, isSummarized, deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } from './signal-state';
 import { createTestDb, seedChannel, seedSignal } from '../tests/fixtures/test-db';
 
 describe('signal-state predicates', () => {
@@ -183,6 +183,49 @@ describe('countProcessedForRun', () => {
     const count = countProcessedForRun(db, 999);
 
     expect(count).toBe(0);
+  });
+});
+
+describe('markRelevant', () => {
+  it('sets processing_state to summarized when summary exists', () => {
+    const db = createTestDb();
+    seedChannel(db, 'UCtest');
+    seedSignal(db, 'v1', 'transcription text');
+    // Mark as irrelevant first, then add a summary
+    markIrrelevant(db, 'v1');
+    db.prepare("UPDATE signals SET summary = ? WHERE video_id = ?").run('Some summary', 'v1');
+
+    markRelevant(db, 'v1');
+
+    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1');
+    expect(sig.processing_state).toBe('summarized');
+  });
+
+  it('sets processing_state to pending when no summary exists', () => {
+    const db = createTestDb();
+    seedChannel(db, 'UCtest');
+    seedSignal(db, 'v1', 'transcription text');
+    // Mark as irrelevant, no summary
+    markIrrelevant(db, 'v1');
+
+    markRelevant(db, 'v1');
+
+    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1');
+    expect(sig.processing_state).toBe('pending');
+  });
+
+  it('does not affect other signals', () => {
+    const db = createTestDb();
+    seedChannel(db, 'UCtest');
+    seedSignal(db, 'v1', 'transcription text');
+    seedSignal(db, 'v2', 'transcription text');
+    markIrrelevant(db, 'v1');
+    markIrrelevant(db, 'v2');
+
+    markRelevant(db, 'v1');
+
+    const sig2 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v2');
+    expect(sig2.processing_state).toBe('irrelevant');
   });
 });
 

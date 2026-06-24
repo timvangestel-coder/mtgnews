@@ -380,4 +380,70 @@ describe('query', () => {
     expect(v1Row!.qaAnswered).toBeNull();
     expect(v1Row!.qaTotal).toBeNull();
   });
+
+  // -- Issue #183: reviewed flag --
+  it('default query includes both reviewed and unreviewed signals', () => {
+    // Mark v1 as reviewed
+    db.prepare("UPDATE signals SET reviewed = ? WHERE video_id = ?").run(1, 'v1');
+
+    const result = querySignals(db);
+    expect(result.total).toBe(5);
+  });
+
+  it('includeUnreviewed: false excludes reviewed signals', () => {
+    db.prepare("UPDATE signals SET reviewed = ? WHERE video_id = ?").run(1, 'v1');
+    db.prepare("UPDATE signals SET reviewed = ? WHERE video_id = ?").run(1, 'v2');
+
+    const result = querySignals(db, { includeUnreviewed: false });
+    const ids = result.items.map((s: any) => s.video_id);
+    expect(ids).not.toContain('v1');
+    expect(ids).not.toContain('v2');
+    expect(result.total).toBe(3);
+  });
+
+  it('includeUnreviewed: true includes all signals regardless of reviewed status', () => {
+    db.prepare("UPDATE signals SET reviewed = ? WHERE video_id = ?").run(1, 'v1');
+
+    const result = querySignals(db, { includeUnreviewed: true });
+    expect(result.total).toBe(5);
+  });
+
+  it('includeUnreviewed treats NULL reviewed as unreviewed', () => {
+    // All signals have reviewed=NULL or reviewed=0 by default -> all are unreviewed
+    const result = querySignals(db, { includeUnreviewed: false });
+    expect(result.total).toBe(5);
+  });
+
+  it('includeUnreviewed works combined with channel filter', () => {
+    db.prepare("UPDATE signals SET reviewed = ? WHERE video_id = ?").run(1, 'v1'); // UC1
+    db.prepare("UPDATE signals SET reviewed = ? WHERE video_id = ?").run(1, 'v5'); // UC1
+
+    // Filter by UC1, exclude reviewed -> only v2 remains
+    const result = querySignals(db, { channelId: 'UC1', includeUnreviewed: false });
+    const ids = result.items.map((s: any) => s.video_id);
+    expect(ids).toEqual(['v2']);
+    expect(result.total).toBe(1);
+  });
+
+  it('includeUnreviewed works combined with topic filter', () => {
+    db.prepare("UPDATE signals SET reviewed = ? WHERE video_id = ?").run(1, 'v1'); // UC1 -> esports
+    db.prepare("UPDATE signals SET reviewed = ? WHERE video_id = ?").run(1, 'v3'); // UC2 -> politics
+
+    // Filter by esports topic, exclude reviewed -> v5, v2 remain
+    const result = querySignals(db, { topicKey: 'esports', includeUnreviewed: false });
+    const ids = result.items.map((s: any) => s.video_id);
+    expect(ids).toEqual(['v5', 'v2']);
+    expect(result.total).toBe(2);
+  });
+
+  it('signal row includes reviewed column', () => {
+    db.prepare("UPDATE signals SET reviewed = ? WHERE video_id = ?").run(1, 'v1');
+
+    const result = querySignals(db);
+    const v1Row = result.items.find((s: any) => s.video_id === 'v1');
+    expect(v1Row!.reviewed).toBe(1);
+
+    const v2Row = result.items.find((s: any) => s.video_id === 'v2');
+    expect(v2Row!.reviewed).toBe(0);
+  });
 });

@@ -8,7 +8,8 @@
       selectedTopic: '<%= (topicKey || '').replace(/'/g, "\\'") %>',
       selectedChannel: '<%= (channelId || '').replace(/'/g, "\\'") %>',
       showIrrelevant: <%= typeof showIrrelevant === 'boolean' ? showIrrelevant : 'false' %>,
-      dateFilter: '<%= (dateFilter || '').replace(/'/g, "\\'") %>',
+       showUnreviewed: <%= typeof showUnreviewed === 'boolean' ? showUnreviewed : 'true' %>,
+       dateFilter: '<%= (dateFilter || '').replace(/'/g, "\\'") %>',
       get filteredChannels() {
         return this.selectedTopic
           ? this.channels.filter(c => c.topic_key === this.selectedTopic)
@@ -20,8 +21,9 @@
         else params.set('topicKey', '');
         if (this.selectedChannel) params.set('channelId', this.selectedChannel);
         else params.set('channelId', '');
-        if (this.showIrrelevant) params.set('showIrrelevant', 'true');
-        if (this.dateFilter && this.dateFilter !== '') params.set('dateFilter', this.dateFilter);
+         if (this.showIrrelevant) params.set('showIrrelevant', 'true');
+         if (!this.showUnreviewed) params.set('showUnreviewed', 'false');
+         if (this.dateFilter && this.dateFilter !== '') params.set('dateFilter', this.dateFilter);
         var url = '/signals?' + params.toString();
         window.history.pushState({}, '', url);
         if (forAjax) {
@@ -90,8 +92,14 @@
       </button>
     </div>
 
-    <!-- Show Irrelevant Toggle -->
-    <div class="ml-auto">
+    <!-- Show Unreviewed + Show Irrelevant Toggles -->
+    <div class="ml-auto flex gap-2">
+      <!-- Issue #183: Show Unreviewed Toggle (default on) -->
+      <button class="rounded-full px-4 py-1 text-sm transition"
+              :class="showUnreviewed ? 'bg-gray-200 text-gray-700' : 'bg-orange-500 text-white'"
+              @click="showUnreviewed = !showUnreviewed; $nextTick(() => { htmx.ajax('GET', _buildUrl(true), { target: '#signals-table' }); })">
+        Show Unreviewed
+      </button>
       <button class="rounded-full px-4 py-1 text-sm transition"
               :class="showIrrelevant ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'"
               @click="showIrrelevant = !showIrrelevant; $nextTick(() => { htmx.ajax('GET', _buildUrl(true), { target: '#signals-table' }); })">
@@ -119,7 +127,7 @@
 
  <!-- Signal Table Fragment -->
  <div id="signals-table">
-   <%- include('_signalsTable', { signals, page, totalPages, total, channelId, topicKey, showIrrelevant, dateFilter }) %>
+   <%- include('_signalsTable', { signals, page, totalPages, total, channelId, topicKey, showIrrelevant, showUnreviewed, dateFilter }) %>
  </div>
 
  <% var chatScope = { topicKey: topicKey, channelId: channelId, showIrrelevant: showIrrelevant, signalCount: total, channelsMap: channelsMap, dateFilter: dateFilter }; %>

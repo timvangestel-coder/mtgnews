@@ -96,7 +96,7 @@ describe('Signals Router', () => {
       // With showIrrelevant=true
       const resp2 = await request(httpServer).get(`/signals?channelId=UCirrR${t}&showIrrelevant=true&htmx=true`);
       expect(resp2.status).toBe(200);
-      expect(resp2.text).toContain('[Irrelevant]');
+      expect(resp2.text).toContain('opacity-50');
     });
 
     it('passes topicKey filter', async () => {
@@ -177,6 +177,48 @@ describe('Signals Router', () => {
       const resp = await request(httpServer).get(`/signals/verrR-${t}?error=llm+failed`);
       expect(resp.status).toBe(200);
       expect(resp.text).toContain('llm failed');
+    });
+  });
+
+  describe('POST /signals/:id/irrelevant', () => {
+    it('sets processing_state to irrelevant and returns button HTML', async () => {
+      const t = Date.now();
+      addChannel(db, `UCirrRT${t}`, 'Irr Route Ch');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(`virrRT-${t}`, `UCirrRT${t}`, 'Irrelevant Route', `2103-12-31T00:00:00Z`, '[]', Date.now());
+
+      const resp = await request(httpServer)
+        .post(`/signals/virrRT-${t}/irrelevant`)
+        .send({ irrelevant: 'true' });
+
+      expect(resp.status).toBe(200);
+      expect(resp.headers['content-type']).toContain('text/html');
+      expect(resp.text).toContain('irrelevant-toggle');
+      expect(resp.text).toContain('Irrelevant');
+
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`virrRT-${t}`);
+      expect(row.processing_state).toBe('irrelevant');
+    });
+
+    it('restores to relevant and returns button HTML', async () => {
+      const t = Date.now();
+      addChannel(db, `UCrelRT${t}`, 'Rel Route Ch');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, processing_state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(`vrelRT-${t}`, `UCrelRT${t}`, 'Rel Route', `2103-12-31T00:00:00Z`, '[]', 'a summary', 'irrelevant', Date.now());
+
+      const resp = await request(httpServer)
+        .post(`/signals/vrelRT-${t}/irrelevant`)
+        .send({ irrelevant: 'false' });
+
+      expect(resp.status).toBe(200);
+      expect(resp.text).toContain('irrelevant-toggle');
+
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`vrelRT-${t}`);
+      expect(row.processing_state).toBe('summarized');
     });
   });
 

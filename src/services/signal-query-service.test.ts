@@ -172,6 +172,50 @@ describe('SignalQueryService', () => {
     });
   });
 
+  describe('setIrrelevant()', () => {
+    it('sets processing_state to irrelevant when irrelevant=true', () => {
+      const t = Date.now();
+      addChannel(db, `UCirrS${t}`, 'IrrService Channel');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(`virs-${t}`, `UCirrS${t}`, 'Irrelevant Service', `2103-12-31T00:00:00Z`, '[]', Date.now());
+
+      service.setIrrelevant(`virs-${t}`, true);
+
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`virs-${t}`);
+      expect(row.processing_state).toBe('irrelevant');
+    });
+
+    it('restores to summarized when irrelevant=false and summary exists', () => {
+      const t = Date.now();
+      addChannel(db, `UCrelS${t}`, 'RelService Channel');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, summary, processing_state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(`vrs-${t}`, `UCrelS${t}`, 'Relevant Service', `2103-12-31T00:00:00Z`, '[]', 'a summary', 'irrelevant', Date.now());
+
+      service.setIrrelevant(`vrs-${t}`, false);
+
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`vrs-${t}`);
+      expect(row.processing_state).toBe('summarized');
+    });
+
+    it('restores to pending when irrelevant=false and no summary exists', () => {
+      const t = Date.now();
+      addChannel(db, `UCrelS2${t}`, 'RelService2 Channel');
+      db.prepare(
+        `INSERT INTO signals (video_id, channel_id, title, published_at, transcription, processing_state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(`vrs2-${t}`, `UCrelS2${t}`, 'Relevant Service 2', `2103-12-31T00:00:00Z`, '[]', 'irrelevant', Date.now());
+
+      service.setIrrelevant(`vrs2-${t}`, false);
+
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`vrs2-${t}`);
+      expect(row.processing_state).toBe('pending');
+    });
+  });
+
   describe('summarizeSignal()', () => {
     beforeEach(() => {
       vi.clearAllMocks();

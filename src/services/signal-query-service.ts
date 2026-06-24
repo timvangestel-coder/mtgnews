@@ -4,11 +4,13 @@ import { getSignalById, formatTranscriptionHtml } from '../signal-detail';
 import { ChatResponseFormatter } from '../chat-response-formatter';
 import { analyzeSignal, getLlmConfig, AnalysisResult } from '../llm';
 import { getChannelsWithTopics } from '../db/watchlist';
+import { markIrrelevant, markRelevant } from '../signal-state';
 
 export interface ListSignalsOptions {
   channelId?: string;
   topicKey?: string;
   includeIrrelevant?: boolean;
+  includeUnreviewed?: boolean;
   dateFrom?: string;
   limit?: number;
   offset?: number;
@@ -38,12 +40,27 @@ export class SignalQueryService {
       channelId: options.channelId,
       topicKey: options.topicKey,
       includeIrrelevant: options.includeIrrelevant,
+      includeUnreviewed: options.includeUnreviewed,
       dateFrom: options.dateFrom,
       limit: options.limit,
       offset: options.offset,
     };
 
     return querySignals(this.db, filters);
+  }
+
+  /** Issue #183: Mark a signal as reviewed or unreviewed */
+  setReviewed(videoId: string, reviewed: boolean): void {
+    this.db.prepare('UPDATE signals SET reviewed = ? WHERE video_id = ?').run(reviewed ? 1 : 0, videoId);
+  }
+
+  /** Issue #184: Mark a signal as irrelevant or restore to relevant (summary-aware) */
+  setIrrelevant(videoId: string, irrelevant: boolean): void {
+    if (irrelevant) {
+      markIrrelevant(this.db, videoId);
+    } else {
+      markRelevant(this.db, videoId);
+    }
   }
 
   getSignalDetail(videoId: string): SignalDetailResult | null {

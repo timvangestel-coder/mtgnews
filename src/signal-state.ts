@@ -36,6 +36,15 @@ export function markSummarized(db: Database.Database, videoId: string): void {
     .run(SUMMARIZED, videoId);
 }
 
+/** Mark an irrelevant signal as relevant — summary-aware restore.
+ * If a summary exists, restore to `summarized`; otherwise go back to `pending`. */
+export function markRelevant(db: Database.Database, videoId: string): void {
+  const row = db.prepare("SELECT summary FROM signals WHERE video_id = ?").get(videoId) as { summary: string | null };
+  const newState = row.summary != null ? SUMMARIZED : PENDING;
+  db.prepare("UPDATE signals SET processing_state = ? WHERE video_id = ?")
+    .run(newState, videoId);
+}
+
 /** Delete pending signals and their entity_mentions for a given poll run. Used by abort cleanup. */
 export function deletePendingForRun(db: Database.Database, runId: number): void {
   // Delete entity_mentions for pending signals in this run first (FK cascade)

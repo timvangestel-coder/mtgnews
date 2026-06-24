@@ -257,4 +257,9 @@ export function initDb(db: Database.Database): void {
     if (!chatColsV3.includes('date_filter')) {
       db.exec("ALTER TABLE signal_chat ADD COLUMN date_filter TEXT DEFAULT 'all'");
     }
+
+    // Issue #183: Migration — add reviewed column to signals (INTEGER, default 0)
+    if (!signalCols.includes('reviewed')) {
+      db.exec('ALTER TABLE signals ADD COLUMN reviewed INTEGER DEFAULT 0');
+    }
 }

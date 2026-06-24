@@ -9,6 +9,7 @@ export interface QueryFilters {
   maxSentiment?: number;
   entityMention?: string;
   includeIrrelevant?: boolean;
+  includeUnreviewed?: boolean;
   offset?: number;
   limit?: number;
 }
@@ -25,6 +26,7 @@ export interface SignalRow {
   created_at: number;
   processing_state: string;
   generated_title: string | null;
+  reviewed: number;
   qaAnswered: number | null;
   qaTotal: number | null;
 }
@@ -94,6 +96,13 @@ export function querySignals(db: Database.Database, filters: QueryFilters = {}):
     params.push('irrelevant');
   }
 
+  // Issue #183: filter by reviewed status
+  // includeUnreviewed: false -> show only unreviewed (reviewed = 0 or NULL)
+  // includeUnreviewed: true or undefined -> no filtering on reviewed
+  if (filters.includeUnreviewed === false) {
+    conditions.push('(s.reviewed IS NULL OR s.reviewed = 0)');
+  }
+
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   // Get total count
@@ -103,9 +112,10 @@ export function querySignals(db: Database.Database, filters: QueryFilters = {}):
 
   // Get paginated results, ordered by published_at DESC
   // Issue #116: Q&A ratio via correlated subqueries on signal_chat
+  // Issue #183: include reviewed column
   const selectSql = `
     SELECT s.video_id, s.channel_id, s.title, s.published_at, s.transcription,
-           s.summary, s.overall_sentiment, s.sentiment_label, s.created_at, s.processing_state, s.generated_title,
+           s.summary, s.overall_sentiment, s.sentiment_label, s.created_at, s.processing_state, s.generated_title, COALESCE(s.reviewed, 0) as reviewed,
            (SELECT COUNT(*) FROM signal_chat sc WHERE sc.signal_video_id = s.video_id AND sc.answer IS NOT NULL) as qaAnswered,
            (SELECT COUNT(*) FROM signal_chat sc WHERE sc.signal_video_id = s.video_id) as qaTotalRaw
     FROM signals s ${whereClause}
