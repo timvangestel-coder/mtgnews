@@ -208,12 +208,12 @@ describe('llm', () => {
       expect(prompt).toContain('entity');
 
       // Verify db persisted all fields
-      const sig = db.prepare('SELECT summary, overall_sentiment, sentiment_label FROM signals WHERE video_id = ?').get('v1');
-      expect(sig.summary).toContain('Video discusses MTG topics');
-      expect(sig.overall_sentiment).toBe(4);
-      expect(sig.sentiment_label).toBe('Positive');
+      const sig = db.prepare('SELECT summary, overall_sentiment, sentiment_label FROM signals WHERE video_id = ?').get('v1') as { summary: string | null; overall_sentiment: number | null; sentiment_label: string | null } | undefined;
+      expect(sig!.summary).toContain('Video discusses MTG topics');
+      expect(sig!.overall_sentiment).toBe(4);
+      expect(sig!.sentiment_label).toBe('Positive');
 
-      const mentions = db.prepare('SELECT entity_name FROM entity_mentions WHERE signal_video_id = ?').all('v1');
+      const mentions = db.prepare('SELECT entity_name FROM entity_mentions WHERE signal_video_id = ?').all('v1') as Array<{ entity_name: string }>;
       expect(mentions).toHaveLength(1);
       expect(mentions[0].entity_name).toBe('Kaldra');
     });
@@ -245,8 +245,8 @@ describe('llm', () => {
 
       await analyzeSignal(db, 'v3', config);
 
-      const sig = db.prepare('SELECT overall_sentiment FROM signals WHERE video_id = ?').get('v3');
-      expect(sig.overall_sentiment).toBe(5); // clamped to max
+      const sig = db.prepare('SELECT overall_sentiment FROM signals WHERE video_id = ?').get('v3') as { overall_sentiment: number | null } | undefined;
+      expect(sig!.overall_sentiment).toBe(5); // clamped to max
     });
 
     it('persists multiple entity mentions with correct types', async () => {
@@ -281,8 +281,8 @@ describe('llm', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
 
-      const sig = db.prepare('SELECT summary, overall_sentiment FROM signals WHERE video_id = ?').get('v5');
-      expect(sig.summary).toBeNull();
+      const sig = db.prepare('SELECT summary, overall_sentiment FROM signals WHERE video_id = ?').get('v5') as { summary: string | null; overall_sentiment: number | null } | undefined;
+      expect(sig!.summary).toBeNull();
     });
 
     it('returns failure when LLM returns malformed JSON', async () => {
@@ -335,9 +335,9 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-irrel', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT processing_state, summary FROM signals WHERE video_id = ?').get('v-irrel');
-      expect(sig.processing_state).toBe('irrelevant');
-      expect(sig.summary).toBeNull();
+      const sig = db.prepare('SELECT processing_state, summary FROM signals WHERE video_id = ?').get('v-irrel') as { processing_state: string; summary: string | null } | undefined;
+      expect(sig!.processing_state).toBe('irrelevant');
+      expect(sig!.summary).toBeNull();
     });
 
     it('missing relevant field -> backward compat, treated as relevant', async () => {
@@ -350,8 +350,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-backcompat', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-backcompat');
-      expect(sig.processing_state).toBe('summarized');
+      const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-backcompat') as { processing_state: string } | undefined;
+      expect(sig!.processing_state).toBe('summarized');
     });
 
     it('prompt instructs minimal JSON when irrelevant', async () => {
@@ -379,9 +379,9 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-min-irr', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT processing_state, summary FROM signals WHERE video_id = ?').get('v-min-irr');
-      expect(sig.processing_state).toBe('irrelevant');
-      expect(sig.summary).toBeNull();
+      const sig = db.prepare('SELECT processing_state, summary FROM signals WHERE video_id = ?').get('v-min-irr') as { processing_state: string; summary: string | null } | undefined;
+      expect(sig!.processing_state).toBe('irrelevant');
+      expect(sig!.summary).toBeNull();
     });
 
     it('prompt includes CompactTranscription instruction', async () => {
@@ -414,8 +414,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-compact-store', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT compact_text FROM signals WHERE video_id = ?').get('v-compact-store');
-      expect(sig.compact_text).toBe('[T:0] hello world test mtg');
+      const sig = db.prepare('SELECT compact_text FROM signals WHERE video_id = ?').get('v-compact-store') as { compact_text: string | null } | undefined;
+      expect(sig!.compact_text).toBe('[T:0] hello world test mtg');
     });
 
     it('leaves compact_text NULL when LLM omits field', async () => {
@@ -432,8 +432,8 @@ describe('llm', () => {
 
       await analyzeSignal(db, 'v-no-compact', config);
 
-      const sig = db.prepare('SELECT compact_text FROM signals WHERE video_id = ?').get('v-no-compact');
-      expect(sig.compact_text).toBeNull();
+      const sig = db.prepare('SELECT compact_text FROM signals WHERE video_id = ?').get('v-no-compact') as { compact_text: string | null } | undefined;
+      expect(sig!.compact_text).toBeNull();
     });
 
     it('prompt uses generic role "You are a content analyst"', async () => {
@@ -461,8 +461,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-nofilter', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-nofilter');
-      expect(sig.processing_state).toBe('summarized');
+      const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-nofilter') as { processing_state: string } | undefined;
+      expect(sig!.processing_state).toBe('summarized');
     });
 
     it('handles LLM response with prose reasoning before trailing JSON', async () => {
@@ -489,8 +489,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-prose', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT summary FROM signals WHERE video_id = ?').get('v-prose');
-      expect(sig.summary).toContain('s');
+      const sig = db.prepare('SELECT summary FROM signals WHERE video_id = ?').get('v-prose') as { summary: string | null } | undefined;
+      expect(sig!.summary).toContain('s');
     });
 
     it('handles LLM response with prose before minimal irrelevant JSON', async () => {
@@ -517,8 +517,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-irr-prose', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-irr-prose');
-      expect(sig.processing_state).toBe('irrelevant');
+      const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-irr-prose') as { processing_state: string } | undefined;
+      expect(sig!.processing_state).toBe('irrelevant');
     });
 
     it('persists generated_title from LLM response', async () => {
@@ -537,8 +537,8 @@ describe('llm', () => {
       const result = await analyzeSignal(db, 'v-title', config);
       expect(result.success).toBe(true);
 
-      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-title');
-      expect(sig.generated_title).toBe('New MTG Set Announcement Changes Everything');
+      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-title') as { generated_title: string | null } | undefined;
+      expect(sig!.generated_title).toBe('New MTG Set Announcement Changes Everything');
     });
 
     it('truncates generated_title to 100 characters', async () => {
@@ -557,9 +557,9 @@ describe('llm', () => {
 
       await analyzeSignal(db, 'v-long-title', config);
 
-      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-long-title');
-      expect(sig.generated_title).toHaveLength(100);
-      expect(sig.generated_title).toBe('A'.repeat(100));
+      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-long-title') as { generated_title: string | null } | undefined;
+      expect(sig!.generated_title).toHaveLength(100);
+      expect(sig!.generated_title).toBe('A'.repeat(100));
     });
 
     it('leaves generated_title NULL when LLM omits title field', async () => {
@@ -576,8 +576,8 @@ describe('llm', () => {
 
       await analyzeSignal(db, 'v-no-title', config);
 
-      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-no-title');
-      expect(sig.generated_title).toBeNull();
+      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-no-title') as { generated_title: string | null } | undefined;
+      expect(sig!.generated_title).toBeNull();
     });
 
     it('existing signals retain NULL generated_title after migration', async () => {
@@ -586,8 +586,8 @@ describe('llm', () => {
       seedSignal(db, 'v-existing', 'text');
 
       // Signal created before title feature — generated_title should be NULL
-      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-existing');
-      expect(sig.generated_title).toBeNull();
+      const sig = db.prepare('SELECT generated_title FROM signals WHERE video_id = ?').get('v-existing') as { generated_title: string | null } | undefined;
+      expect(sig!.generated_title).toBeNull();
     });
 
     it('returns descriptive error for malformed streaming JSON', async () => {
@@ -834,8 +834,8 @@ describe('Regression: issue-158 — analyzeSignal streaming with phase callback'
     const result = await analyzeSignal(db, 'v-reg-158-irr', config);
     expect(result.success).toBe(true);
 
-    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-reg-158-irr');
-    expect(sig.processing_state).toBe('irrelevant');
+    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v-reg-158-irr') as { processing_state: string } | undefined;
+    expect(sig!.processing_state).toBe('irrelevant');
   });
 });
 

@@ -1,9 +1,10 @@
-import { Router } from 'express';
+import { Router, Request } from 'express';
 import { displayTitleForSignal } from '../signal-detail';
 import { SignalQueryService } from '../services/signal-query-service';
 import { listTopics, getChannelsWithTopics } from '../db/watchlist';
+import { computeDateRange } from '../scope-source';
 
-interface RenderRequest extends express.Request {
+interface RenderRequest extends Request {
   query: Record<string, string | string[] | undefined>;
 }
 
@@ -15,12 +16,23 @@ export function createSignalsRouter(service: SignalQueryService) {
     const channelId = req.query.channelId as string | undefined;
     const topicKey = req.query.topicKey as string | undefined;
     const showIrrelevant = req.query.showIrrelevant === 'true';
+    const dateFilter = (req.query.dateFilter as string | undefined) || undefined;
     const page = parseInt(req.query.page as string, 10) || 1;
     const isHtmx = req.query.htmx === 'true';
     const limit = 25;
     const offset = (page - 1) * limit;
 
-    const result = service.listSignals({ channelId, topicKey, includeIrrelevant: showIrrelevant, limit, offset });
+    // Issue #181: compute date range from filter preset
+    const dateRange = computeDateRange(dateFilter);
+
+    const result = service.listSignals({
+      channelId,
+      topicKey,
+      includeIrrelevant: showIrrelevant,
+      dateFrom: dateRange.from,
+      limit,
+      offset,
+    });
     const channels = getChannelsWithTopics(service.database);
     const topics = listTopics(service.database);
     const totalPages = Math.ceil(result.total / limit);
@@ -40,6 +52,7 @@ export function createSignalsRouter(service: SignalQueryService) {
         channelId,
         topicKey,
         showIrrelevant,
+        dateFilter,
         layout: false,
       });
     } else {
@@ -55,6 +68,7 @@ export function createSignalsRouter(service: SignalQueryService) {
         channelId,
         topicKey,
         showIrrelevant,
+        dateFilter,
         channelsMap,
       });
     }

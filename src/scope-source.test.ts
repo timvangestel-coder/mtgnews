@@ -13,6 +13,71 @@ import { describe, it, expect } from 'vitest';
 // Import the module — it exports a pure function taking a URL string
 import { ScopeSource, ChatScopeData } from './scope-source';
 
+// =============================================================================
+// Slice 1: computeDateRange() pure function
+// =============================================================================
+
+import { computeDateRange } from './scope-source';
+
+describe('computeDateRange() — maps preset filters to ISO date bounds', () => {
+  it('returns empty object for "all" (no date filter)', () => {
+    const result = computeDateRange('all');
+    expect(result).toEqual({});
+  });
+
+  it('returns empty object for undefined (default: no filter)', () => {
+    const result = computeDateRange(undefined);
+    expect(result).toEqual({});
+  });
+
+  it('returns { from } for "today" (start of today, ISO string)', () => {
+    const result = computeDateRange('today');
+
+    expect(result.from).toBeDefined();
+    expect(result.to).toBeUndefined();
+    // Verify the from date is start of today (midnight)
+    const actualFrom = new Date(result.from!);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    expect(Math.abs(actualFrom.getTime() - today.getTime())).toBeLessThan(1000);
+  });
+
+  it('returns { from } for "week" (7 days ago, ISO string)', () => {
+    const now = new Date();
+    const expectedFrom = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const result = computeDateRange('week');
+
+    expect(result.from).toBeDefined();
+    expect(result.to).toBeUndefined();
+    // Verify the from date is approximately 7 days ago (within 1 second tolerance)
+    const actualFrom = new Date(result.from!);
+    expect(Math.abs(actualFrom.getTime() - expectedFrom.getTime())).toBeLessThan(1000);
+  });
+
+  it('returns { from } for "month" (30 days ago, ISO string)', () => {
+    const now = new Date();
+    const expectedFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const result = computeDateRange('month');
+
+    expect(result.from).toBeDefined();
+    expect(result.to).toBeUndefined();
+    const actualFrom = new Date(result.from!);
+    expect(Math.abs(actualFrom.getTime() - expectedFrom.getTime())).toBeLessThan(1000);
+  });
+
+  it('returns ISO 8601 format for from date', () => {
+    const result = computeDateRange('week');
+    expect(result.from).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it('treats unknown values like "all" (returns empty object)', () => {
+    const result = computeDateRange('unknown-preset' as string);
+    expect(result).toEqual({});
+  });
+});
+
 describe('ScopeSource.fromURL() — single truth for chat scope', () => {
   it('returns empty scope when URL has no query params', () => {
     const scope = ScopeSource.fromURL('http://localhost/signals');
@@ -78,6 +143,29 @@ describe('ScopeSource.fromURL() — single truth for chat scope', () => {
     expect(scope.includeIrrelevant).toBe(false);
   });
 
+  // Slice 2: dateFilter in fromURL
+  it('returns dateFilter when URL has ?dateFilter=week', () => {
+    const scope = ScopeSource.fromURL('http://localhost/signals?dateFilter=week');
+    expect(scope.dateFilter).toBe('week');
+  });
+
+  it('returns dateFilter="all" when URL has ?dateFilter=all', () => {
+    const scope = ScopeSource.fromURL('http://localhost/signals?dateFilter=all');
+    expect(scope.dateFilter).toBe('all');
+  });
+
+  it('returns undefined dateFilter when param is absent', () => {
+    const scope = ScopeSource.fromURL('http://localhost/signals?topicKey=mtg');
+    expect(scope.dateFilter).toBeUndefined();
+  });
+
+  it('reads dateFilter alongside other scope params', () => {
+    const scope = ScopeSource.fromURL('http://localhost/signals?topicKey=mtg&channelId=UC_a&dateFilter=month');
+    expect(scope.topicKey).toBe('mtg');
+    expect(scope.channelId).toBe('UC_a');
+    expect(scope.dateFilter).toBe('month');
+  });
+
   describe('buildHistoryURL() — constructs /chat/history URL with scope params', () => {
     it('returns bare /chat/history when scope is empty', () => {
       const url = ScopeSource.buildHistoryURL({});
@@ -99,6 +187,19 @@ describe('ScopeSource.fromURL() — single truth for chat scope', () => {
       const url = ScopeSource.buildHistoryURL({ signalVideoId: 'v1' });
       expect(url).toBe('/chat/history?signalVideoId=v1');
     });
+
+    // Slice 2: dateFilter in buildHistoryURL
+    it('appends dateFilter when present', () => {
+      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg', dateFilter: 'week' });
+      expect(url).toContain('topicKey=mtg');
+      expect(url).toContain('dateFilter=week');
+    });
+
+    it('omits dateFilter="all" from URL (default, no need to encode)', () => {
+      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg', dateFilter: 'all' });
+      expect(url).toContain('topicKey=mtg');
+      expect(url).not.toContain('dateFilter');
+    });
   });
 
   describe('buildAskBody() — constructs POST body for /chat/ask', () => {
@@ -118,6 +219,24 @@ describe('ScopeSource.fromURL() — single truth for chat scope', () => {
     it('omits empty channelId from body', () => {
       const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', channelId: '' });
       expect(body.channelId).toBeUndefined();
+    });
+
+    // Slice 2: dateFilter in buildAskBody
+    it('includes dateFilter for list-scoped chat', () => {
+      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', dateFilter: 'week' });
+      expect(body.dateFilter).toBe('week');
+    });
+
+    it('omits dateFilter="all" from body (default)', () => {
+      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', dateFilter: 'all' });
+      expect(body.dateFilter).toBeUndefined();
+    });
+
+    it('includes dateFilter without signalVideoId for per-signal chat is not applicable', () => {
+      // Per-signal chat does not carry dateFilter — only list-scoped chat uses dates
+      const body = ScopeSource.buildAskBody({ question: 'hello', signalVideoId: 'v1' });
+      expect(body.signalVideoId).toBe('v1');
+      expect(body.dateFilter).toBeUndefined();
     });
   });
 });

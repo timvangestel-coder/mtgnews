@@ -59,6 +59,7 @@
         if (topicKey) prevParams.set('topicKey', topicKey);
         if (channelId) prevParams.set('channelId', channelId);
         if (showIrrelevant) prevParams.set('showIrrelevant', 'true');
+        if (dateFilter) prevParams.set('dateFilter', dateFilter);
         prevParams.set('page', String(page - 1));
         prevParams.set('htmx', 'true');
       %>
@@ -74,6 +75,7 @@
         if (topicKey) nextParams.set('topicKey', topicKey);
         if (channelId) nextParams.set('channelId', channelId);
         if (showIrrelevant) nextParams.set('showIrrelevant', 'true');
+        if (dateFilter) nextParams.set('dateFilter', dateFilter);
         nextParams.set('page', String(page + 1));
         nextParams.set('htmx', 'true');
       %>

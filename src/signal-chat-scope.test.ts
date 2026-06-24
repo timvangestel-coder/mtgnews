@@ -52,6 +52,93 @@ describe('signal_chat schema — issue #127 multi-signal chat columns', () => {
   });
 });
 
+// ─── Schema tests: issue #181 date_filter column ──────────────
+
+describe('signal_chat schema — issue #181 date_filter column', () => {
+  it('has date_filter column (TEXT DEFAULT "all")', () => {
+    const db = createTestDb();
+    const columns = db.prepare("PRAGMA table_info(signal_chat)").all() as Array<{ name: string; type: string; dflt_value: string | null }>;
+    const colMap = new Map(columns.map((c) => [c.name, c]));
+    expect(colMap.has('date_filter')).toBe(true);
+    expect(colMap.get('date_filter')?.type).toBe('TEXT');
+    expect(colMap.get('date_filter')?.dflt_value).toContain("'all'");
+  });
+});
+
+// ─── resolveIndexScope date filtering — issue #181 ──────────────
+
+describe('resolveIndexScope — issue #181 date filtering', () => {
+  it('filters signals by dateFrom (published_at >= dateFrom)', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+
+    // Old signal (before filter boundary)
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_old', 'UC_mtg', 'Old Video', JSON.stringify({ segments: [] }), 1000, 'summarized', '2024-01-01T00:00:00Z');
+
+    // New signal (after filter boundary)
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_new', 'UC_mtg', 'New Video', JSON.stringify({ segments: [] }), 2000, 'summarized', '2025-06-01T00:00:00Z');
+
+    const { resolveIndexScope } = await import('./signal-chat-scope');
+    const results = resolveIndexScope(db, {}, { dateFrom: '2025-01-01T00:00:00Z' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].videoId).toBe('v_new');
+  });
+
+  it('returns all signals when dateFrom is undefined (no date filter)', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_old', 'UC_mtg', 'Old Video', JSON.stringify({ segments: [] }), 1000, 'summarized', '2024-01-01T00:00:00Z');
+
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_new', 'UC_mtg', 'New Video', JSON.stringify({ segments: [] }), 2000, 'summarized', '2025-06-01T00:00:00Z');
+
+    const { resolveIndexScope } = await import('./signal-chat-scope');
+    const results = resolveIndexScope(db, {});
+
+    expect(results).toHaveLength(2);
+  });
+
+  it('combines dateFrom with topicKey scope', async () => {
+    const db = createTestDb();
+    seedTopic(db, 'mtg', 1);
+    seedTopic(db, 'ai', 2);
+    seedChannel(db, 'UC_mtg', 'MTG Channel', 1);
+    seedChannel(db, 'UC_ai', 'AI Channel', 2);
+
+    // MTG old signal — excluded by date
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_mtg_old', 'UC_mtg', 'MTG Old', JSON.stringify({ segments: [] }), 1000, 'summarized', '2024-01-01T00:00:00Z');
+
+    // MTG new signal — included
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_mtg_new', 'UC_mtg', 'MTG New', JSON.stringify({ segments: [] }), 2000, 'summarized', '2025-06-01T00:00:00Z');
+
+    // AI new signal — excluded by topic
+    db.prepare(
+      "INSERT INTO signals (video_id, channel_id, title, transcription, created_at, processing_state, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run('v_ai_new', 'UC_ai', 'AI New', JSON.stringify({ segments: [] }), 3000, 'summarized', '2025-06-01T00:00:00Z');
+
+    const { resolveIndexScope } = await import('./signal-chat-scope');
+    const results = resolveIndexScope(db, { topicKey: 'mtg' }, { dateFrom: '2025-01-01T00:00:00Z' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].videoId).toBe('v_mtg_new');
+  });
+});
+
 // ─── ChatScope / ChatSignalContext types ──────────────────────
 
 describe('ChatScope and ChatSignalContext types — issue #127', () => {

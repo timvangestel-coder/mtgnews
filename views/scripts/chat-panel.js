@@ -195,7 +195,8 @@
         /** Check if two scope objects are equal (used to detect filter changes). */
         _scopeEqual: function(a, b) {
           if (!a || !b) return a === b;
-          return a.topicKey === b.topicKey && a.channelId === b.channelId;
+          // Issue #181: include dateFilter in scope equality check
+          return a.topicKey === b.topicKey && a.channelId === b.channelId && a.dateFilter === b.dateFilter;
         },
 
          /** Build a human-readable phase label from phase + tokenCount. */
@@ -223,7 +224,8 @@
            if (this._isMulti) {
              url = window.ScopeSource.buildHistoryURL({
                topicKey: s.topicKey !== undefined ? s.topicKey : '',
-               channelId: s.channelId
+               channelId: s.channelId,
+               dateFilter: s.dateFilter
              });
            } else {
             url = window.ScopeSource.buildHistoryURL({
@@ -248,9 +250,9 @@
 
            this.historyLoaded = true;
            // Store current scope so toggleChat can detect filter changes on re-open.
-           this._lastHistoryScope = { topicKey: s.topicKey, channelId: s.channelId };
-        } catch (e) {}
-      },
+           this._lastHistoryScope = { topicKey: s.topicKey, channelId: s.channelId, dateFilter: s.dateFilter };
+         } catch (e) {}
+       },
 
       async sendQuestion() {
         var self = this; var question = this.chatInput.trim();
@@ -263,7 +265,8 @@
             body = window.ScopeSource.buildAskBody(question, {
               topicKey: s.topicKey,
               channelId: s.channelId,
-              includeIrrelevant: this.showIrrelevant
+              includeIrrelevant: this.showIrrelevant,
+              dateFilter: s.dateFilter
             });
           } else {
             body = window.ScopeSource.buildAskBody(question, {

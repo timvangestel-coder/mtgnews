@@ -40,7 +40,7 @@ async function handlePoll(subcommand: string | undefined, channelId: string | un
         await new Promise((r) => setTimeout(r, 500));
       }
       const finalState = manager.runState(runId);
-      console.log(`Poll run ${runId} complete: status=${finalState?.status}, signals=${finalState?.summary.newSignalCount}`);
+      console.log(`Poll run ${runId} complete: status=${finalState?.status}`);
     } catch (err) {
       console.error(`Poll failed: ${(err as Error).message}`);
       process.exit(1);

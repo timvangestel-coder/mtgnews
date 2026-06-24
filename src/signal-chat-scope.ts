@@ -8,12 +8,15 @@ import type { SignalIndexEntry } from './prompt-assembler';
  * - topicKey: all signals under a topic
  * - channelId: narrow to one channel within a topic
  * - includeIrrelevant: also include signals with processing_state='irrelevant'
+ * - dateFilter: filter signals by date range preset ('today'|'week'|'month'|'all')
  */
 export interface ChatScope {
   videoId?: string;
   topicKey?: string;
   channelId?: string;
   includeIrrelevant?: boolean;
+  question?: string;
+  dateFilter?: string;
 }
 
 /**
@@ -143,12 +146,18 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
 
 // ─── AgentChat lightweight index (issue #163) ──────────────────────
 
+/** Optional date filter for signal queries. */
+export interface DateFilterOptions {
+  /** Only include signals with published_at >= dateFrom. */
+  dateFrom?: string;
+}
+
 /**
  * Resolves a lightweight signal index for AgentChat scope resolution.
  * Returns only { videoId, title, summary } per signal — no compact_text, no transcription.
  * Uses the same scope resolution rules as resolveScope().
  */
-export function resolveIndexScope(db: Database.Database, scope: ChatScope): SignalIndexEntry[] {
+export function resolveIndexScope(db: Database.Database, scope: ChatScope, dateOptions?: DateFilterOptions): SignalIndexEntry[] {
   // Single-video scope
   if (scope.videoId) {
     const row = db.prepare(`
@@ -188,6 +197,12 @@ export function resolveIndexScope(db: Database.Database, scope: ChatScope): Sign
 
   if (!scope.includeIrrelevant) {
     conditions.push("s.processing_state != 'irrelevant'");
+  }
+
+  // Issue #181: date filtering
+  if (dateOptions?.dateFrom) {
+    conditions.push('s.published_at >= ?');
+    params.push(dateOptions.dateFrom);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

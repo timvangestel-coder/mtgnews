@@ -14,13 +14,17 @@
       var hasTopicKey = url.searchParams.has('topicKey');
       var rawChannelId = url.searchParams.get('channelId');
       var rawIncludeIrrelevant = url.searchParams.get('includeIrrelevant');
+      // Issue #181: read dateFilter from URL
+      var rawDateFilter = url.searchParams.get('dateFilter');
       // topicKey: if param is present, return its value (including empty string '' which means "all signals").
       // If param is absent entirely, return undefined (not a list-scope filter).
       // Empty channelId IS normalized to undefined — channelId='' has no semantic meaning.
+      // dateFilter: empty string or 'all' normalized to undefined.
       return {
         topicKey: hasTopicKey ? url.searchParams.get('topicKey') : undefined,
         channelId: rawChannelId || undefined,
-        includeIrrelevant: rawIncludeIrrelevant === 'true'
+        includeIrrelevant: rawIncludeIrrelevant === 'true',
+        dateFilter: (rawDateFilter && rawDateFilter !== '' && rawDateFilter !== 'all') ? rawDateFilter : undefined
       };
     },
 
@@ -36,6 +40,10 @@
       }
       if (scope.channelId) {
         parts.push('channelId=' + encodeURIComponent(scope.channelId));
+      }
+      // Issue #181: include dateFilter in history URL for strict composite scope
+      if (scope.dateFilter && scope.dateFilter !== 'all') {
+        parts.push('dateFilter=' + encodeURIComponent(scope.dateFilter));
       }
       var query = parts.join('&');
       return '/chat/history' + (query ? '?' + query : '');
@@ -54,6 +62,10 @@
       }
       if (scope.channelId) body.channelId = scope.channelId;
       if (scope.includeIrrelevant) body.includeIrrelevant = true;
+      // Issue #181: include dateFilter so chat history is scoped by date
+      if (scope.dateFilter && scope.dateFilter !== 'all') {
+        body.dateFilter = scope.dateFilter;
+      }
       return body;
     }
   };

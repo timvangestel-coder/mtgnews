@@ -9,6 +9,7 @@ export interface ListSignalsOptions {
   channelId?: string;
   topicKey?: string;
   includeIrrelevant?: boolean;
+  dateFrom?: string;
   limit?: number;
   offset?: number;
 }
@@ -37,6 +38,7 @@ export class SignalQueryService {
       channelId: options.channelId,
       topicKey: options.topicKey,
       includeIrrelevant: options.includeIrrelevant,
+      dateFrom: options.dateFrom,
       limit: options.limit,
       offset: options.offset,
     };

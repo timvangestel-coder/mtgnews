@@ -187,7 +187,7 @@ export interface ChannelDiscoveryResult {
  * eliminating the need for a second RSS fetch to count duplicates.
  */
 export async function discoverCandidates(
-  db: Database,
+  db: Database.Database,
   channelIds: string[],
   options: DiscoveryOptions = {}
 ): Promise<ChannelDiscoveryResult> {

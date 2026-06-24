@@ -250,4 +250,11 @@ export function initDb(db: Database.Database): void {
     if (!signalCols.includes('compact_text')) {
       db.exec('ALTER TABLE signals ADD COLUMN compact_text TEXT');
     }
+
+    // Issue #181: Migration — add date_filter column to signal_chat for date-scoped chat history
+    const chatRowsV3 = db.pragma('table_info(signal_chat)') as Array<{ name: string }>;
+    const chatColsV3 = chatRowsV3.map((r) => r.name);
+    if (!chatColsV3.includes('date_filter')) {
+      db.exec("ALTER TABLE signal_chat ADD COLUMN date_filter TEXT DEFAULT 'all'");
+    }
 }

@@ -26,6 +26,7 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
       topicKey?: string;
       channelId?: string;
       includeIrrelevant?: boolean;
+      dateFilter?: string;
       question?: string;
     };
 
@@ -56,6 +57,7 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
         topicKey: body.topicKey !== '' ? body.topicKey : '',  // keep '' as-is for DB persistence
         channelId: body.channelId,
         includeIrrelevant: body.includeIrrelevant,
+        dateFilter: body.dateFilter && body.dateFilter !== 'all' ? body.dateFilter : undefined,
         question,
       };
 
@@ -212,9 +214,11 @@ export function createChatRouter(chatManager: ChatManager, chatQueue?: ChatQueue
     } else if (topicKey !== undefined || channelId !== undefined) {
       // List-scoped history — empty string topicKey means "all signals" scope.
       // Use '' instead of undefined so process/getHistory can distinguish from per-signal.
+      const dateFilter = (req.query.dateFilter as string | undefined);
       const scope: ChatScope = {
         topicKey: topicKey ?? '',  // '' for both missing and empty → list-scoped all signals
         channelId: channelId,
+        dateFilter: dateFilter && dateFilter !== 'all' ? dateFilter : undefined,
       };
       messages = chatManager.getHistory(scope);
     }

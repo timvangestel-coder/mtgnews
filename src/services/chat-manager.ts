@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { LlmConfig, callLlmStream, callLlmSync, callLlmStreamWithTools, FunctionTool } from '../llm';
 import type { LlmPhase } from '../phase-registry.ts';
 import { assembleChat, type FormatStyle, type SignalIndexEntry } from '../prompt-assembler';
-import { ChatScope, resolveIndexScope, ChatSignalContext } from '../signal-chat-scope';
+import { ChatScope, resolveIndexScope, DateFilterOptions } from '../signal-chat-scope';
 import { ChatResponseFormatter } from '../chat-response-formatter';
 import { createAgentConversation } from '../chat-conversation-state';
 import { getAppSetting } from '../db/app-settings';
@@ -157,6 +157,13 @@ export class ChatManager {
       params.push(effectiveChannelId);
     }
 
+    // Issue #181: date_filter as part of strict composite scope
+    const effectiveDateFilter = (filter.dateFilter === '' || filter.dateFilter === 'all') ? undefined : filter.dateFilter;
+    if (effectiveDateFilter !== undefined) {
+      conditions.push('date_filter = ?');
+      params.push(effectiveDateFilter);
+    }
+
     // If both topicKey and channelId are missing but videoId is set, fall back to signal_video_id
     if (conditions.length === 0 && filter.videoId) {
       conditions.push('signal_video_id = ?');
@@ -200,7 +207,7 @@ export class ChatManager {
 
     // Fetch recent Q&A history for context
     const historyRows = this.getHistory(signalVideoId);
-    const history = historyRows.map((r) => ({ question: r.question, answer: r.answer }));
+    const history = historyRows.map((r) => ({ question: r.question, answer: r.answer ?? '' }));
 
     // Assemble chat prompt with format style from AppSettings (defaults to 'annotated-index')
     const formatStyle = resolveFormatStyle(this.db);
@@ -256,7 +263,7 @@ export class ChatManager {
       return result.lastInsertRowid as number;
     }
 
-    // List-scoped: submit({ topicKey?, channelId?, includeIrrelevant?, question })
+    // List-scoped: submit({ topicKey?, channelId?, includeIrrelevant?, dateFilter?, question })
     const scope = input;
     const q = scope.question ?? question!;
 
@@ -270,14 +277,18 @@ export class ChatManager {
     // by setting topic_key to empty string placeholder so getHistory() distinguishes from per-signal
     const finalTopicKey = (dbTopicKey === null && dbChannelId === null) ? '' : dbTopicKey;
 
+    // Issue #181: store date_filter for date-scoped chat history
+    const dbDateFilter = scope.dateFilter && scope.dateFilter !== 'all' ? scope.dateFilter : 'all';
+
     const result = this.db.prepare(
-      `INSERT INTO signal_chat (signal_video_id, question, answer, topic_key, channel_id, include_irrelevant) VALUES (?, ?, NULL, ?, ?, ?)`
+      `INSERT INTO signal_chat (signal_video_id, question, answer, topic_key, channel_id, include_irrelevant, date_filter) VALUES (?, ?, NULL, ?, ?, ?, ?)`
     ).run(
       null,
       q,
       finalTopicKey,
       dbChannelId,
-      scope.includeIrrelevant ? 1 : 0
+      scope.includeIrrelevant ? 1 : 0,
+      dbDateFilter
     );
 
     return result.lastInsertRowid as number;
@@ -293,14 +304,15 @@ export class ChatManager {
    */
   async process(id: number, options?: ProcessOptions): Promise<void> {
     const row = this.db.prepare(
-      'SELECT id, signal_video_id, question, topic_key, channel_id, include_irrelevant FROM signal_chat WHERE id = ?'
+      'SELECT id, signal_video_id, question, topic_key, channel_id, include_irrelevant, date_filter FROM signal_chat WHERE id = ?'
     ).get(id) as { 
       id: number; 
       signal_video_id: string | null; 
       question: string; 
       topic_key: string | null; 
       channel_id: string | null; 
-      include_irrelevant: number | null 
+      include_irrelevant: number | null;
+      date_filter: string | null;
     } | undefined;
 
     if (!row) {
@@ -345,19 +357,31 @@ export class ChatManager {
   /**
    * Thin adapter: resolves index via resolveIndexScope(scope) and delegates to _runAgentLoop.
    */
-  private async _processMultiSignal(row: { id: number; question: string; topic_key: string | null; channel_id: string | null; include_irrelevant: number | null }, abortSignal?: AbortSignal, onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void, onToken?: (token: string) => void): Promise<void> {
+  private async _processMultiSignal(row: { id: number; question: string; topic_key: string | null; channel_id: string | null; include_irrelevant: number | null; date_filter: string | null }, abortSignal?: AbortSignal, onPhaseChange?: (phase: LlmPhase, tokenCount: number) => void, onToken?: (token: string) => void): Promise<void> {
     // Build scope from DB columns
     const scope: ChatScope = {
       topicKey: row.topic_key ?? undefined,
       channelId: row.channel_id ?? undefined,
       includeIrrelevant: row.include_irrelevant ? true : false,
+      dateFilter: row.date_filter && row.date_filter !== 'all' ? row.date_filter : undefined,
     };
 
-    // Resolve index via resolveIndexScope
-    const indexEntries = resolveIndexScope(this.db, scope);
+    // Issue #181: compute date range for signal index resolution
+    const dateOptions: DateFilterOptions = {};
+    if (scope.dateFilter) {
+      // Import computeDateRange dynamically to avoid circular deps
+      const { computeDateRange } = await import('../scope-source');
+      const range = computeDateRange(scope.dateFilter);
+      if (range.from) {
+        dateOptions.dateFrom = range.from;
+      }
+    }
+
+    // Resolve index via resolveIndexScope with date filtering
+    const indexEntries = resolveIndexScope(this.db, scope, dateOptions);
 
     // Fetch recent Q&A history for this scope (exclude this pending row)
-    const historyRows = this.getHistory(scope).filter((r) => r.id !== row.id).map((r) => ({ question: r.question, answer: r.answer }));
+    const historyRows = this.getHistory(scope).filter((r) => r.id !== row.id).map((r) => ({ question: r.question, answer: r.answer ?? '' }));
 
     // Build signalMap for citation formatting from index entries
     const signalMap: Record<string, { title: string }> = {};
