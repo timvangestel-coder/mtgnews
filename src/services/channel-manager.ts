@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
-import { addChannel, removeChannel as dbRemoveChannel, toggleChannelActive as dbToggleActive, updateChannelTopic as dbUpdateTopic, listChannels, getChannelLastPollDate } from '../db/watchlist';
+import { addChannel, toggleChannelActive as dbToggleActive, updateChannelTopic as dbUpdateTopic, listChannels, getChannelLastPollDate } from '../db/watchlist';
+import { softDeleteChannel, getChannelSoftDeleteCounts, CascadeResult } from '../db/cascade-delete';
 import { resolveChannelId, fetchChannelInfo } from '../rss-discovery';
 
 export interface ChannelWithDetails {
@@ -40,8 +41,12 @@ export class ChannelManager {
     addChannel(this.db, channelId, displayName, avatarUrl, topicId ?? undefined);
   }
 
-  removeChannel(channelId: string): void {
-    dbRemoveChannel(this.db, channelId);
+  removeChannel(channelId: string): CascadeResult {
+    return softDeleteChannel(this.db, channelId);
+  }
+
+  getSoftDeleteCounts(channelId: string): CascadeResult {
+    return getChannelSoftDeleteCounts(this.db, channelId);
   }
 
   toggleActive(channelId: string, active: boolean): void {

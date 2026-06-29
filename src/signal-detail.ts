@@ -1,5 +1,8 @@
+// NOTE: All queries reading channels/signals/entity_mentions/signal_chat/poll_run_progress must filter
+// deleted rows using softDeleteFilter(alias). See ADR-0015 (issue #185).
 import Database from 'better-sqlite3';
 import { SignalRow } from './query';
+import { softDeleteFilter } from './db/soft-delete-filter';
 
 /** Return the display title: generated_title if available, otherwise original title, otherwise a fallback. */
 export function displayTitleForSignal(signal: SignalRow, fallback = 'Signal Detail'): string {
@@ -8,7 +11,7 @@ export function displayTitleForSignal(signal: SignalRow, fallback = 'Signal Deta
 
 export function getSignalById(db: Database.Database, videoId: string): SignalRow | null {
   const row = db.prepare(
-    'SELECT video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, sentiment_label, created_at, processing_state, generated_title, COALESCE(reviewed, 0) as reviewed FROM signals WHERE video_id = ?'
+    `SELECT video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, sentiment_label, created_at, processing_state, generated_title, COALESCE(reviewed, 0) as reviewed FROM signals s WHERE 1=1 ${softDeleteFilter('s')} AND s.video_id = ?`
   ).get(videoId) as SignalRow | undefined;
   return row ?? null;
 }

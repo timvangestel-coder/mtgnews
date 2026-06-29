@@ -1,0 +1,67 @@
+<div class="mb-6">
+  <h3 class="text-xl font-semibold mb-2">Soft-Deleted Entities</h3>
+  <p class="text-sm text-gray-500 mb-4">
+    Shows rows marked as deleted (deleted_at set). Use Undo All to restore them, or Purge All to permanently remove them.
+  </p>
+
+  <!-- Counts Table -->
+  <div class="bg-gray-50 rounded p-4 mb-4">
+    <table class="w-full text-sm text-left">
+      <thead>
+        <tr class="border-b border-gray-200">
+          <th class="py-1 px-2 font-medium">Table</th>
+          <th class="py-1 px-2 font-medium text-right">Soft-Deleted</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="border-b border-gray-100">
+          <td class="py-1 px-2">Channels</td>
+          <td class="py-1 px-2 text-right font-mono"><%= softDeleteCounts.channels %></td>
+        </tr>
+        <tr class="border-b border-gray-100">
+          <td class="py-1 px-2">Signals</td>
+          <td class="py-1 px-2 text-right font-mono"><%= softDeleteCounts.signals %></td>
+        </tr>
+        <tr class="border-b border-gray-100">
+          <td class="py-1 px-2">Entity Mentions</td>
+          <td class="py-1 px-2 text-right font-mono"><%= softDeleteCounts.mentions %></td>
+        </tr>
+        <tr class="border-b border-gray-100">
+          <td class="py-1 px-2">Chat Rows</td>
+          <td class="py-1 px-2 text-right font-mono"><%= softDeleteCounts.chats %></td>
+        </tr>
+        <tr class="border-b border-gray-100">
+          <td class="py-1 px-2">Poll Run Progress</td>
+          <td class="py-1 px-2 text-right font-mono"><%= softDeleteCounts.progress %></td>
+        </tr>
+        <tr class="font-semibold">
+          <td class="py-1 px-2">Total</td>
+          <td class="py-1 px-2 text-right font-mono"><%= softDeleteTotal %></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Actions -->
+  <div class="flex gap-3">
+    <button type="button"
+      <%= softDeleteTotal === 0 ? 'disabled' : '' %>
+      class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+      @click="$dispatch('open-delete-modal', {
+        title: 'Undo All Soft Deletes?',
+        message: 'This will restore <%= softDeleteTotal %> soft-deleted entities across all tables.',
+        actionUrl: '/admin/undo-all',
+        counts: { channels: <%= softDeleteCounts.channels %>, signals: <%= softDeleteCounts.signals %>, mentions: <%= softDeleteCounts.mentions %>, chats: <%= softDeleteCounts.chats %>, progress: <%= softDeleteCounts.progress %> }
+      })">Undo All</button>
+
+    <button type="button"
+      <%= softDeleteTotal === 0 ? 'disabled' : '' %>
+      class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+      @click="$dispatch('open-delete-modal', {
+        title: 'Purge All Soft Deleted?',
+        message: 'This will permanently delete <%= softDeleteTotal %> soft-deleted entities. This cannot be undone.',
+        actionUrl: '/admin/purge-all',
+        counts: { channels: <%= softDeleteCounts.channels %>, signals: <%= softDeleteCounts.signals %>, mentions: <%= softDeleteCounts.mentions %>, chats: <%= softDeleteCounts.chats %>, progress: <%= softDeleteCounts.progress %> }
+      })">Purge All</button>
+  </div>
+</div>

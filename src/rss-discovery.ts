@@ -1,5 +1,8 @@
+// NOTE: All queries reading channels/signals/entity_mentions/signal_chat/poll_run_progress must filter
+// deleted rows using softDeleteFilter(alias). See ADR-0015 (issue #185).
 import * as https from 'https';
 import Database from 'better-sqlite3';
+import { softDeleteFilter } from './db/soft-delete-filter';
 
 export interface RssCandidate {
   video_id: string;
@@ -196,7 +199,7 @@ export async function discoverCandidates(
   const fetchFn = options.fetchRss || fetchRssSync;
 
   // get already-processed video IDs
-  const existing = db.prepare('SELECT video_id FROM signals').all() as { video_id: string }[];
+  const existing = db.prepare(`SELECT video_id FROM signals s WHERE 1=1 ${softDeleteFilter('s')}`).all() as { video_id: string }[];
   const processedIds = new Set(existing.map((r) => r.video_id));
 
   const candidates: RssCandidate[] = [];

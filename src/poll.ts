@@ -1,5 +1,8 @@
+// NOTE: All queries reading channels/signals/entity_mentions/signal_chat/poll_run_progress must filter
+// deleted rows using softDeleteFilter(alias). See ADR-0015 (issue #185).
 import Database from 'better-sqlite3';
 import { listChannels } from './db/watchlist';
+import { softDeleteFilter } from './db/soft-delete-filter';
 import { discoverCandidates, RssCandidate, DiscoveryOptions } from './rss-discovery';
 import { TranscriptionSegment, groupSegments } from './transcription';
 
@@ -24,7 +27,7 @@ export async function ingestSignal(
   options: IngestOptions = {}
 ): Promise<IngestResult> {
   // Check for duplicate
-  const existing = db.prepare('SELECT video_id FROM signals WHERE video_id = ?').get(candidate.video_id);
+  const existing = db.prepare(`SELECT video_id FROM signals s WHERE 1=1 ${softDeleteFilter('s')} AND s.video_id = ?`).get(candidate.video_id);
   if (existing) {
     return { ingested: false, duplicate: true, noCaptions: false };
   }

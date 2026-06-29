@@ -642,4 +642,218 @@ describe('Schema initialization', () => {
       db.prepare('SELECT COUNT(*) as cnt FROM poll_run_progress').get()
     ).toEqual({ cnt: 1 });
   });
+
+  // Issue #185: soft-delete migration — deleted_at columns on 5 tables
+  it('channels table has deleted_at column defaulting NULL (issue #185)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(channels)")
+      .all() as Array<{ name: string; type: string; dflt_value: string | null }>;
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type, dflt_value: c.dflt_value }])
+    );
+
+    expect(columnMap.has('deleted_at')).toBe(true);
+    expect(columnMap.get('deleted_at')?.type).toBe('INTEGER');
+    expect(columnMap.get('deleted_at')?.dflt_value).toBe('NULL');
+
+    // Verify new rows have NULL (active)
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
+    ).run();
+
+    const row = db
+      .prepare('SELECT deleted_at FROM channels WHERE channel_id = ?')
+      .get('UC1') as { deleted_at: number | null };
+
+    expect(row?.deleted_at).toBeNull();
+  });
+
+  it('signals table has deleted_at column defaulting NULL (issue #185)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(signals)")
+      .all() as Array<{ name: string; type: string; dflt_value: string | null }>;
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type, dflt_value: c.dflt_value }])
+    );
+
+    expect(columnMap.has('deleted_at')).toBe(true);
+    expect(columnMap.get('deleted_at')?.type).toBe('INTEGER');
+    expect(columnMap.get('deleted_at')?.dflt_value).toBe('NULL');
+  });
+
+  it('entity_mentions table has deleted_at column defaulting NULL (issue #185)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(entity_mentions)")
+      .all() as Array<{ name: string; type: string; dflt_value: string | null }>;
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type, dflt_value: c.dflt_value }])
+    );
+
+    expect(columnMap.has('deleted_at')).toBe(true);
+    expect(columnMap.get('deleted_at')?.type).toBe('INTEGER');
+    expect(columnMap.get('deleted_at')?.dflt_value).toBe('NULL');
+  });
+
+  it('signal_chat table has deleted_at column defaulting NULL (issue #185)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(signal_chat)")
+      .all() as Array<{ name: string; type: string; dflt_value: string | null }>;
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type, dflt_value: c.dflt_value }])
+    );
+
+    expect(columnMap.has('deleted_at')).toBe(true);
+    expect(columnMap.get('deleted_at')?.type).toBe('INTEGER');
+    expect(columnMap.get('deleted_at')?.dflt_value).toBe('NULL');
+  });
+
+  it('poll_run_progress table has deleted_at column defaulting NULL (issue #185)', async () => {
+    const db = createTestDb();
+    await initSchema(db);
+
+    const columns = db
+      .prepare("PRAGMA table_info(poll_run_progress)")
+      .all() as Array<{ name: string; type: string; dflt_value: string | null }>;
+
+    const columnMap = new Map(
+      columns.map((c) => [c.name, { type: c.type, dflt_value: c.dflt_value }])
+    );
+
+    expect(columnMap.has('deleted_at')).toBe(true);
+    expect(columnMap.get('deleted_at')?.type).toBe('INTEGER');
+    expect(columnMap.get('deleted_at')?.dflt_value).toBe('NULL');
+  });
+
+  it('migration adds deleted_at to existing tables without dropping data (issue #185)', async () => {
+    // Simulate an existing DB that has the schema but no deleted_at columns
+    const db = createTestDb();
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+
+    // Create minimal old-style tables (without deleted_at)
+    db.exec(`
+      CREATE TABLE channels (
+        channel_id TEXT PRIMARY KEY,
+        display_name TEXT,
+        avatar_url TEXT,
+        active INTEGER DEFAULT 1,
+        added_at INTEGER NOT NULL,
+        topic_id INTEGER REFERENCES topics(id)
+      );
+      CREATE TABLE signals (
+        video_id TEXT PRIMARY KEY,
+        channel_id TEXT REFERENCES channels(channel_id),
+        title TEXT,
+        published_at TEXT,
+        transcription TEXT NOT NULL,
+        summary TEXT,
+        overall_sentiment INTEGER,
+        sentiment_label TEXT,
+        created_at INTEGER NOT NULL,
+        processing_state TEXT DEFAULT 'pending',
+        poll_run_id INTEGER REFERENCES poll_runs(id)
+      );
+      CREATE TABLE entity_mentions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_video_id TEXT REFERENCES signals(video_id),
+        entity_name TEXT,
+        entity_type TEXT,
+        sentiment TEXT
+      );
+      CREATE TABLE poll_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        triggered_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        new_signal_count INTEGER DEFAULT 0,
+        completed_at INTEGER,
+        lookback_days INTEGER DEFAULT 2,
+        abort_time INTEGER,
+        phase TEXT DEFAULT 'channel_polling',
+        signals_analyzed INTEGER DEFAULT 0
+      );
+      CREATE TABLE poll_run_progress (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poll_run_id INTEGER REFERENCES poll_runs(id),
+        channel_id TEXT,
+        status TEXT NOT NULL,
+        signals_found INTEGER DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE topics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE NOT NULL,
+        short_name TEXT NOT NULL,
+        filter_text TEXT NOT NULL
+      );
+      CREATE TABLE app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      );
+      CREATE TABLE signal_chat (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_video_id TEXT REFERENCES signals(video_id),
+        question TEXT NOT NULL,
+        answer TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        topic_key TEXT,
+        channel_id TEXT,
+        include_irrelevant INTEGER DEFAULT 0,
+        is_formatted INTEGER DEFAULT 0,
+        date_filter TEXT DEFAULT 'all'
+      );
+    `);
+
+    // Insert existing data
+    db.prepare(
+      `INSERT INTO channels (channel_id, display_name, added_at) VALUES ('UC1', 'Test', 1700000000)`
+    ).run();
+    db.prepare(
+      `INSERT INTO signals (video_id, channel_id, title, transcription, created_at) VALUES ('v1', 'UC1', 'Test', '[]', 1700000000)`
+    ).run();
+    db.prepare(
+      `INSERT INTO entity_mentions (signal_video_id, entity_name, entity_type) VALUES ('v1', 'MTG', 'topic')`
+    ).run();
+
+    // Run initDb — should add deleted_at columns via migration
+    await initSchema(db);
+
+    // Verify all 5 tables now have deleted_at
+    const checkTable = (name: string) => {
+      const cols = db.prepare(`PRAGMA table_info(${name})`).all() as Array<{ name: string }>;
+      const colNames = cols.map((c) => c.name);
+      expect(colNames).toContain('deleted_at');
+    };
+
+    checkTable('channels');
+    checkTable('signals');
+    checkTable('entity_mentions');
+    checkTable('signal_chat');
+    checkTable('poll_run_progress');
+
+    // Verify existing rows still exist and have NULL deleted_at (active)
+    const channel = db.prepare('SELECT deleted_at FROM channels WHERE channel_id = ?').get('UC1') as { deleted_at: number | null };
+    expect(channel?.deleted_at).toBeNull();
+
+    const signal = db.prepare('SELECT deleted_at FROM signals WHERE video_id = ?').get('v1') as { deleted_at: number | null };
+    expect(signal?.deleted_at).toBeNull();
+
+    const mention = db.prepare('SELECT deleted_at FROM entity_mentions WHERE id = 1').get() as { deleted_at: number | null };
+    expect(mention?.deleted_at).toBeNull();
+  });
 });

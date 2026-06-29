@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
+import { softDeleteFilter } from './soft-delete-filter';
 
 /** Insert fetching progress rows for all active channels with a topic_id, so the UI can show them immediately. */
 export function preRegisterChannelProgress(db: Database.Database, pollRunId: number): void {
   const channels = db.prepare(
-    `SELECT c.channel_id FROM channels c WHERE c.active = 1 AND c.topic_id IS NOT NULL`
+    `SELECT c.channel_id FROM channels c WHERE c.active = 1 AND c.topic_id IS NOT NULL ${softDeleteFilter('c')}`
   ).all() as Array<{ channel_id: string }>;
 
   const now = Date.now();
@@ -54,10 +55,10 @@ export function queryPollRuns(db: Database.Database, query: PollRunsQuery = {}):
 
    const items = db.prepare(
        `SELECT pr.id, pr.triggered_at, pr.status, pr.new_signal_count, pr.completed_at, pr.lookback_days,
-         (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id) as channels_total,
-         (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'done') as channels_done,
-         (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'failed') as channels_failed
-        FROM poll_runs pr
+          (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id ${softDeleteFilter('prp')}) as channels_total,
+          (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'done' ${softDeleteFilter('prp')}) as channels_done,
+          (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'failed' ${softDeleteFilter('prp')}) as channels_failed
+         FROM poll_runs pr
         ORDER BY pr.triggered_at DESC
         LIMIT ? OFFSET ?`
      ).all(limit, offset) as PollRunRow[];
@@ -68,9 +69,9 @@ export function queryPollRuns(db: Database.Database, query: PollRunsQuery = {}):
 export function getPollRunById(db: Database.Database, id: number): PollRunRow | null {
    const row = db.prepare(
       `SELECT pr.id, pr.triggered_at, pr.status, pr.new_signal_count, pr.completed_at, pr.lookback_days,
-        (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id) as channels_total,
-        (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'done') as channels_done,
-        (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'failed') as channels_failed
+        (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id ${softDeleteFilter('prp')}) as channels_total,
+        (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'done' ${softDeleteFilter('prp')}) as channels_done,
+        (SELECT COUNT(*) FROM poll_run_progress prp WHERE prp.poll_run_id = pr.id AND prp.status = 'failed' ${softDeleteFilter('prp')}) as channels_failed
        FROM poll_runs pr WHERE pr.id = ?`
     ).get(id);
   return row ? (row as PollRunRow) : null;
@@ -81,7 +82,7 @@ export function queryPollRunProgress(db: Database.Database, pollRunId: number): 
     `SELECT prp.channel_id, c.display_name, prp.status, prp.signals_found, COALESCE(prp.signals_done, 0) as signalsDone, prp.updated_at
       FROM poll_run_progress prp
       LEFT JOIN channels c ON c.channel_id = prp.channel_id
-      WHERE prp.poll_run_id = ?
+      WHERE prp.poll_run_id = ? ${softDeleteFilter('prp')}
       ORDER BY c.display_name ASC`
   ).all(pollRunId) as Array<{
     channel_id: string;

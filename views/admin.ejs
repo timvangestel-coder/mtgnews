@@ -18,6 +18,11 @@
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Polling
     </button>
+    <button @click="activeTab = 'data'; history.replaceState(null, '', '/admin?tab=data')"
+      :class="activeTab === 'data' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+      class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
+      Data
+    </button>
   </div>
 
   <!-- Channels Tab -->
@@ -103,12 +108,16 @@
                    </select>
                  </form>
 
-                <!-- Remove -->
-                <form hx-post="/admin/channels/remove" hx-swap="none">
-                  <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
-                  <button type="submit" class="text-sm text-red-600 hover:text-red-800"
-                    onclick="return confirm('Remove <%= ch.display_name || ch.channel_id %>?')">Remove</button>
-                </form>
+                 <!-- Remove -->
+                  <button type="button" class="text-sm text-red-600 hover:text-red-800"
+                    @click="$dispatch('open-delete-modal', {
+                      title: 'Remove Channel',
+                      message: `Are you sure you want to remove '${<%= JSON.stringify(ch.display_name || ch.channel_id) %>}'?`,
+                      countsUrl: '/admin/channels/delete-counts?channel_id=<%= ch.channel_id %>',
+                      actionUrl: '/admin/channels/remove',
+                      actionPayload: { channel_id: '<%= ch.channel_id %>' }
+                    })">Remove</button>
+
               </div>
             <% }); %>
           </div>
@@ -213,4 +222,62 @@
         <%- include('admin/_pollProgress', { state: currentRunState }) %>
     </div>
   </template>
+
+  <!-- Data Tab -->
+  <template x-if="activeTab === 'data'">
+    <div id="data-tab-content">
+      <%- include('admin/_dataTab', { softDeleteCounts, softDeleteTotal }) %>
+    </div>
+  </template>
+</div>
+
+<!-- Delete Confirmation Modal — top-level, reusable from any tab -->
+<div x-data="deleteModal()"
+     x-show="open"
+     @keydown.escape.window="cancel()"
+     class="fixed inset-0 z-50 flex items-center justify-center"
+     style="display: none;">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-black/50" @click="cancel()"></div>
+
+  <!-- Card -->
+  <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 mx-4">
+    <h3 class="text-lg font-semibold mb-2" x-text="title"></h3>
+    <p class="text-sm text-gray-600 mb-4" x-text="message"></p>
+
+    <!-- Entity counts -->
+    <div x-show="counts || busy" x-cloak class="mb-4 space-y-1">
+      <template x-if="busy">
+        <p class="text-sm text-gray-500">Loading counts...</p>
+      </template>
+      <template x-for="line in countLines" :key="line.label">
+        <div class="flex justify-between text-sm">
+          <span class="text-gray-600" x-text="line.label"></span>
+          <span class="font-medium" x-text="line.value"></span>
+        </div>
+      </template>
+    </div>
+
+    <!-- Error -->
+    <div x-show="error" x-cloak class="mb-4 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+      <span x-text="error"></span>
+    </div>
+
+    <!-- Actions -->
+    <template x-if="!error">
+      <div class="flex justify-end gap-2">
+        <button @click="cancel()" type="button"
+          class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
+        <button @click="confirm()" type="button" :disabled="busy"
+          class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50">Confirm</button>
+      </div>
+    </template>
+
+    <template x-if="error">
+      <div class="flex justify-end">
+        <button @click="close()" type="button"
+          class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Close</button>
+      </div>
+    </template>
+  </div>
 </div>

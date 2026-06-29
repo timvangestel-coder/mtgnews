@@ -1,3 +1,5 @@
+// NOTE: All queries reading channels/signals/entity_mentions/signal_chat/poll_run_progress must filter
+// deleted rows using softDeleteFilter(alias). See ADR-0015 (issue #185).
 import Database from 'better-sqlite3';
 import { LlmConfig, callLlmStream, callLlmSync, callLlmStreamWithTools, FunctionTool } from '../llm';
 import type { LlmPhase } from '../phase-registry.ts';
@@ -6,6 +8,7 @@ import { ChatScope, resolveIndexScope, DateFilterOptions } from '../signal-chat-
 import { ChatResponseFormatter } from '../chat-response-formatter';
 import { createAgentConversation } from '../chat-conversation-state';
 import { getAppSetting } from '../db/app-settings';
+import { softDeleteFilter } from '../db/soft-delete-filter';
 
 /** Maximum number of agent loop rounds before forcing final answer */
 const MAX_AGENT_ROUNDS = 3;
@@ -42,7 +45,7 @@ function executeGetCompactText(db: Database.Database, videoIds: string[]): strin
 
   for (const vid of videoIds) {
     const row = db.prepare(
-      'SELECT video_id, title, compact_text FROM signals WHERE video_id = ?'
+      `SELECT video_id, title, compact_text FROM signals s WHERE 1=1 ${softDeleteFilter('s')} AND s.video_id = ?`
     ).get(vid) as { video_id: string; title: string; compact_text: string | null } | undefined;
 
     if (row && row.compact_text) {
@@ -92,7 +95,7 @@ function resolveSignalForChat(db: Database.Database, videoId: string): { transcr
     FROM signals s
     LEFT JOIN channels c ON s.channel_id = c.channel_id
     LEFT JOIN topics t ON c.topic_id = t.id
-    WHERE s.video_id = ?
+    WHERE 1=1 ${softDeleteFilter('s')} ${softDeleteFilter('c')} AND s.video_id = ?
   `).get(videoId) as { transcription: string; summary: string | null; compact_text: string | null; filter_text?: string } | undefined;
 
   if (!row) return null;
@@ -131,8 +134,8 @@ export class ChatManager {
     if (typeof filter === 'string') {
       return this.db.prepare(`
         SELECT id, signal_video_id, question, answer, COALESCE(is_formatted, 0) AS is_formatted, created_at
-        FROM signal_chat
-        WHERE signal_video_id = ?
+        FROM signal_chat sc
+        WHERE 1=1 ${softDeleteFilter('sc')} AND sc.signal_video_id = ?
         ORDER BY created_at DESC
         LIMIT ?
       `).all(filter, limit) as ChatMessage[];
@@ -180,10 +183,11 @@ export class ChatManager {
 
     params.push(limit);
 
+    const andClause2 = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
     return this.db.prepare(`
       SELECT id, signal_video_id, question, answer, COALESCE(is_formatted, 0) AS is_formatted, created_at
-      FROM signal_chat
-      ${whereClause}
+      FROM signal_chat sc
+      WHERE 1=1 ${softDeleteFilter('sc')} ${andClause2}
       ORDER BY created_at DESC
       LIMIT ?
     `).all(...params) as ChatMessage[];
@@ -340,8 +344,8 @@ export class ChatManager {
 
     // Fetch recent Q&A history for this signal (exclude this pending row)
     const historyRows = this.db.prepare(`
-      SELECT question, answer FROM signal_chat
-      WHERE signal_video_id = ? AND answer IS NOT NULL
+      SELECT question, answer FROM signal_chat sc
+      WHERE 1=1 ${softDeleteFilter('sc')} AND sc.signal_video_id = ? AND sc.answer IS NOT NULL
       ORDER BY created_at DESC LIMIT 10
     `).all(videoId) as Array<{ question: string; answer: string }>;
 

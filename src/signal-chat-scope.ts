@@ -1,6 +1,9 @@
+// NOTE: All queries reading channels/signals/entity_mentions/signal_chat/poll_run_progress must filter
+// deleted rows using softDeleteFilter(alias). See ADR-0015 (issue #185).
 import Database from 'better-sqlite3';
 import { SignalContext } from './signal-context';
 import type { SignalIndexEntry } from './prompt-assembler';
+import { softDeleteFilter } from './db/soft-delete-filter';
 
 /**
  * Describes the scope of a multi-signal chat session.
@@ -50,7 +53,7 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
       FROM signals s
       JOIN channels c ON s.channel_id = c.channel_id
       LEFT JOIN topics t ON c.topic_id = t.id
-      WHERE s.video_id = ?
+      WHERE 1=1 ${softDeleteFilter('s')} ${softDeleteFilter('c')} AND s.video_id = ?
     `).get(scope.videoId) as
       | {
           video_id: string;
@@ -107,7 +110,7 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
     conditions.push("s.processing_state != 'irrelevant'");
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const andClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
 
   const rows = db.prepare(`
     SELECT s.video_id, s.transcription, s.summary, s.compact_text, t.id AS topic_id, t.filter_text, t.summary_prompt,
@@ -115,7 +118,7 @@ export function resolveScope(db: Database.Database, scope: ChatScope): ChatSigna
     FROM signals s
     JOIN channels c ON s.channel_id = c.channel_id
     LEFT JOIN topics t ON c.topic_id = t.id
-    ${whereClause}
+    WHERE 1=1 ${softDeleteFilter('s')} ${softDeleteFilter('c')} ${andClause}
     ORDER BY s.published_at DESC
   `).all(...params) as Array<{
     video_id: string;
@@ -163,7 +166,7 @@ export function resolveIndexScope(db: Database.Database, scope: ChatScope, dateO
     const row = db.prepare(`
       SELECT s.video_id, s.summary, s.title
       FROM signals s
-      WHERE s.video_id = ?
+      WHERE 1=1 ${softDeleteFilter('s')} AND s.video_id = ?
     `).get(scope.videoId) as
       | { video_id: string; summary: string | null; title: string }
       | undefined;
@@ -205,14 +208,14 @@ export function resolveIndexScope(db: Database.Database, scope: ChatScope, dateO
     params.push(dateOptions.dateFrom);
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const andClause2 = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
 
   const rows = db.prepare(`
     SELECT s.video_id, s.summary, s.title
     FROM signals s
     JOIN channels c ON s.channel_id = c.channel_id
     LEFT JOIN topics t ON c.topic_id = t.id
-    ${whereClause}
+    WHERE 1=1 ${softDeleteFilter('s')} ${softDeleteFilter('c')} ${andClause2}
     ORDER BY s.published_at DESC
   `).all(...params) as Array<{ video_id: string; summary: string | null; title: string }>;
 

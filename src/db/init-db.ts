@@ -262,4 +262,32 @@ export function initDb(db: Database.Database): void {
     if (!signalCols.includes('reviewed')) {
       db.exec('ALTER TABLE signals ADD COLUMN reviewed INTEGER DEFAULT 0');
     }
+
+    // Issue #185: Migration — add deleted_at INTEGER DEFAULT NULL to 5 tables for soft-delete support
+    if (!channelCols.includes('deleted_at')) {
+      db.exec('ALTER TABLE channels ADD COLUMN deleted_at INTEGER DEFAULT NULL');
+    }
+    if (!signalCols.includes('deleted_at')) {
+      db.exec('ALTER TABLE signals ADD COLUMN deleted_at INTEGER DEFAULT NULL');
+    }
+
+    const entityRows = db.pragma('table_info(entity_mentions)') as Array<{ name: string }>;
+    const entityCols = entityRows.map((r) => r.name);
+    if (!entityCols.includes('deleted_at')) {
+      db.exec('ALTER TABLE entity_mentions ADD COLUMN deleted_at INTEGER DEFAULT NULL');
+    }
+
+    // Re-read chat cols in case they were recreated by earlier migrations
+    const chatRowsFinal = db.pragma('table_info(signal_chat)') as Array<{ name: string }>;
+    const chatColsFinal = chatRowsFinal.map((r) => r.name);
+    if (!chatColsFinal.includes('deleted_at')) {
+      db.exec('ALTER TABLE signal_chat ADD COLUMN deleted_at INTEGER DEFAULT NULL');
+    }
+
+    // Re-read progress cols for safety
+    const progressRowsFinal = db.pragma('table_info(poll_run_progress)') as Array<{ name: string }>;
+    const progressColsFinal = progressRowsFinal.map((r) => r.name);
+    if (!progressColsFinal.includes('deleted_at')) {
+      db.exec('ALTER TABLE poll_run_progress ADD COLUMN deleted_at INTEGER DEFAULT NULL');
+    }
 }

@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { softDeleteFilter } from './soft-delete-filter';
 
 /* ── Types ── */
 
@@ -47,7 +48,7 @@ export interface AdminData {
 
 /* ── Deep queries (composed, no N+1) ── */
 
-const CHANNELS_WITH_TOPICS_SQL = `
+const CHANNELS_WITH_TOPICS_SELECT = `
   SELECT c.channel_id, c.display_name, c.avatar_url, c.active, c.added_at,
          c.topic_id, t.key AS topic_key
   FROM channels c
@@ -55,35 +56,38 @@ const CHANNELS_WITH_TOPICS_SQL = `
 `;
 
 export function getChannelsWithTopics(db: Database.Database): ChannelWithTopic[] {
-  return db.prepare(CHANNELS_WITH_TOPICS_SQL + ' ORDER BY c.added_at DESC').all() as ChannelWithTopic[];
+  return db.prepare(
+    CHANNELS_WITH_TOPICS_SELECT + ' WHERE 1=1 ' + softDeleteFilter('c') + ' ORDER BY c.added_at DESC'
+  ).all() as ChannelWithTopic[];
 }
 
 export function listActiveChannels(db: Database.Database): ChannelWithTopic[] {
   return db.prepare(
-    CHANNELS_WITH_TOPICS_SQL + ' WHERE c.active = 1 AND c.topic_id IS NOT NULL ORDER BY c.added_at DESC'
+    CHANNELS_WITH_TOPICS_SELECT + ' WHERE 1=1 ' + softDeleteFilter('c') + ' AND c.active = 1 AND c.topic_id IS NOT NULL ORDER BY c.added_at DESC'
   ).all() as ChannelWithTopic[];
 }
 
 export function getAdminData(db: Database.Database): AdminData {
-  const channels: AdminChannel[] = db.prepare(`
-    SELECT c.channel_id, c.display_name, c.avatar_url, c.active, c.added_at,
+  const channels: AdminChannel[] = db.prepare(
+    `SELECT c.channel_id, c.display_name, c.avatar_url, c.active, c.added_at,
            c.topic_id, t.key AS topic_key,
            MAX(p.updated_at) AS last_poll_date
     FROM channels c
     LEFT JOIN topics t ON c.topic_id = t.id
     LEFT JOIN poll_run_progress p ON p.channel_id = c.channel_id
+    WHERE 1=1 ` + softDeleteFilter('c') + `
     GROUP BY c.channel_id
-    ORDER BY c.added_at DESC
-  `).all() as AdminChannel[];
+    ORDER BY c.added_at DESC`
+  ).all() as AdminChannel[];
 
-  const topics: TopicWithCount[] = db.prepare(`
-    SELECT t.id, t.key, t.short_name, t.filter_text, t.summary_prompt, t.multi_signal_summary_prompt,
+  const topics: TopicWithCount[] = db.prepare(
+    `SELECT t.id, t.key, t.short_name, t.filter_text, t.summary_prompt, t.multi_signal_summary_prompt,
            COUNT(c.channel_id) AS channel_count
     FROM topics t
-    LEFT JOIN channels c ON c.topic_id = t.id
+    LEFT JOIN channels c ON c.topic_id = t.id ` + softDeleteFilter('c') + `
     GROUP BY t.id
-    ORDER BY t.id ASC
-  `).all() as TopicWithCount[];
+    ORDER BY t.id ASC`
+  ).all() as TopicWithCount[];
 
   return { channels, topics };
 }
@@ -131,7 +135,7 @@ export function updateChannelInfo(db: Database.Database, channelId: string, disp
 
 export function listChannels(db: Database.Database): ChannelRow[] {
   return db.prepare(
-    'SELECT channel_id, display_name, avatar_url, active, added_at, topic_id FROM channels ORDER BY added_at DESC'
+    'SELECT channel_id, display_name, avatar_url, active, added_at, topic_id FROM channels WHERE 1=1 ' + softDeleteFilter() + ' ORDER BY added_at DESC'
   ).all() as ChannelRow[];
 }
 

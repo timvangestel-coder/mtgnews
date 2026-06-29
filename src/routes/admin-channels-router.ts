@@ -53,5 +53,16 @@ export function createAdminChannelsRouter(service: ChannelManager) {
     htmxNoContent(req, res, '/admin?tab=channels');
   });
 
+  // GET /admin/channels/delete-counts
+  router.get('/admin/channels/delete-counts', (req, res) => {
+    const channelId = req.query.channel_id as string;
+    if (!channelId) {
+      res.status(400).json({ error: 'channel_id query parameter required' });
+      return;
+    }
+    const counts = service.getSoftDeleteCounts(channelId);
+    res.json(counts);
+  });
+
   return router;
 }

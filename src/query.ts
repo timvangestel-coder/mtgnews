@@ -1,4 +1,7 @@
+// NOTE: All queries reading channels/signals/entity_mentions/signal_chat/poll_run_progress must filter
+// deleted rows using softDeleteFilter(alias). See ADR-0015 (issue #185).
 import Database from 'better-sqlite3';
+import { softDeleteFilter } from './db/soft-delete-filter';
 
 export interface QueryFilters {
   channelId?: string;
@@ -61,7 +64,7 @@ export function querySignals(db: Database.Database, filters: QueryFilters = {}):
   }
 
   if (filters.topicKey) {
-    conditions.push('s.channel_id IN (SELECT channel_id FROM channels WHERE topic_id IN (SELECT id FROM topics WHERE key = ?))');
+    conditions.push(`s.channel_id IN (SELECT channel_id FROM channels c WHERE topic_id IN (SELECT id FROM topics WHERE key = ?) ${softDeleteFilter('c')})`);
     params.push(filters.topicKey);
   }
 
@@ -86,7 +89,7 @@ export function querySignals(db: Database.Database, filters: QueryFilters = {}):
   }
 
   if (filters.entityMention) {
-    conditions.push('s.video_id IN (SELECT signal_video_id FROM entity_mentions WHERE entity_name = ?)');
+    conditions.push(`s.video_id IN (SELECT signal_video_id FROM entity_mentions em WHERE entity_name = ? ${softDeleteFilter('em')})`);
     params.push(filters.entityMention);
   }
 
@@ -103,22 +106,22 @@ export function querySignals(db: Database.Database, filters: QueryFilters = {}):
     conditions.push('(s.reviewed IS NULL OR s.reviewed = 0)');
   }
 
-  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const andClause = conditions.length ? `AND ${conditions.join(' AND ')}` : '';
 
   // Get total count
-  const countSql = `SELECT COUNT(*) as cnt FROM signals s ${whereClause}`;
+  const countSql = `SELECT COUNT(*) as cnt FROM signals s WHERE 1=1 ${softDeleteFilter('s')} ${andClause}`;
   const countRow = db.prepare(countSql).get(...params) as { cnt: number } | undefined;
   const total = countRow?.cnt ?? 0;
 
   // Get paginated results, ordered by published_at DESC
-  // Issue #116: Q&A ratio via correlated subqueries on signal_chat
-  // Issue #183: include reviewed column
-  const selectSql = `
-    SELECT s.video_id, s.channel_id, s.title, s.published_at, s.transcription,
-           s.summary, s.overall_sentiment, s.sentiment_label, s.created_at, s.processing_state, s.generated_title, COALESCE(s.reviewed, 0) as reviewed,
-           (SELECT COUNT(*) FROM signal_chat sc WHERE sc.signal_video_id = s.video_id AND sc.answer IS NOT NULL) as qaAnswered,
-           (SELECT COUNT(*) FROM signal_chat sc WHERE sc.signal_video_id = s.video_id) as qaTotalRaw
-    FROM signals s ${whereClause}
+   // Issue #116: Q&A ratio via correlated subqueries on signal_chat
+   // Issue #183: include reviewed column
+   const selectSql = `
+     SELECT s.video_id, s.channel_id, s.title, s.published_at, s.transcription,
+            s.summary, s.overall_sentiment, s.sentiment_label, s.created_at, s.processing_state, s.generated_title, COALESCE(s.reviewed, 0) as reviewed,
+            (SELECT COUNT(*) FROM signal_chat sc WHERE sc.signal_video_id = s.video_id AND sc.answer IS NOT NULL ${softDeleteFilter('sc')}) as qaAnswered,
+            (SELECT COUNT(*) FROM signal_chat sc WHERE sc.signal_video_id = s.video_id ${softDeleteFilter('sc')}) as qaTotalRaw
+     FROM signals s WHERE 1=1 ${softDeleteFilter('s')} ${andClause}
     ORDER BY s.published_at DESC
     LIMIT ? OFFSET ?
   `;
@@ -143,6 +146,7 @@ export function getEntityTrending(db: Database.Database): EntityTrending[] {
       AVG(s.overall_sentiment) as average_sentiment
     FROM entity_mentions em
     JOIN signals s ON em.signal_video_id = s.video_id
+    WHERE 1=1 ${softDeleteFilter('em')} ${softDeleteFilter('s')}
     GROUP BY em.entity_name
     ORDER BY mention_count DESC
   `).all() as Array<{

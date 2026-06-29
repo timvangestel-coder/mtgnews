@@ -1,3 +1,5 @@
+// NOTE: All queries reading channels/signals/entity_mentions/signal_chat/poll_run_progress must filter
+// deleted rows using softDeleteFilter(alias). See ADR-0015 (issue #185).
 import Database from 'better-sqlite3';
 import { querySignals, QueryFilters, SignalRow } from '../query';
 import { getSignalById, formatTranscriptionHtml } from '../signal-detail';
@@ -5,6 +7,7 @@ import { ChatResponseFormatter } from '../chat-response-formatter';
 import { analyzeSignal, getLlmConfig, AnalysisResult } from '../llm';
 import { getChannelsWithTopics } from '../db/watchlist';
 import { markIrrelevant, markRelevant } from '../signal-state';
+import { softDeleteFilter } from '../db/soft-delete-filter';
 
 export interface ListSignalsOptions {
   channelId?: string;
@@ -79,7 +82,7 @@ export class SignalQueryService {
 
   async summarizeSignal(videoId: string): Promise<AnalysisResult> {
     // Check signal exists first
-    const sigRow = this.db.prepare('SELECT video_id FROM signals WHERE video_id = ?').get(videoId);
+    const sigRow = this.db.prepare(`SELECT video_id FROM signals s WHERE 1=1 ${softDeleteFilter('s')} AND s.video_id = ?`).get(videoId);
     if (!sigRow) {
       return { success: false, error: `Signal ${videoId} not found` };
     }
