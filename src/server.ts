@@ -16,6 +16,7 @@ import { createPollsRouter } from './routes/polls-router';
 import { PollRunManager } from './poll-run-manager';
 import { createAdminPollingRouter } from './routes/admin-polling-router';
 import { createAdminRouter } from './routes/admin-router';
+import { createFragmentRouter } from './routes/admin-tab-fragments';
 import { createAdminSettingsRouter } from './routes/admin-settings-router';
 import { ChatManager } from './services/chat-manager';
 import { ChatQueue } from './chat-queue';
@@ -82,11 +83,11 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
 
   // admin channels — mounted via router (Issue #68)
   const channelManager = new ChannelManager(useDb);
-  app.use('/', createAdminChannelsRouter(channelManager));
-
-  // admin topics — mounted via router (Issue #69)
   const topicManager = new TopicManager(useDb);
-  app.use('/', createAdminTopicsRouter(topicManager));
+  app.use('/', createAdminChannelsRouter(channelManager, topicManager));
+
+  // admin topics — mounted via router (Issue #69, #195)
+  app.use('/', createAdminTopicsRouter({ service: topicManager, db: useDb }));
 
   // polls — mounted via router (Issue #71)
   const pollQueryService = new PollQueryService(useDb);
@@ -100,6 +101,14 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
 
   // admin dashboard — mounted via router (Issue #72)
   app.use('/', createAdminRouter(channelManager, topicManager, pollRunManager, useDb));
+
+  // admin tab fragment router — HTMX-refreshable fragments per tab (Issue #192)
+  app.use('/', createFragmentRouter({
+    channelManager,
+    topicManager,
+    pollRunManager,
+    db: useDb,
+  }));
 
   // chat — mounted via router with queue (Issue #108, #120)
   const chatManager = new ChatManager(useDb, getLlmConfig());

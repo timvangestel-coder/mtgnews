@@ -1,0 +1,68 @@
+<h3 class="text-xl font-semibold mb-2">Topics</h3>
+
+<!-- Global Default Prompt Editor -->
+<div class="mb-6">
+  <h4 class="text-lg font-medium mb-2">Global Default Prompt</h4>
+  <p class="text-sm text-gray-500 mb-2">
+    Sets the default prompt template for all topics that do not have a custom prompt configured.
+    <% if (defaultPrompt === null || defaultPrompt === undefined) { %>
+      Currently using compiled default (no DB override set).
+    <% } else { %>
+      Custom global prompt is active.
+    <% } %>
+  </p>
+  <form hx-post="/admin/settings/default-prompt" hx-swap="none" class="flex flex-col gap-2 max-w-3xl">
+    <textarea name="prompt" rows="8"
+        class="px-3 py-2 border rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+        placeholder="Leave empty to use compiled default template"><%= defaultPrompt || '' %></textarea>
+    <div class="flex gap-2 items-center">
+      <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Save</button>
+      <span class="text-xs text-gray-400">Setting empty clears the override and falls back to compiled default.</span>
+    </div>
+  </form>
+</div>
+
+<!-- Add Topic Form -->
+<div class="mb-6" x-data="">
+  <h4 class="text-lg font-medium mb-2">Add Topic</h4>
+  <form hx-post="/admin/topics" hx-swap="none" class="flex flex-col gap-2 max-w-xl">
+    <input type="text" name="key" placeholder="Key (slug, unique)"
+       class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+    <input type="text" name="short_name" placeholder="Short Name"
+       class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+      <textarea name="filter_text" placeholder="Filter Text" rows="2"
+        class="px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+       <textarea name="summary_prompt" placeholder="Summary Prompt (optional — leave empty for default)" rows="3"
+         class="px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+       <textarea name="multi_signal_summary_prompt" placeholder="Multi-Signal Summary Prompt (optional — leave empty for default)" rows="3"
+         class="px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+       <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 self-start">Add Topic</button>
+  </form>
+</div>
+
+<!-- Topics Table -->
+<div>
+  <% if (topics && topics.length > 0) { %>
+    <table class="w-full text-left text-sm">
+      <thead>
+         <tr class="border-b">
+           <th class="py-2 px-3 font-medium">Key</th>
+           <th class="py-2 px-3 font-medium">Short Name</th>
+           <th class="py-2 px-3 font-medium">Filter Text</th>
+            <th class="py-2 px-3 font-medium">Summary Prompt</th>
+            <th class="py-2 px-3 font-medium">Multi-Signal Prompt</th>
+            <th class="py-2 px-3 font-medium">Channels</th>
+           <th class="py-2 px-3 font-medium">Actions</th>
+         </tr>
+      </thead>
+      <tbody x-data="{ editId: null }">
+        <% topics.forEach(function(topic) { %>
+          <%- include('_topicRow', { topic }) %>
+        <% }); %>
+      </tbody>
+    </table>
+
+  <% } else { %>
+    <p class="text-gray-500">No topics yet. Add one above.</p>
+  <% } %>
+</div>

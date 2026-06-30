@@ -64,4 +64,40 @@ describe('admin-router', () => {
       expect(response.status).toBe(200);
     });
   });
+
+  describe('POST /admin/undo-all', () => {
+    it('sends HX-Trigger header with refreshData and refreshChannels', async () => {
+      const { app } = createTestApp();
+
+      const response = await supertest(app)
+        .post('/admin/undo-all')
+        .set('Content-Type', 'application/x-www-form-urlencoded');
+
+      expect(response.status).toBe(200);
+      const triggerHeader = response.headers['hx-trigger'];
+      expect(triggerHeader).toBeDefined();
+
+      const triggers = JSON.parse(triggerHeader!);
+      expect(triggers.refreshData).toBeDefined();
+      expect(triggers.refreshChannels).toBeDefined();
+    });
+  });
+
+  describe('POST /admin/purge-all', () => {
+    it('sends HX-Trigger header with refreshData and refreshChannels', async () => {
+      const { app } = createTestApp();
+
+      const response = await supertest(app)
+        .post('/admin/purge-all')
+        .set('Content-Type', 'application/x-www-form-urlencoded');
+
+      expect(response.status).toBe(200);
+      const triggerHeader = response.headers['hx-trigger'];
+      expect(triggerHeader).toBeDefined();
+
+      const triggers = JSON.parse(triggerHeader!);
+      expect(triggers.refreshData).toBeDefined();
+      expect(triggers.refreshChannels).toBeDefined();
+    });
+  });
 });

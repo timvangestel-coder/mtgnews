@@ -1,24 +1,24 @@
 <h2 class="text-2xl font-bold mb-4">Admin Panel</h2>
 
-<!-- Tab Navigation -->
-<div class="mb-6" x-data="{ activeTab: '<%= tab || "channels" %>' }">
+<!-- Tab Navigation — adminTabs() is loaded from /scripts/admin-tabs.js via layout.ejs -->
+<div class="mb-6" x-data="adminTabs()" data-admin-default-tab="<%= tab || 'channels' %>">
   <div class="flex gap-2 mb-6">
-    <button @click="activeTab = 'channels'; history.replaceState(null, '', '/admin?tab=channels')"
+    <button @click="switchTab('channels')"
       :class="activeTab === 'channels' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Channels
     </button>
-    <button @click="activeTab = 'topics'; history.replaceState(null, '', '/admin?tab=topics')"
+    <button @click="switchTab('topics')"
       :class="activeTab === 'topics' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Topics
     </button>
-    <button @click="activeTab = 'polling'; history.replaceState(null, '', '/admin?tab=polling')"
+    <button @click="switchTab('polling')"
       :class="activeTab === 'polling' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Polling
     </button>
-    <button @click="activeTab = 'data'; history.replaceState(null, '', '/admin?tab=data')"
+    <button @click="switchTab('data')"
       :class="activeTab === 'data' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Data
@@ -27,199 +27,22 @@
 
   <!-- Channels Tab -->
   <template x-if="activeTab === 'channels'">
-    <div x-init="htmx.process($el)">
-       <!-- Add Channel -->
-       <div class="mb-6">
-         <h3 class="text-xl font-semibold mb-2">Add Channel</h3>
-         <form hx-post="/admin/channels/add" hx-swap="none" class="flex flex-col gap-2">
-           <div class="flex gap-2">
-             <input type="text" name="channel_id" placeholder="YouTube Channel ID (e.g. UCxxxx)"
-                class="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-             <select name="topic_id" class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-               <option value="">Select Topic</option>
-               <% topics.forEach(function(topic) { %>
-                 <option value="<%= topic.id %>"><%= topic.short_name %></option>
-               <% }); %>
-             </select>
-             <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Add</button>
-           </div>
-         </form>
-       </div>
-
-      <!-- WatchList -->
-      <div>
-        <h3 class="text-xl font-semibold mb-2">WatchList</h3>
-
-        <% if (channels && channels.length > 0) { %>
-          <div class="space-y-3">
-            <% channels.forEach(function(ch) { %>
-              <div class="flex items-center gap-4 p-3 bg-gray-50 rounded">
-                <!-- Avatar -->
-                <% if (ch.avatar_url) { %>
-                  <img src="<%= ch.avatar_url %>" alt="" class="w-10 h-10 rounded-full" />
-                <% } else { %>
-                  <div class="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center text-xs text-gray-600">
-                    <%= (ch.display_name || ch.channel_id).charAt(0) %>
-                  </div>
-                <% } %>
-
-                <!-- Info -->
-                <div class="flex-1">
-                  <p class="font-medium"><%= ch.display_name || ch.channel_id %></p>
-                  <p class="text-xs text-gray-500">
-                    ID: <%= ch.channel_id %>
-                    <% if (ch.last_poll_date) { %>
-                      &middot; Last poll: <%= new Date(ch.last_poll_date).toLocaleString() %>
-                    <% } else { %>
-                      &middot; Never polled
-                    <% } %>
-                  </p>
-                </div>
-
-                <!-- Active Toggle -->
-                <form hx-post="/admin/channels/toggle" hx-swap="none" class="flex items-center gap-2">
-                  <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
-                  <input type="hidden" name="active" value="<%= !ch.active %>" />
-                  <label class="inline-flex items-center cursor-pointer">
-                    <input type="checkbox" <%= ch.active ? 'checked' : '' %> class="sr-only peer" onchange="this.form.requestSubmit()" />
-                    <div class="w-9 h-5 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                  <span class="text-xs text-gray-500"><%= ch.active ? 'Active' : 'Inactive' %></span>
-                </form>
-
-                 <!-- Topic Badge -->
-                 <% var chTopic = topics.find(function(t) { return t.id === ch.topic_id; }); %>
-                 <% if (chTopic) { %>
-                   <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium" title="Topic: <%= chTopic.short_name %>"><%= chTopic.short_name %></span>
-                 <% } else { %>
-                   <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium" title="No topic assigned">No topic</span>
-                 <% } %>
-
-                 <!-- Change Topic -->
-                 <form hx-post="/admin/channels/update-topic" hx-swap="none" class="flex items-center gap-1">
-                   <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
-                   <select name="topic_id" onchange="this.form.requestSubmit()" class="text-xs px-1 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-                     <% var noTopic = !ch.topic_id; %>
-                     <option value="<%= noTopic ? '' : 'x' %>"<%= noTopic ? ' selected' : '' %>></option>
-                     <% topics.forEach(function(topic) { %>
-                       <% var sel = ch.topic_id === topic.id; %>
-                       <option value="<%= topic.id %>"<%= sel ? ' selected' : '' %>><%= topic.short_name %></option>
-                     <% }); %>
-                   </select>
-                 </form>
-
-                 <!-- Remove -->
-                  <button type="button" class="text-sm text-red-600 hover:text-red-800"
-                    @click="$dispatch('open-delete-modal', {
-                      title: 'Remove Channel',
-                      message: `Are you sure you want to remove '${<%= JSON.stringify(ch.display_name || ch.channel_id) %>}'?`,
-                      countsUrl: '/admin/channels/delete-counts?channel_id=<%= ch.channel_id %>',
-                      actionUrl: '/admin/channels/remove',
-                      actionPayload: { channel_id: '<%= ch.channel_id %>' }
-                    })">Remove</button>
-
-              </div>
-            <% }); %>
-          </div>
-        <% } else { %>
-          <p class="text-gray-500">No channels in WatchList. Add one above.</p>
-        <% } %>
-      </div>
+    <div id="channels-tab-content" x-init="htmx.process($el)">
+      <%- include('admin/_channelsTab', { channels, topics }) %>
     </div>
   </template>
 
   <!-- Topics Tab -->
   <template x-if="activeTab === 'topics'">
-    <div x-init="htmx.process($el)">
-      <h3 class="text-xl font-semibold mb-2">Topics</h3>
-
-      <!-- Global Default Prompt Editor -->
-      <div class="mb-6">
-        <h4 class="text-lg font-medium mb-2">Global Default Prompt</h4>
-        <p class="text-sm text-gray-500 mb-2">
-          Sets the default prompt template for all topics that do not have a custom prompt configured.
-          <% if (defaultPrompt === null || defaultPrompt === undefined) { %>
-            Currently using compiled default (no DB override set).
-          <% } else { %>
-            Custom global prompt is active.
-          <% } %>
-        </p>
-        <form hx-post="/admin/settings/default-prompt" hx-swap="none" class="flex flex-col gap-2 max-w-3xl">
-          <textarea name="prompt" rows="8"
-              class="px-3 py-2 border rounded text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Leave empty to use compiled default template"><%= defaultPrompt || '' %></textarea>
-          <div class="flex gap-2 items-center">
-            <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Save</button>
-            <span class="text-xs text-gray-400">Setting empty clears the override and falls back to compiled default.</span>
-          </div>
-        </form>
-      </div>
-
-      <!-- Add Topic Form -->
-      <div class="mb-6" x-data="">
-        <h4 class="text-lg font-medium mb-2">Add Topic</h4>
-        <form hx-post="/admin/topics" hx-swap="none" class="flex flex-col gap-2 max-w-xl">
-          <input type="text" name="key" placeholder="Key (slug, unique)"
-             class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-          <input type="text" name="short_name" placeholder="Short Name"
-             class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-           <textarea name="filter_text" placeholder="Filter Text" rows="2"
-             class="px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-            <textarea name="summary_prompt" placeholder="Summary Prompt (optional — leave empty for default)" rows="3"
-              class="px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-            <textarea name="multi_signal_summary_prompt" placeholder="Multi-Signal Summary Prompt (optional — leave empty for default)" rows="3"
-              class="px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
-            <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 self-start">Add Topic</button>
-        </form>
-      </div>
-
-      <!-- Topics Table -->
-      <div>
-        <% if (topics && topics.length > 0) { %>
-          <table class="w-full text-left text-sm">
-            <thead>
-               <tr class="border-b">
-                 <th class="py-2 px-3 font-medium">Key</th>
-                 <th class="py-2 px-3 font-medium">Short Name</th>
-                 <th class="py-2 px-3 font-medium">Filter Text</th>
-                  <th class="py-2 px-3 font-medium">Summary Prompt</th>
-                  <th class="py-2 px-3 font-medium">Multi-Signal Prompt</th>
-                  <th class="py-2 px-3 font-medium">Channels</th>
-                 <th class="py-2 px-3 font-medium">Actions</th>
-               </tr>
-            </thead>
-            <tbody x-data="{ editId: null }">
-              <% topics.forEach(function(topic) { %>
-                <%- include('admin/_topicRow', { topic }) %>
-              <% }); %>
-            </tbody>
-          </table>
-
-        <% } else { %>
-          <p class="text-gray-500">No topics yet. Add one above.</p>
-        <% } %>
-      </div>
+    <div id="topics-tab-content" x-init="htmx.process($el)">
+      <%- include('admin/_topicsTab', { topics, defaultPrompt }) %>
     </div>
   </template>
 
   <!-- Polling Tab -->
   <template x-if="activeTab === 'polling'">
-    <div x-init="htmx.process($el)">
-       <!-- Run Poll Now -->
-       <div class="mb-6">
-         <h3 class="text-xl font-semibold mb-2">Run Poll</h3>
-         <form hx-post="/admin/poll/trigger" hx-target="#progress-widget" hx-swap="outerHTML" class="flex gap-2 items-center">
-           <label for="lookback_days" class="text-sm text-gray-600">Lookback (days):</label>
-           <input id="lookback_days" name="lookback_days" type="number" min="0" max="365" value="2"
-             class="w-20 px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-           <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">
-             Run Poll Now
-           </button>
-         </form>
-       </div>
-
-        <!-- Live Progress Widget — uses shared partial for consistency -->
-        <%- include('admin/_pollProgress', { state: currentRunState }) %>
+    <div id="polling-tab-content" x-init="htmx.process($el)">
+      <%- include('admin/_pollingTab', { state: currentRunState }) %>
     </div>
   </template>
 
@@ -237,47 +60,47 @@
      @keydown.escape.window="cancel()"
      class="fixed inset-0 z-50 flex items-center justify-center"
      style="display: none;">
-  <!-- Backdrop -->
-  <div class="fixed inset-0 bg-black/50" @click="cancel()"></div>
+   <!-- Backdrop -->
+   <div class="fixed inset-0 bg-black/50" @click="cancel()"></div>
 
-  <!-- Card -->
-  <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 mx-4">
-    <h3 class="text-lg font-semibold mb-2" x-text="title"></h3>
-    <p class="text-sm text-gray-600 mb-4" x-text="message"></p>
+   <!-- Card -->
+   <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 mx-4">
+     <h3 class="text-lg font-semibold mb-2" x-text="title"></h3>
+     <p class="text-sm text-gray-600 mb-4" x-text="message"></p>
 
-    <!-- Entity counts -->
-    <div x-show="counts || busy" x-cloak class="mb-4 space-y-1">
-      <template x-if="busy">
-        <p class="text-sm text-gray-500">Loading counts...</p>
-      </template>
-      <template x-for="line in countLines" :key="line.label">
-        <div class="flex justify-between text-sm">
-          <span class="text-gray-600" x-text="line.label"></span>
-          <span class="font-medium" x-text="line.value"></span>
-        </div>
-      </template>
-    </div>
+     <!-- Entity counts -->
+     <div x-show="counts || busy" x-cloak class="mb-4 space-y-1">
+       <template x-if="busy">
+         <p class="text-sm text-gray-500">Loading counts...</p>
+       </template>
+       <template x-for="line in countLines" :key="line.label">
+         <div class="flex justify-between text-sm">
+           <span class="text-gray-600" x-text="line.label"></span>
+           <span class="font-medium" x-text="line.value"></span>
+         </div>
+       </template>
+     </div>
 
-    <!-- Error -->
-    <div x-show="error" x-cloak class="mb-4 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-      <span x-text="error"></span>
-    </div>
+     <!-- Error -->
+     <div x-show="error" x-cloak class="mb-4 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+       <span x-text="error"></span>
+     </div>
 
-    <!-- Actions -->
-    <template x-if="!error">
-      <div class="flex justify-end gap-2">
-        <button @click="cancel()" type="button"
-          class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
-        <button @click="confirm()" type="button" :disabled="busy"
-          class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50">Confirm</button>
-      </div>
-    </template>
+     <!-- Actions -->
+     <template x-if="!error">
+       <div class="flex justify-end gap-2">
+         <button @click="cancel()" type="button"
+           class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
+         <button @click="confirm()" type="button" :disabled="busy"
+           class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50">Confirm</button>
+       </div>
+     </template>
 
-    <template x-if="error">
-      <div class="flex justify-end">
-        <button @click="close()" type="button"
-          class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Close</button>
-      </div>
-    </template>
-  </div>
-</div>
+     <template x-if="error">
+       <div class="flex justify-end">
+         <button @click="close()" type="button"
+           class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Close</button>
+       </div>
+     </template>
+   </div>
+ </div>

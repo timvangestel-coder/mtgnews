@@ -89,22 +89,30 @@ function deleteModal() {
         });
 
         if (response.ok) {
-          // For undo/purge actions, swap the data tab fragment inline and close modal
-          if (this.isFragmentAction) {
-            const html = await response.text();
-            const dataTabEl = document.getElementById('data-tab-content');
-            if (dataTabEl) {
-              // Use innerHTML to keep #data-tab-content inside Alpine's <template x-if> scoping.
-              // outerHTML breaks out of the template, causing content to leak onto all tabs.
-              dataTabEl.innerHTML = html;
+          // Consume the fragment response body (for HTMX native clients)
+          await response.text();
+
+          // Read HX-Trigger header and dispatch events on document.body
+          const triggerHeader = response.headers.get('HX-Trigger');
+          if (triggerHeader) {
+            try {
+              const triggers = JSON.parse(triggerHeader);
+              for (const [eventName, payload] of Object.entries(triggers)) {
+                document.body.dispatchEvent(
+                  new CustomEvent(eventName, { detail: payload })
+                );
+              }
+              // Events dispatched — tab wrappers handle their own refresh via HTMX
               this.open = false;
               this.busy = false;
-            } else {
-              location.reload();
+              return;
+            } catch {
+              // If HX-Trigger is not valid JSON, fall through to reload
             }
-          } else {
-            location.reload();
           }
+
+          // Fallback: full page reload for non-fragment actions (e.g. channel remove)
+          location.reload();
         } else {
           this.error = 'Action failed. Please try again.';
           this.busy = false;
@@ -142,10 +150,6 @@ function deleteModal() {
         }));
     },
 
-    /** Check if this is an HTMX fragment action (undo/purge) */
-    get isFragmentAction() {
-      return this.actionUrl && (this.actionUrl.includes('/undo-all') || this.actionUrl.includes('/purge-all'));
-    },
   };
 }
 

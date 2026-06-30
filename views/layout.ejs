@@ -50,6 +50,11 @@
   <!-- Extracted page scripts — must load before Alpine so global functions are available -->
   <% if (typeof scripts !== 'undefined') { %><%- scripts %><% } %>
 
+  <!-- Admin tabs component — must load before Alpine so adminTabs() is registered -->
+  <% if (activePage === 'admin') { %>
+  <script src="/scripts/admin-tabs.js"></script>
+  <% } %>
+
   <!-- Admin delete modal — must load before Alpine so deleteModal() is registered -->
   <% if (activePage === 'admin') { %>
   <script src="/scripts/admin-delete-modal.js"></script>

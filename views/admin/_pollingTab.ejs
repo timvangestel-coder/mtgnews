@@ -1,0 +1,15 @@
+<!-- Run Poll Now -->
+<div class="mb-6">
+  <h3 class="text-xl font-semibold mb-2">Run Poll</h3>
+  <form hx-post="/admin/poll/trigger" hx-target="#progress-widget" hx-swap="outerHTML" class="flex gap-2 items-center">
+    <label for="lookback_days" class="text-sm text-gray-600">Lookback (days):</label>
+    <input id="lookback_days" name="lookback_days" type="number" min="0" max="365" value="2"
+      class="w-20 px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">
+      Run Poll Now
+    </button>
+  </form>
+</div>
+
+<!-- Live Progress Widget — uses shared partial for consistency -->
+<%- include('_pollProgress', { state: state }) %>

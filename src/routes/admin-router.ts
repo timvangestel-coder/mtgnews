@@ -78,6 +78,9 @@ export function createAdminRouter(
       freshCounts.chats +
       freshCounts.progress;
 
+    // Signal both Data and Channels tab wrappers to re-fetch their fragments
+    res.set('HX-Trigger', JSON.stringify({ refreshData: {}, refreshChannels: {} }));
+
     // layout: false prevents express-ejs-layouts from wrapping in layout.ejs (which requires activePage)
     res.render('admin/_dataTab', {
       layout: false,
@@ -99,6 +102,9 @@ export function createAdminRouter(
       freshCounts.mentions +
       freshCounts.chats +
       freshCounts.progress;
+
+    // Signal both Data and Channels tab wrappers to re-fetch their fragments
+    res.set('HX-Trigger', JSON.stringify({ refreshData: {}, refreshChannels: {} }));
 
     // layout: false prevents express-ejs-layouts from wrapping in layout.ejs (which requires activePage)
     res.render('admin/_dataTab', {

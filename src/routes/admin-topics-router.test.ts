@@ -17,7 +17,7 @@ function setupApp(manager: TopicManager) {
   // Set up views for HTMX row re-render tests
   a.set('view engine', 'ejs');
   a.set('views', 'views');
-  a.use(createAdminTopicsRouter(manager));
+  a.use(createAdminTopicsRouter({ service: manager, db }));
   return a;
 }
 
@@ -41,7 +41,7 @@ describe('admin-topics-router', () => {
       expect(res.status).toBe(400);
     });
 
-    it('creates topic and returns 200 with HX-Redirect for HTMX requests', async () => {
+    it('creates topic and returns 200 with HX-Trigger refreshTopics for HTMX requests', async () => {
       const t = Date.now();
       const res = await request(app)
         .post('/admin/topics')
@@ -49,7 +49,8 @@ describe('admin-topics-router', () => {
         .send({ key: `htmx-topic-${t}`, short_name: `HTMX Topic ${t}`, filter_text: 'test' });
 
       expect(res.status).toBe(200);
-      expect(res.header['hx-redirect']).toBe('/admin?tab=topics');
+      const trigger = JSON.parse(res.header['hx-trigger'] as string);
+      expect(trigger.refreshTopics).toBeDefined();
 
       const topics = listTopics(db);
       expect(topics.find((tp) => tp.key === `htmx-topic-${t}`)).toBeDefined();
@@ -63,6 +64,17 @@ describe('admin-topics-router', () => {
 
       expect(res.status).toBe(302);
       expect(res.header.location).toContain('/admin');
+    });
+
+    it('renders topics tab fragment on success for HTMX requests', async () => {
+      const t = Date.now();
+      const res = await request(app)
+        .post('/admin/topics')
+        .set('HX-Request', 'true')
+        .send({ key: `fragment-topic-${t}`, short_name: `Fragment Topic ${t}`, filter_text: 'f' });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain(`Fragment Topic ${t}`);
     });
 
     it('returns 400 for duplicate key', async () => {
@@ -221,7 +233,7 @@ describe('admin-topics-router', () => {
       expect(res.status).toBe(400);
     });
 
-    it('deletes topic and returns 200 with HX-Redirect for HTMX requests', async () => {
+    it('deletes topic and returns 200 with HX-Trigger refreshTopics for HTMX requests', async () => {
       const t = Date.now();
       dbCreateTopic(db, `del-htmx-${t}`, 'Delete Me', '');
       const topic = listTopics(db).find((tp) => tp.key === `del-htmx-${t}`)!;
@@ -232,7 +244,8 @@ describe('admin-topics-router', () => {
         .send({ id: String(topic.id) });
 
       expect(res.status).toBe(200);
-      expect(res.header['hx-redirect']).toBe('/admin?tab=topics');
+      const trigger = JSON.parse(res.header['hx-trigger'] as string);
+      expect(trigger.refreshTopics).toBeDefined();
 
       const remaining = listTopics(db).find((tp) => tp.key === `del-htmx-${t}`);
       expect(remaining).toBeUndefined();

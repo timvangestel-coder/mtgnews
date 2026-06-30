@@ -174,7 +174,7 @@ All transitions animate over 1s via CSS. Both sections always rendered in DOM (n
 - Clicking a row navigates to `/polls/:id` showing per-channel breakdown.
 
 #### Admin Panel (`/admin`) — Tabbed Layout
-Three tabs: [Channels] [Topics] [Polling]. Alpine.js-managed tab state.
+Four tabs: [Channels] [Topics] [Polling] [Data]. Alpine.js-managed tab state.
 
 **[Channels] tab:**
 - **Add Channel form:** channel_id input + topic dropdown selector (required). On add, fetch and store display name + avatar from YouTube. Topic must exist and be non-NULL for channel to be pollable.

@@ -1,9 +1,17 @@
 import { Router } from 'express';
+import Database from 'better-sqlite3';
 import { TopicManager } from '../services/topic-manager';
 import { UpdateTopicOptions } from '../db/watchlist';
+import { getAppSetting } from '../db/app-settings';
 import { htmxNoContent } from '../utils/htmx-response';
 
-export function createAdminTopicsRouter(service: TopicManager) {
+export interface AdminTopicsDeps {
+  service: TopicManager;
+  db: Database.Database;
+}
+
+export function createAdminTopicsRouter(deps: AdminTopicsDeps) {
+  const { service, db } = deps;
   const router = Router();
 
   // POST /admin/topics — create
@@ -35,6 +43,16 @@ export function createAdminTopicsRouter(service: TopicManager) {
         return;
       }
       throw err;
+    }
+
+    // Issue #195: emit refreshTopics event + render fragment for HTMX requests
+    if (req.headers['hx-request'] === 'true') {
+      res.set('HX-Trigger', JSON.stringify({ refreshTopics: {} }));
+      return res.render('admin/_topicsTab', {
+        layout: false,
+        topics: service.listWithCounts(),
+        defaultPrompt: getAppSetting(db, 'default_summary_prompt'),
+      });
     }
 
     htmxNoContent(req, res, '/admin?tab=topics');
@@ -78,6 +96,17 @@ export function createAdminTopicsRouter(service: TopicManager) {
     }
 
     service.delete(id);
+
+    // Issue #195: emit refreshTopics event + render fragment for HTMX requests
+    if (req.headers['hx-request'] === 'true') {
+      res.set('HX-Trigger', JSON.stringify({ refreshTopics: {} }));
+      return res.render('admin/_topicsTab', {
+        layout: false,
+        topics: service.listWithCounts(),
+        defaultPrompt: getAppSetting(db, 'default_summary_prompt'),
+      });
+    }
+
     htmxNoContent(req, res, '/admin?tab=topics');
   });
 
