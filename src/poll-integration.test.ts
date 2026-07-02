@@ -39,6 +39,8 @@ describe('poll integration: full multi-channel cycle via PollRunManager', () => 
   let db: Database.Database;
 
   beforeEach(() => {
+    // Disable inter-request delay in tests for speed
+    process.env.POLL_REQUEST_DELAY_MS = '0';
     db = createTestDb();
     createTopic(db, 'mtg', 'MTG', 'MTG filter');
     addChannel(db, 'UC_A', 'Channel A', undefined, 1);
@@ -50,6 +52,7 @@ describe('poll integration: full multi-channel cycle via PollRunManager', () => 
   });
 
   afterEach(() => {
+    delete process.env.POLL_REQUEST_DELAY_MS;
     vi.restoreAllMocks();
   });
 

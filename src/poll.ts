@@ -5,6 +5,7 @@ import { listChannels } from './db/watchlist';
 import { softDeleteFilter } from './db/soft-delete-filter';
 import { discoverCandidates, RssCandidate, DiscoveryOptions } from './rss-discovery';
 import { TranscriptionSegment, groupSegments } from './transcription';
+import { RssFeedFetcher, DEFAULT_REQUEST_DELAY_MS, RssError as RssFetchError } from './rss-feed-fetcher';
 
 export interface IngestResult {
   ingested: boolean;
@@ -78,6 +79,8 @@ export interface PollOptions {
   extractCaptions?: (videoId: string) => Promise<TranscriptionSegment[]>;
   lookbackDays?: number;
   runId?: number;
+  /** Inter-request delay in ms between channel polls (default: from env or 2000) */
+  requestDelayMs?: number;
 }
 
 export async function pollChannel(
@@ -91,9 +94,23 @@ export async function pollChannel(
     throw new Error(`Channel ${channelId} not found in watchlist`);
   }
 
+  // Use RssFeedFetcher for backoff-aware RSS fetching when no custom fetchRss provided
+  const fetcher = options.fetchRss ? undefined : new RssFeedFetcher(db);
+
+  // Check backoff before polling
+  if (fetcher && fetcher.isInBackoff(channelId)) {
+    throw new Error(`Channel ${channelId} in backoff`);
+  }
+
   // step 1: discover new video candidates via RSS (single fetch — duplicates counted inline)
   const discovery = await discoverCandidates(db, [channelId], {
-    fetchRss: options.fetchRss,
+    fetchRss: options.fetchRss ?? (() => {
+      const f = new RssFeedFetcher(db);
+      return async () => {
+        const result = await f.fetch(channelId);
+        return result.xml;
+      };
+    })(),
     lookbackDays: options.lookbackDays,
   } as DiscoveryOptions);
 

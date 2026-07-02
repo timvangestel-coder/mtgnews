@@ -263,6 +263,16 @@ export function initDb(db: Database.Database): void {
       db.exec('ALTER TABLE signals ADD COLUMN reviewed INTEGER DEFAULT 0');
     }
 
+    // Issue #198: rss_backoff table for per-channel exponential backoff state
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS rss_backoff (
+        channel_id           TEXT PRIMARY KEY,
+        backoff_until_ms     INTEGER NOT NULL,
+        consecutive_failures INTEGER NOT NULL DEFAULT 1,
+        last_status_code     INTEGER
+      )
+    `);
+
     // Issue #185: Migration — add deleted_at INTEGER DEFAULT NULL to 5 tables for soft-delete support
     if (!channelCols.includes('deleted_at')) {
       db.exec('ALTER TABLE channels ADD COLUMN deleted_at INTEGER DEFAULT NULL');

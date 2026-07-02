@@ -7,6 +7,12 @@ import { deletePendingForRun, countProcessedForRun, pendingSignalsForChannel } f
 import { ConcurrencyPool } from './concurrency-pool.ts';
 import { mapStatus, mapStepStatus, type RunState, type PollRunStep } from './utils/poll-run-view-model.ts';
 import { PhaseRegistry, type LlmPhase, type PhaseEntry } from './phase-registry.ts';
+import { DEFAULT_REQUEST_DELAY_MS } from './rss-feed-fetcher.ts';
+
+/** Sleep for a given number of milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Unique identifier for a poll run */
 export type RunId = number;
@@ -231,10 +237,18 @@ export class PollRunManager {
     };
 
     // Streaming pipeline: poll each channel, then immediately dispatch analysis tasks
-    for (const channel of channels) {
+    for (let i = 0; i < channels.length; i++) {
+      const channel = channels[i];
       if (signal?.aborted) {
         console.log(`Worker aborted during channel polling at ${channel.channel_id}`);
         break;
+      }
+
+      // Inter-request delay between channels (not before the first one)
+      if (i > 0) {
+        const envDelay = parseInt(process.env.POLL_REQUEST_DELAY_MS, 10);
+        const delay = Number.isFinite(envDelay) ? envDelay : DEFAULT_REQUEST_DELAY_MS;
+        await sleep(delay);
       }
 
       try {
