@@ -1,25 +1,26 @@
-<h2 class="text-2xl font-bold mb-4">Admin Panel</h2>
+<!-- Display level: page title -->
+<h2 class="text-2xl font-bold tracking-display text-muted-900 dark:text-muted-100 mb-4">Admin Panel</h2>
 
 <!-- Tab Navigation — adminTabs() is loaded from /scripts/admin-tabs.js via layout.ejs -->
 <div class="mb-6" x-data="adminTabs()" data-admin-default-tab="<%= tab || 'channels' %>">
   <div class="flex gap-2 mb-6">
     <button @click="switchTab('channels')"
-      :class="activeTab === 'channels' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+      :class="activeTab === 'channels' ? 'bg-brand-600 text-white' : 'bg-surface-200 dark:bg-muted-600 text-muted-700 dark:text-muted-200'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Channels
     </button>
     <button @click="switchTab('topics')"
-      :class="activeTab === 'topics' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+      :class="activeTab === 'topics' ? 'bg-brand-600 text-white' : 'bg-surface-200 dark:bg-muted-600 text-muted-700 dark:text-muted-200'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Topics
     </button>
     <button @click="switchTab('polling')"
-      :class="activeTab === 'polling' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+      :class="activeTab === 'polling' ? 'bg-brand-600 text-white' : 'bg-surface-200 dark:bg-muted-600 text-muted-700 dark:text-muted-200'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Polling
     </button>
     <button @click="switchTab('data')"
-      :class="activeTab === 'data' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+      :class="activeTab === 'data' ? 'bg-brand-600 text-white' : 'bg-surface-200 dark:bg-muted-600 text-muted-700 dark:text-muted-200'"
       class="px-4 py-2 rounded-full font-medium text-sm hover:opacity-90 transition">
       Data
     </button>
@@ -58,31 +59,34 @@
 <div x-data="deleteModal()"
      x-show="open"
      @keydown.escape.window="cancel()"
-     class="fixed inset-0 z-50 flex items-center justify-center"
-     style="display: none;">
+      class="fixed inset-0 z-50 flex items-center justify-center hidden">
    <!-- Backdrop -->
    <div class="fixed inset-0 bg-black/50" @click="cancel()"></div>
 
-   <!-- Card -->
-   <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 mx-4">
-     <h3 class="text-lg font-semibold mb-2" x-text="title"></h3>
-     <p class="text-sm text-gray-600 mb-4" x-text="message"></p>
+   <!-- Card — p-4 detail padding -->
+   <div class="relative bg-white dark:bg-slate-800 rounded-card shadow-panel-lg max-w-md w-full p-4 mx-4 border border-surface-200 dark:border-muted-700">
+     <!-- Heading level: modal title -->
+     <h3 class="text-lg font-semibold tracking-heading mb-2 text-muted-900 dark:text-muted-100" x-text="title"></h3>
+     <!-- Body level: modal message -->
+     <p class="text-sm leading-relaxed text-muted-600 dark:text-muted-300 mb-4" x-text="message"></p>
 
-     <!-- Entity counts -->
+     <!-- Entity counts — vertical rhythm -->
      <div x-show="counts || busy" x-cloak class="mb-4 space-y-1">
        <template x-if="busy">
-         <p class="text-sm text-gray-500">Loading counts...</p>
+         <!-- Body level -->
+         <p class="text-sm leading-relaxed text-muted-500 dark:text-muted-400">Loading counts...</p>
        </template>
        <template x-for="line in countLines" :key="line.label">
-         <div class="flex justify-between text-sm">
-           <span class="text-gray-600" x-text="line.label"></span>
-           <span class="font-medium" x-text="line.value"></span>
+         <!-- Body level -->
+         <div class="flex justify-between text-sm leading-relaxed">
+           <span class="text-muted-600 dark:text-muted-300" x-text="line.label"></span>
+           <span class="font-medium text-muted-800 dark:text-muted-200" x-text="line.value"></span>
          </div>
        </template>
      </div>
 
-     <!-- Error -->
-     <div x-show="error" x-cloak class="mb-4 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+     <!-- Error — Body level -->
+     <div x-show="error" x-cloak class="mb-4 p-2 bg-danger-50 dark:bg-danger-900 border border-danger-200 dark:border-danger-800 rounded-card text-sm leading-relaxed text-danger-700 dark:text-danger-300">
        <span x-text="error"></span>
      </div>
 
@@ -90,16 +94,16 @@
      <template x-if="!error">
        <div class="flex justify-end gap-2">
          <button @click="cancel()" type="button"
-           class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Cancel</button>
+           class="px-4 py-2 bg-surface-200 dark:bg-muted-600 text-muted-700 dark:text-muted-200 rounded-card hover:bg-surface-300 dark:hover:bg-muted-500 text-sm leading-relaxed transition">Cancel</button>
          <button @click="confirm()" type="button" :disabled="busy"
-           class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50">Confirm</button>
+           class="px-4 py-2 bg-danger-600 text-white rounded-card hover:bg-danger-700 disabled:opacity-50 text-sm leading-relaxed transition">Confirm</button>
        </div>
      </template>
 
      <template x-if="error">
        <div class="flex justify-end">
          <button @click="close()" type="button"
-           class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Close</button>
+           class="px-4 py-2 bg-surface-200 dark:bg-muted-600 text-muted-700 dark:text-muted-200 rounded-card hover:bg-surface-300 dark:hover:bg-muted-500 text-sm leading-relaxed transition">Close</button>
        </div>
      </template>
    </div>

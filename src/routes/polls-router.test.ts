@@ -53,7 +53,7 @@ describe('polls-router', () => {
 
       const res = await request(app).get('/polls');
       expect(res.status).toBe(200);
-      expect(res.text).toContain('bg-green-600');
+      expect(res.text).toContain('bg-success-600');
     });
 
     it('shows new signal count and channel summary', async () => {

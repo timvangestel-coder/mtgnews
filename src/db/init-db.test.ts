@@ -115,7 +115,7 @@ describe('Schema initialization', () => {
 
     const columns = db
       .prepare("PRAGMA table_info(signals)")
-      .all() as { name: string; type: string }[];
+      .all() as { name: string; type: string; dflt_value: string | null }[];
 
     const columnMap = new Map(
       columns.map((c) => [c.name, { type: c.type, dflt_value: c.dflt_value }])

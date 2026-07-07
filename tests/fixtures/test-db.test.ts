@@ -53,7 +53,7 @@ describe('test-db fixtures', () => {
       try {
         seedChannel(db, 'UCabc123');
 
-        const row = db.prepare('SELECT channel_id, display_name FROM channels WHERE channel_id = ?').get('UCabc123');
+        const row = db.prepare('SELECT channel_id, display_name FROM channels WHERE channel_id = ?').get('UCabc123') as {channel_id: string; display_name: string};
         expect(row.channel_id).toBe('UCabc123');
         expect(row.display_name).toBeDefined();
       } finally {
@@ -68,7 +68,7 @@ describe('test-db fixtures', () => {
         db.prepare("INSERT INTO topics (key, short_name, filter_text) VALUES (?, ?, ?)").run('modern', 'Modern', 'Modern format');
         seedChannel(db, 'UCtopic1', 1);
 
-        const row = db.prepare('SELECT channel_id, topic_id FROM channels WHERE channel_id = ?').get('UCtopic1');
+        const row = db.prepare('SELECT channel_id, topic_id FROM channels WHERE channel_id = ?').get('UCtopic1') as {channel_id: string; topic_id: number | null};
         expect(row.channel_id).toBe('UCtopic1');
         expect(row.topic_id).toBe(1);
       } finally {
@@ -81,7 +81,7 @@ describe('test-db fixtures', () => {
       try {
         seedChannel(db, 'UCnoTopic');
 
-        const row = db.prepare('SELECT channel_id, topic_id FROM channels WHERE channel_id = ?').get('UCnoTopic');
+        const row = db.prepare('SELECT channel_id, topic_id FROM channels WHERE channel_id = ?').get('UCnoTopic') as {channel_id: string; topic_id: number | null};
         expect(row.channel_id).toBe('UCnoTopic');
         expect(row.topic_id).toBeNull();
       } finally {
@@ -96,7 +96,7 @@ describe('test-db fixtures', () => {
       try {
         seedSignal(db, 'vid_test1', 'this is a test transcription');
 
-        const row = db.prepare('SELECT video_id, transcription FROM signals WHERE video_id = ?').get('vid_test1');
+        const row = db.prepare('SELECT video_id, transcription FROM signals WHERE video_id = ?').get('vid_test1') as {video_id: string; transcription: string};
         expect(row.video_id).toBe('vid_test1');
         expect(row.transcription).toBe('this is a test transcription');
       } finally {
@@ -109,7 +109,7 @@ describe('test-db fixtures', () => {
       try {
         seedSignal(db, 'vid_default_ch', 'text');
 
-        const row = db.prepare('SELECT channel_id FROM signals WHERE video_id = ?').get('vid_default_ch');
+        const row = db.prepare('SELECT channel_id FROM signals WHERE video_id = ?').get('vid_default_ch') as {channel_id: string};
         expect(row.channel_id).toBe('UCtest');
       } finally {
         db.close();
@@ -122,7 +122,7 @@ describe('test-db fixtures', () => {
         seedChannel(db, 'UCcustom');
         seedSignal(db, 'vid_custom_ch', 'text', 'UCcustom');
 
-        const row = db.prepare('SELECT channel_id FROM signals WHERE video_id = ?').get('vid_custom_ch');
+        const row = db.prepare('SELECT channel_id FROM signals WHERE video_id = ?').get('vid_custom_ch') as {channel_id: string};
         expect(row.channel_id).toBe('UCcustom');
       } finally {
         db.close();
@@ -134,7 +134,7 @@ describe('test-db fixtures', () => {
       try {
         seedSignal(db, 'vid_title', 'text');
 
-        const row = db.prepare('SELECT title FROM signals WHERE video_id = ?').get('vid_title');
+        const row = db.prepare('SELECT title FROM signals WHERE video_id = ?').get('vid_title') as {title: string | null};
         expect(row.title).toBeDefined();
       } finally {
         db.close();
@@ -146,7 +146,7 @@ describe('test-db fixtures', () => {
       try {
         seedSignal(db, 'vid_ts', 'text');
 
-        const row = db.prepare('SELECT created_at FROM signals WHERE video_id = ?').get('vid_ts');
+        const row = db.prepare('SELECT created_at FROM signals WHERE video_id = ?').get('vid_ts') as {created_at: number};
         expect(row.created_at).toBeDefined();
         expect(typeof row.created_at).toBe('number');
       } finally {

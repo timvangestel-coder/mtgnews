@@ -140,7 +140,7 @@ class SignalDetailPage {
   }
 
   async expectChannelBadge(name) {
-    await expect(this.page.locator('.bg-blue-100')).toContainText(name);
+    await expect(this.page.locator('.bg-brand-100')).toContainText(name);
   }
 
   async expectPublishedDateVisible() {

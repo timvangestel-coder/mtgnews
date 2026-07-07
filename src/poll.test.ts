@@ -53,7 +53,7 @@ describe('ingestSignal', () => {
     expect(result.duplicate).toBe(false);
     expect(result.noCaptions).toBe(false);
 
-    const signals = db.prepare('SELECT video_id, title, transcription FROM signals').all();
+    const signals = db.prepare('SELECT video_id, title, transcription FROM signals').all() as Array<{ video_id: string; title: string }>;
     expect(signals).toHaveLength(1);
     expect(signals[0].video_id).toBe('vid1');
     expect(signals[0].title).toBe('Test Video');
@@ -182,8 +182,8 @@ describe('poll', () => {
     expect(signals).toHaveLength(2);
 
     // transcription should be grouped [{time, text}] not raw segments
-    const vid1 = signals.find((s: any) => s.video_id === 'vid1');
-    const trans1 = JSON.parse(vid1!.transcription);
+    const vid1 = signals.find((s: any) => s.video_id === 'vid1') as { transcription: string };
+    const trans1 = JSON.parse(vid1.transcription);
     expect(trans1).toHaveLength(1);
     expect(trans1[0]).toHaveProperty('time');
     expect(trans1[0]).toHaveProperty('text');
@@ -223,8 +223,9 @@ describe('poll', () => {
 
     // only vid2 persisted
     const signals = db.prepare('SELECT video_id FROM signals').all();
-    expect(signals).toHaveLength(1);
-    expect(signals[0].video_id).toBe('vid2');
+    const sigs = signals as Array<{ video_id: string }>;
+    expect(sigs).toHaveLength(1);
+    expect(sigs[0].video_id).toBe('vid2');
   });
 
   it('throws when channel not in watchlist', async () => {

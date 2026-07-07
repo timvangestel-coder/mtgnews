@@ -1,136 +1,197 @@
-<h2 class="text-2xl font-bold mb-4">Signals</h2>
+<h2 class="text-2xl font-bold tracking-display text-muted-900 dark:text-muted-100 mb-4">Signals</h2>
 
-<!-- Topic + Channel Filter Pills + Date Filter + Show Irrelevant Toggle -->
-<div class="mb-4 flex flex-col gap-3"
-     x-data="{
-      topics: <%= JSON.stringify(topics || []) %>,
-      channels: <%= JSON.stringify(channels || []) %>,
-      selectedTopic: '<%= (topicKey || '').replace(/'/g, "\\'") %>',
-      selectedChannel: '<%= (channelId || '').replace(/'/g, "\\'") %>',
-      showIrrelevant: <%= typeof showIrrelevant === 'boolean' ? showIrrelevant : 'false' %>,
-       showUnreviewed: <%= typeof showUnreviewed === 'boolean' ? showUnreviewed : 'true' %>,
-       dateFilter: '<%= (dateFilter || '').replace(/'/g, "\\'") %>',
-      get filteredChannels() {
-        return this.selectedTopic
-          ? this.channels.filter(c => c.topic_key === this.selectedTopic)
-          : this.channels;
-      },
-      _buildUrl(forAjax) {
-        var params = new URLSearchParams();
-        if (this.selectedTopic) params.set('topicKey', this.selectedTopic);
-        else params.set('topicKey', '');
-        if (this.selectedChannel) params.set('channelId', this.selectedChannel);
-        else params.set('channelId', '');
-         if (this.showIrrelevant) params.set('showIrrelevant', 'true');
-         if (!this.showUnreviewed) params.set('showUnreviewed', 'false');
-         if (this.dateFilter && this.dateFilter !== '') params.set('dateFilter', this.dateFilter);
-        var url = '/signals?' + params.toString();
-        window.history.pushState({}, '', url);
-        if (forAjax) {
-          params.set('htmx', 'true');
-          return '/signals?' + params.toString();
-        }
-        return url;
-      },
-      selectTopic(key) {
-        this.selectedTopic = key;
-        this.selectedChannel = '';
-        $nextTick(() => {
-          htmx.ajax('GET', this._buildUrl(true), { target: '#signals-table' });
-        });
-      },
-      selectChannel(id) {
-        this.selectedChannel = id;
-        $nextTick(() => {
-          htmx.ajax('GET', this._buildUrl(true), { target: '#signals-table' });
-        });
-      },
-      setDateFilter(filter) {
-        this.dateFilter = filter;
-        $nextTick(() => {
-          htmx.ajax('GET', this._buildUrl(true), { target: '#signals-table' });
-        });
-      }
-    }">
+<!-- Unified Command Bar — segmented controls in card container -->
+<div x-data="UiState.filterBar(<%= JSON.stringify(topics || []) %>, <%= JSON.stringify(channels || []) %>)"
+     class="bg-white dark:bg-slate-800 rounded-xl border border-surface-200 dark:border-muted-700 p-3 mb-4">
 
-  <!-- Row 1: Topic Pills + Date Filter -->
-  <div class="flex flex-wrap gap-2 items-center">
-    <button class="rounded-full px-4 py-1 text-sm transition"
-            :class="selectedTopic === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
-            @click="selectTopic('')">
-      All Topics
-    </button>
-    <template x-for="topic in topics" :key="topic.key">
-      <button class="rounded-full px-4 py-1 text-sm transition"
-              :class="selectedTopic === topic.key ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
-              @click="selectTopic(topic.key)"
-              x-text="topic.short_name || topic.key">
+  <!-- Row 1: Topic segmented control + divider + Date segmented control -->
+  <div class="flex flex-col md:flex-row md:items-center gap-3">
+
+    <!-- Topic Segmented Control -->
+    <div role="group" aria-label="Topic filter" class="bg-slate-100 dark:bg-slate-700 rounded-lg p-0.5 flex items-center overflow-hidden">
+      <button id="topic-pill-0"
+              role="button"
+              :tabindex="topicFocusIndex === 0 ? 0 : -1"
+              @click="selectTopic('', 0)"
+              @keydown.left.prevent="movePillFocus('topic', 'left')"
+              @keydown.right.prevent="movePillFocus('topic', 'right')"
+              @keydown.enter.prevent="selectTopic('', 0)"
+              @keydown.space.prevent="selectTopic('', 0)"
+              class="px-3 py-1.5 text-sm font-medium rounded-md transition whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              :class="selectedTopic === ''
+                ? 'bg-brand-500 text-white'
+                : 'text-muted-600 dark:text-muted-400 hover:bg-slate-200 dark:hover:bg-slate-600'">
+        All Topics
       </button>
-    </template>
+      <template x-for="(topic, topicIndex) in topics" :key="topic.key">
+        <button :id="'topic-pill-' + (topicIndex + 1)"
+                role="button"
+                :tabindex="topicFocusIndex === (topicIndex + 1) ? 0 : -1"
+                @click="selectTopic(topic.key, topicIndex + 1)"
+                @keydown.left.prevent="movePillFocus('topic', 'left')"
+                @keydown.right.prevent="movePillFocus('topic', 'right')"
+                @keydown.enter.prevent="selectTopic(topic.key, topicIndex + 1)"
+                @keydown.space.prevent="selectTopic(topic.key, topicIndex + 1)"
+                class="px-3 py-1.5 text-sm font-medium rounded-md transition whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                :class="selectedTopic === topic.key
+                  ? 'bg-brand-500 text-white'
+                  : 'text-muted-600 dark:text-muted-400 hover:bg-slate-200 dark:hover:bg-slate-600'"
+                x-text="topic.short_name || topic.key">
+        </button>
+      </template>
+    </div>
 
-    <!-- Date Filter Pills (Issue #181) -->
-    <div class="flex gap-2 ml-4">
-      <button class="rounded-full px-3 py-1 text-sm transition"
-              :class="(!dateFilter || dateFilter === '') ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'"
-              @click="setDateFilter('')">
+    <!-- Vertical Divider (desktop only) -->
+    <div class="hidden md:block h-5 w-px bg-surface-200 dark:bg-muted-600 flex-shrink-0"></div>
+
+    <!-- Date Segmented Control -->
+    <div role="group" aria-label="Date filter" class="bg-slate-100 dark:bg-slate-700 rounded-lg p-0.5 flex items-center overflow-hidden">
+      <button id="date-pill-0"
+              role="button"
+              :tabindex="dateFocusIndex === 0 ? 0 : -1"
+              @click="setDateFilter('', 0)"
+              @keydown.left.prevent="movePillFocus('date', 'left')"
+              @keydown.right.prevent="movePillFocus('date', 'right')"
+              @keydown.enter.prevent="setDateFilter('', 0)"
+              @keydown.space.prevent="setDateFilter('', 0)"
+              class="px-3 py-1.5 text-sm font-medium rounded-md transition whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              :class="(!dateFilter || dateFilter === '')
+                ? 'bg-brand-500 text-white'
+                : 'text-muted-600 dark:text-muted-400 hover:bg-slate-200 dark:hover:bg-slate-600'">
         All Time
       </button>
-      <button class="rounded-full px-3 py-1 text-sm transition"
-              :class="dateFilter === 'today' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'"
-              @click="setDateFilter('today')">
+      <button id="date-pill-1"
+              role="button"
+              :tabindex="dateFocusIndex === 1 ? 0 : -1"
+              @click="setDateFilter('today', 1)"
+              @keydown.left.prevent="movePillFocus('date', 'left')"
+              @keydown.right.prevent="movePillFocus('date', 'right')"
+              @keydown.enter.prevent="setDateFilter('today', 1)"
+              @keydown.space.prevent="setDateFilter('today', 1)"
+              class="px-3 py-1.5 text-sm font-medium rounded-md transition whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              :class="dateFilter === 'today'
+                ? 'bg-brand-500 text-white'
+                : 'text-muted-600 dark:text-muted-400 hover:bg-slate-200 dark:hover:bg-slate-600'">
         Today
       </button>
-      <button class="rounded-full px-3 py-1 text-sm transition"
-              :class="dateFilter === 'week' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'"
-              @click="setDateFilter('week')">
+      <button id="date-pill-2"
+              role="button"
+              :tabindex="dateFocusIndex === 2 ? 0 : -1"
+              @click="setDateFilter('week', 2)"
+              @keydown.left.prevent="movePillFocus('date', 'left')"
+              @keydown.right.prevent="movePillFocus('date', 'right')"
+              @keydown.enter.prevent="setDateFilter('week', 2)"
+              @keydown.space.prevent="setDateFilter('week', 2)"
+              class="px-3 py-1.5 text-sm font-medium rounded-md transition whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              :class="dateFilter === 'week'
+                ? 'bg-brand-500 text-white'
+                : 'text-muted-600 dark:text-muted-400 hover:bg-slate-200 dark:hover:bg-slate-600'">
         This Week
       </button>
-      <button class="rounded-full px-3 py-1 text-sm transition"
-              :class="dateFilter === 'month' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'"
-              @click="setDateFilter('month')">
+      <button id="date-pill-3"
+              role="button"
+              :tabindex="dateFocusIndex === 3 ? 0 : -1"
+              @click="setDateFilter('month', 3)"
+              @keydown.left.prevent="movePillFocus('date', 'left')"
+              @keydown.right.prevent="movePillFocus('date', 'right')"
+              @keydown.enter.prevent="setDateFilter('month', 3)"
+              @keydown.space.prevent="setDateFilter('month', 3)"
+              class="px-3 py-1.5 text-sm font-medium rounded-md transition whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              :class="dateFilter === 'month'
+                ? 'bg-brand-500 text-white'
+                : 'text-muted-600 dark:text-muted-400 hover:bg-slate-200 dark:hover:bg-slate-600'">
         This Month
       </button>
     </div>
 
-    <!-- Show Unreviewed + Show Irrelevant Toggles -->
-    <div class="ml-auto flex gap-2">
-      <!-- Issue #183: Show Unreviewed Toggle (default on) -->
-      <button class="rounded-full px-4 py-1 text-sm transition"
-              :class="showUnreviewed ? 'bg-gray-200 text-gray-700' : 'bg-orange-500 text-white'"
-              @click="showUnreviewed = !showUnreviewed; $nextTick(() => { htmx.ajax('GET', _buildUrl(true), { target: '#signals-table' }); })">
-        Show Unreviewed
-      </button>
-      <button class="rounded-full px-4 py-1 text-sm transition"
-              :class="showIrrelevant ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'"
-              @click="showIrrelevant = !showIrrelevant; $nextTick(() => { htmx.ajax('GET', _buildUrl(true), { target: '#signals-table' }); })">
-        Show Irrelevant
-      </button>
-    </div>
   </div>
 
-  <!-- Row 2: Channel Pills -->
-  <div class="flex flex-wrap gap-2 items-center">
-    <button class="rounded-full px-4 py-1 text-sm transition"
-            :class="selectedChannel === '' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
-            @click="selectChannel('')">
-      All Channels
-    </button>
-    <template x-for="ch in filteredChannels" :key="ch.channel_id">
-      <button class="rounded-full px-4 py-1 text-sm transition"
-              :class="selectedChannel === ch.channel_id ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
-              @click="selectChannel(ch.channel_id)"
-              x-text="ch.display_name || ch.channel_id">
+  <!-- Row 2: Channel segmented control (scrollable) + filter toggles -->
+  <div class="flex flex-col md:flex-row md:items-center gap-3 mt-3">
+
+    <!-- Channel Segmented Control — horizontally scrollable -->
+    <div role="group" aria-label="Channel filter" class="bg-slate-100 dark:bg-slate-700 rounded-lg p-0.5 flex items-center overflow-x-auto flex-1 scrollbar-thin">
+      <button id="channel-pill-0"
+              role="button"
+              :tabindex="channelFocusIndex === 0 ? 0 : -1"
+              @click="selectChannel('', 0)"
+              @keydown.left.prevent="movePillFocus('channel', 'left')"
+              @keydown.right.prevent="movePillFocus('channel', 'right')"
+              @keydown.enter.prevent="selectChannel('', 0)"
+              @keydown.space.prevent="selectChannel('', 0)"
+              class="px-3 py-1.5 text-sm font-medium rounded-md transition whitespace-nowrap flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              :class="selectedChannel === ''
+                ? 'bg-brand-500 text-white'
+                : 'text-muted-600 dark:text-muted-400 hover:bg-slate-200 dark:hover:bg-slate-600'">
+        All Channels
       </button>
-    </template>
+      <template x-for="(ch, chIndex) in filteredChannels" :key="ch.channel_id">
+        <button :id="'channel-pill-' + (chIndex + 1)"
+                role="button"
+                :tabindex="channelFocusIndex === (chIndex + 1) ? 0 : -1"
+                @click="selectChannel(ch.channel_id, chIndex + 1)"
+                @keydown.left.prevent="movePillFocus('channel', 'left')"
+                @keydown.right.prevent="movePillFocus('channel', 'right')"
+                @keydown.enter.prevent="selectChannel(ch.channel_id, chIndex + 1)"
+                @keydown.space.prevent="selectChannel(ch.channel_id, chIndex + 1)"
+                class="px-3 py-1.5 text-sm font-medium rounded-md transition whitespace-nowrap flex-shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                :class="selectedChannel === ch.channel_id
+                  ? 'bg-brand-500 text-white'
+                  : 'text-muted-600 dark:text-muted-400 hover:bg-slate-200 dark:hover:bg-slate-600'"
+                x-text="ch.display_name || ch.channel_id">
+        </button>
+      </template>
+    </div>
+
+    <!-- Filter Toggles — collapse behind icon when inactive -->
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <!-- Expanded toggle buttons -->
+      <div x-show="filtersExpanded"
+           x-transition
+           class="flex items-center gap-2">
+        <!-- Show Unreviewed Toggle -->
+        <button @click="toggleUnreviewed()"
+                class="px-3 py-1.5 text-sm font-medium rounded-lg border transition whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                :class="showUnreviewed
+                  ? 'border-brand-500 bg-brand-50 dark:bg-brand-900 text-brand-700 dark:text-brand-300'
+                  : 'border-surface-200 dark:border-muted-600 text-muted-500 dark:text-muted-400 hover:bg-slate-100 dark:hover:bg-slate-700'">
+          Show Unreviewed
+        </button>
+
+        <!-- Show Irrelevant Toggle -->
+        <button @click="toggleIrrelevant()"
+                class="px-3 py-1.5 text-sm font-medium rounded-lg border transition whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                :class="showIrrelevant
+                  ? 'border-warning-500 bg-warning-50 dark:bg-warning-900 text-warning-700 dark:text-warning-300'
+                  : 'border-surface-200 dark:border-muted-600 text-muted-500 dark:text-muted-400 hover:bg-slate-100 dark:hover:bg-slate-700'">
+          Show Irrelevant
+        </button>
+      </div>
+
+      <!-- Filter icon button — always visible -->
+      <button @click="toggleFilters()"
+              aria-expanded.bind="filtersExpanded"
+              class="p-2 rounded-lg border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              :class="filtersExpanded || showIrrelevant
+                ? 'border-brand-500 bg-brand-50 dark:bg-brand-900 text-brand-600 dark:text-brand-300'
+                : 'border-surface-200 dark:border-muted-600 text-muted-400 hover:bg-slate-100 dark:hover:bg-slate-700'"
+              title="Toggle filter options">
+        <!-- Filter/funnel icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.309 48.309 0 0112 3z" />
+        </svg>
+      </button>
+    </div>
+
   </div>
 </div>
 
- <!-- Signal Table Fragment -->
- <div id="signals-table">
-   <%- include('_signalsTable', { signals, page, totalPages, total, channelId, topicKey, showIrrelevant, showUnreviewed, dateFilter }) %>
- </div>
+<!-- Signal Table Fragment -->
+<div id="signals-table">
+   <%- include('_signalsTable', { signals, page, totalPages, total, channelId, topicKey, showIrrelevant, showUnreviewed, dateFilter, channelsMap }) %>
+</div>
 
- <% var chatScope = { topicKey: topicKey, channelId: channelId, showIrrelevant: showIrrelevant, signalCount: total, channelsMap: channelsMap, dateFilter: dateFilter }; %>
+<% var chatScope = { topicKey: topicKey, channelId: channelId, showIrrelevant: showIrrelevant, signalCount: total, channelsMap: channelsMap, dateFilter: dateFilter }; %>
 <%- include('_chatPanel', { scope: chatScope, isMultiSignal: true, hasVideoId: false }) %>
 
 <!-- TimestampNav pass-through mode: timestamp links navigate to Signal Detail page -->

@@ -246,7 +246,7 @@ export class PollRunManager {
 
       // Inter-request delay between channels (not before the first one)
       if (i > 0) {
-        const envDelay = parseInt(process.env.POLL_REQUEST_DELAY_MS, 10);
+        const envDelay = parseInt(process.env.POLL_REQUEST_DELAY_MS ?? '0', 10);
         const delay = Number.isFinite(envDelay) ? envDelay : DEFAULT_REQUEST_DELAY_MS;
         await sleep(delay);
       }

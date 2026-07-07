@@ -1,9 +1,15 @@
-const { test: base, expect } = require('@playwright/test');
-const Database = require('better-sqlite3');
-const { initDb } = require('../../../src/db/init-db');
-const { createServer } = require('../../../src/server');
+import { test as base, expect } from '@playwright/test';
+import Database from 'better-sqlite3';
+import { initDb } from '../../../src/db/init-db';
+import { createServer } from '../../../src/server';
 
-const test = base.extend({
+interface TestFixtures {
+  db: Database.Database;
+  app: ReturnType<typeof createServer>;
+  baseUrl: string;
+}
+
+const test = base.extend<TestFixtures>({
   db: [async ({}, use) => {
     const db = new Database(':memory:');
     initDb(db);
@@ -47,7 +53,7 @@ const test = base.extend({
   }, { auto: true }],
 
   app: [async ({ db }, use) => {
-    const app = createServer({ database: db, startScheduler: false });
+    const app = createServer({ database: db as any, startScheduler: false });
     await use(app);
     await app.close();
   }, { auto: true }],
@@ -59,4 +65,4 @@ const test = base.extend({
   }, { auto: true }],
 });
 
-module.exports = { test, expect };
+export { test, expect, expect as pwExpect };

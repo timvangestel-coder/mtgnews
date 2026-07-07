@@ -1,12 +1,14 @@
-import { test, expect } from './fixtures/server-fixture';
+import { expect } from '@playwright/test';
+import { test } from './fixtures/server-fixture';
+import type { ConsoleMessage } from '@playwright/test';
 
 test.describe('Admin Topic Inline Edit', () => {
   test('should show console errors when editing a topic', async ({ page, baseUrl }) => {
     const consoleLogs: string[] = [];
     const browserErrors: string[] = [];
 
-    page.on('console', msg => consoleLogs.push(`${msg.type()}: ${msg.text()}`));
-    page.on('pageerror', err => browserErrors.push(err.message));
+    page.on('console', (msg: ConsoleMessage) => consoleLogs.push(`${msg.type()}: ${msg.text()}`));
+    page.on('pageerror', (err: Error) => browserErrors.push(err.message));
 
     // Go to admin topics tab
     await page.goto(`${baseUrl}/admin?tab=topics`);
@@ -22,10 +24,10 @@ test.describe('Admin Topic Inline Edit', () => {
     const rowCount = await rows.count();
     console.log(`Found ${rowCount} topic row(s)`);
 
-    expect(rowCount).toBeGreaterThan(0, 'Topics table should have at least one row');
+    expect(rowCount).toBeGreaterThan(0);
 
     // Check first row is visible
-    await expect(rows.first()).toBeVisible({ timeout: 5000 });
+    await expect(rows.first()).toBeVisible();
 
     // Click Edit button on first row
     const editButton = rows.first().locator('button:text("Edit")').first();
@@ -54,6 +56,6 @@ test.describe('Admin Topic Inline Edit', () => {
     }
 
     // Final assertion: no uncaught errors
-    expect(browserErrors.length).toBe(0, `Should have no browser errors, got: ${browserErrors.join(', ')}`);
+    expect(browserErrors.length).toBe(0);
   });
 });

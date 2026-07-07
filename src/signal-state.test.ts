@@ -40,7 +40,7 @@ describe('markIrrelevant', () => {
 
     markIrrelevant(db, 'v1');
 
-    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1');
+    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1') as { processing_state: string };
     expect(sig.processing_state).toBe('irrelevant');
   });
 
@@ -52,7 +52,7 @@ describe('markIrrelevant', () => {
 
     markIrrelevant(db, 'v1');
 
-    const sig2 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v2');
+    const sig2 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v2') as { processing_state: string };
     expect(sig2.processing_state).toBe('pending');
   });
 });
@@ -65,7 +65,7 @@ describe('markSummarized', () => {
 
     markSummarized(db, 'v1');
 
-    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1');
+    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1') as { processing_state: string };
     expect(sig.processing_state).toBe('summarized');
   });
 
@@ -77,7 +77,7 @@ describe('markSummarized', () => {
 
     markSummarized(db, 'v1');
 
-    const sig2 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v2');
+    const sig2 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v2') as { processing_state: string };
     expect(sig2.processing_state).toBe('pending');
   });
 });
@@ -197,7 +197,7 @@ describe('markRelevant', () => {
 
     markRelevant(db, 'v1');
 
-    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1');
+    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1') as { processing_state: string };
     expect(sig.processing_state).toBe('summarized');
   });
 
@@ -210,7 +210,7 @@ describe('markRelevant', () => {
 
     markRelevant(db, 'v1');
 
-    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1');
+    const sig = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v1') as { processing_state: string };
     expect(sig.processing_state).toBe('pending');
   });
 
@@ -224,7 +224,7 @@ describe('markRelevant', () => {
 
     markRelevant(db, 'v1');
 
-    const sig2 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v2');
+    const sig2 = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get('v2') as { processing_state: string };
     expect(sig2.processing_state).toBe('irrelevant');
   });
 });

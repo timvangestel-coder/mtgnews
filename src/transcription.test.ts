@@ -118,7 +118,6 @@ mtg news today
       // Mock fs: yt-dlp wrote a VTT file to temp dir
       mockReaddirSync.mockReturnValue(['mtgnews_sub_dQw4w9WgXcQ.en.vtt']);
       mockReadFileSync.mockReturnValue(sampleVtt);
-      mockUnlinkSync.mockReturnValue();
 
       const segments = await extractCaptions('dQw4w9WgXcQ');
 
@@ -165,7 +164,6 @@ mtg news today
             on: () => stream,
           },
           on: (event: string, cb: (data: Buffer | number) => void) => {
-            if (event === 'error') cb(new Error('no subtitles'));
             if (event === 'close') cb(1);
             return stream;
           },
@@ -212,7 +210,6 @@ welcome back. My name is Rudy. You're watching
 
       mockReaddirSync.mockReturnValue(['mtgnews_sub_overlap123.en.vtt']);
       mockReadFileSync.mockReturnValue(overlappingVtt);
-      mockUnlinkSync.mockReturnValue();
 
       const segments = await extractCaptions('overlap123');
 
@@ -249,7 +246,6 @@ welcome<c> back</c><00:00:01.500> to the show
 
       mockReaddirSync.mockReturnValue(['mtgnews_sub_test123.en.vtt']);
       mockReadFileSync.mockReturnValue(vttWithMarkup);
-      mockUnlinkSync.mockReturnValue();
 
       const segments = await extractCaptions('test123');
 
@@ -281,7 +277,6 @@ Hello everyone ${amp}gt;${amp}gt; Pretty good, how are you?
 
       mockReaddirSync.mockReturnValue(['mtgnews_sub_entity123.en.vtt']);
       mockReadFileSync.mockReturnValue(vttWithEntities);
-      mockUnlinkSync.mockReturnValue();
 
       const segments = await extractCaptions('entity123');
 

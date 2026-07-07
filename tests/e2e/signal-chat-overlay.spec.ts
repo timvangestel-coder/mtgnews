@@ -1,21 +1,23 @@
-const { test, expect } = require('./fixtures/server-fixture');
+import { expect } from '@playwright/test';
+import { test } from './fixtures/server-fixture';
+import Database from 'better-sqlite3';
 
-const detailTranscript = JSON.stringify([
+const detailTranscriptOverlay = JSON.stringify([
   { time: 0, text: 'Hello welcome to the show.' },
   { time: 45000, text: 'Today we discuss MTG news.' }
 ]);
-const detailSummary = 'Welcome intro [T:0]. MTG discussion [T:45].';
+const detailSummaryOverlay = 'Welcome intro [T:0]. MTG discussion [T:45].';
 
-function seedChatSignal(db) {
+function seedChatSignalOverlay(db: Database.Database) {
   db.prepare(
     `INSERT OR REPLACE INTO signals (video_id, channel_id, title, published_at, transcription, summary, overall_sentiment, sentiment_label, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run('vid_chat', 'UC_test_channel_1', 'Chat Test Signal', '2026-05-10T12:00:00Z', detailTranscript, detailSummary, 4, 'positive', Date.now());
+  ).run('vid_chat', 'UC_test_channel_1', 'Chat Test Signal', '2026-05-10T12:00:00Z', detailTranscriptOverlay, detailSummaryOverlay, 4, 'positive', Date.now());
 }
 
 test.describe('SignalChat UI — Overlay Panel', () => {
   test.beforeEach(({ db }) => {
-    seedChatSignal(db);
+    seedChatSignalOverlay(db);
   });
 
   test('chat toggle button visible on Signal Detail page, opens overlay panel from right', async ({ page, baseUrl }) => {
@@ -23,11 +25,8 @@ test.describe('SignalChat UI — Overlay Panel', () => {
     await expect(page.locator('h2')).toContainText('Chat Test Signal');
 
     // Wait for Alpine.js to load and process all x-data components including nested ones
-    // The chatPanel component has its own x-data separate from the signal-detail x-data
     await page.waitForFunction(() => {
-      // Alpine must be loaded
-      if (!window.Alpine) return false;
-      // Wait for the chat toggle button to have no display:none (Alpine processed x-show)
+      if (!(window as any).Alpine) return false;
       const btn = document.querySelector('[data-chat-toggle]');
       if (!btn) return false;
       const style = window.getComputedStyle(btn);
@@ -45,7 +44,7 @@ test.describe('SignalChat UI — Overlay Panel', () => {
     // Overlay panel becomes visible (Chat header)
     const chatPanel = page.locator('[data-chat-panel]');
     await expect(chatPanel).toBeAttached();
-    await expect(page.locator('h3:has-text("Chat")')).toBeAttached();
+    await expect(page.locator('h3:has-text("AI Assistant")')).toBeAttached();
 
     // Backdrop overlay is present
     await expect(page.locator('.fixed.inset-0').first()).toBeAttached();
@@ -61,7 +60,7 @@ test.describe('SignalChat UI — Overlay Panel', () => {
 
     // Wait for Alpine to process x-show on the toggle button
     await page.waitForFunction(() => {
-      if (!window.Alpine) return false;
+      if (!(window as any).Alpine) return false;
       const btn = document.querySelector('[data-chat-toggle]');
       if (!btn) return false;
       const style = window.getComputedStyle(btn);
@@ -77,7 +76,7 @@ test.describe('SignalChat UI — Overlay Panel', () => {
     await expect(chatPanel).toBeAttached();
 
     // History loaded — question and answer visible (filter by text to avoid phantom entries)
-    const seededQuestion = page.locator('.chat-question:has-text("What is this video about?")');
+    const seededQuestion = page.locator('.chat-question-bubble:has-text("What is this video about?")');
     await expect(seededQuestion).toBeAttached();
     await expect(page.locator('.chat-answer:has-text("MTG news")')).toBeAttached();
   });
@@ -87,7 +86,7 @@ test.describe('SignalChat UI — Overlay Panel', () => {
 
     // Wait for Alpine to process x-show on the toggle button
     await page.waitForFunction(() => {
-      if (!window.Alpine) return false;
+      if (!(window as any).Alpine) return false;
       const btn = document.querySelector('[data-chat-toggle]');
       if (!btn) return false;
       const style = window.getComputedStyle(btn);
@@ -129,7 +128,7 @@ test.describe('SignalChat UI — Overlay Panel', () => {
 
     // Wait for Alpine to process x-show on the toggle button
     await page.waitForFunction(() => {
-      if (!window.Alpine) return false;
+      if (!(window as any).Alpine) return false;
       const btn = document.querySelector('[data-chat-toggle]');
       if (!btn) return false;
       const style = window.getComputedStyle(btn);
@@ -172,7 +171,7 @@ test.describe('SignalChat UI — Overlay Panel', () => {
 
     // Wait for Alpine to process x-show on the toggle button
     await page.waitForFunction(() => {
-      if (!window.Alpine) return false;
+      if (!(window as any).Alpine) return false;
       const btn = document.querySelector('[data-chat-toggle]');
       if (!btn) return false;
       const style = window.getComputedStyle(btn);
@@ -184,11 +183,11 @@ test.describe('SignalChat UI — Overlay Panel', () => {
     await page.waitForTimeout(800);
 
     // History loaded — question visible
-    const seededQuestion = page.locator('.chat-question:has-text("can you tell me the interesting topics?")');
+    const seededQuestion = page.locator('.chat-question-bubble:has-text("can you tell me the interesting topics?")');
     await expect(seededQuestion).toBeAttached();
 
     // THEAD must be hidden (display: none) within .chat-answer tables
-    const theadHidden = await page.$eval('.chat-answer table thead', (el) => {
+    const theadHidden = await page.$eval('.chat-answer table thead', (el: Element) => {
       return window.getComputedStyle(el).display === 'none';
     });
     expect(theadHidden).toBe(true);
@@ -208,7 +207,7 @@ test.describe('SignalChat UI — Overlay Panel', () => {
 
     // Wait for Alpine to process x-show on the toggle button
     await page.waitForFunction(() => {
-      if (!window.Alpine) return false;
+      if (!(window as any).Alpine) return false;
       const btn = document.querySelector('[data-chat-toggle]');
       if (!btn) return false;
       const style = window.getComputedStyle(btn);

@@ -247,6 +247,7 @@ function makeChatSignal(overrides: Partial<ChatSignalContext> = {}): ChatSignalC
     videoId: 'vid_1',
     title: 'Test Video',
     channelDisplayName: 'Test Channel',
+    summary: 'test summary',
     ...overrides,
   };
 }
@@ -440,6 +441,7 @@ describe('Bug 1 — signal block uses actual summary', () => {
         filterText: '',
         summaryPrompt: null,
       },
+      summary: undefined,
     });
 
     const result = assembleMultiSignalChat({ signals: [signal], history: [], question: 'q?' });
@@ -859,6 +861,7 @@ describe('Regression: issue-153 — annotated-index format instructions', () => 
         videoId: 'vid_1',
         title: 'Test Video',
         channelDisplayName: 'Test Channel',
+        summary: 'test summary',
       };
     }
 

@@ -168,35 +168,35 @@ describe('ScopeSource.fromURL() — single truth for chat scope', () => {
 
   describe('buildHistoryURL() — constructs /chat/history URL with scope params', () => {
     it('returns bare /chat/history when scope is empty', () => {
-      const url = ScopeSource.buildHistoryURL({});
+      const url = ScopeSource.buildHistoryURL({ includeIrrelevant: false });
       expect(url).toBe('/chat/history');
     });
 
     it('appends topicKey when present', () => {
-      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg' });
+      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg', includeIrrelevant: false });
       expect(url).toBe('/chat/history?topicKey=mtg');
     });
 
     it('appends channelId when present', () => {
-      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg', channelId: 'UC_a' });
+      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg', channelId: 'UC_a', includeIrrelevant: false });
       expect(url).toContain('topicKey=mtg');
       expect(url).toContain('channelId=UC_a');
     });
 
     it('appends signalVideoId for per-signal chat', () => {
-      const url = ScopeSource.buildHistoryURL({ signalVideoId: 'v1' });
+      const url = ScopeSource.buildHistoryURL({ signalVideoId: 'v1', includeIrrelevant: false });
       expect(url).toBe('/chat/history?signalVideoId=v1');
     });
 
     // Slice 2: dateFilter in buildHistoryURL
     it('appends dateFilter when present', () => {
-      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg', dateFilter: 'week' });
+      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg', dateFilter: 'week', includeIrrelevant: false });
       expect(url).toContain('topicKey=mtg');
       expect(url).toContain('dateFilter=week');
     });
 
     it('omits dateFilter="all" from URL (default, no need to encode)', () => {
-      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg', dateFilter: 'all' });
+      const url = ScopeSource.buildHistoryURL({ topicKey: 'mtg', dateFilter: 'all', includeIrrelevant: false });
       expect(url).toContain('topicKey=mtg');
       expect(url).not.toContain('dateFilter');
     });
@@ -204,37 +204,37 @@ describe('ScopeSource.fromURL() — single truth for chat scope', () => {
 
   describe('buildAskBody() — constructs POST body for /chat/ask', () => {
     it('includes topicKey from scope for list-scoped chat', () => {
-      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg' });
+      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', includeIrrelevant: false });
       expect(body.question).toBe('hello');
       expect(body.topicKey).toBe('mtg');
     });
 
     it('includes signalVideoId for per-signal chat', () => {
-      const body = ScopeSource.buildAskBody({ question: 'hello', signalVideoId: 'v1' });
+      const body = ScopeSource.buildAskBody({ question: 'hello', signalVideoId: 'v1', includeIrrelevant: false });
       expect(body.question).toBe('hello');
       expect(body.signalVideoId).toBe('v1');
       expect(body.topicKey).toBeUndefined();
     });
 
     it('omits empty channelId from body', () => {
-      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', channelId: '' });
+      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', channelId: '', includeIrrelevant: false });
       expect(body.channelId).toBeUndefined();
     });
 
     // Slice 2: dateFilter in buildAskBody
     it('includes dateFilter for list-scoped chat', () => {
-      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', dateFilter: 'week' });
+      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', dateFilter: 'week', includeIrrelevant: false });
       expect(body.dateFilter).toBe('week');
     });
 
     it('omits dateFilter="all" from body (default)', () => {
-      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', dateFilter: 'all' });
+      const body = ScopeSource.buildAskBody({ question: 'hello', topicKey: 'mtg', dateFilter: 'all', includeIrrelevant: false });
       expect(body.dateFilter).toBeUndefined();
     });
 
     it('includes dateFilter without signalVideoId for per-signal chat is not applicable', () => {
       // Per-signal chat does not carry dateFilter — only list-scoped chat uses dates
-      const body = ScopeSource.buildAskBody({ question: 'hello', signalVideoId: 'v1' });
+      const body = ScopeSource.buildAskBody({ question: 'hello', signalVideoId: 'v1', includeIrrelevant: false });
       expect(body.signalVideoId).toBe('v1');
       expect(body.dateFilter).toBeUndefined();
     });

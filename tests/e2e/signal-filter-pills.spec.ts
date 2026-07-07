@@ -67,12 +67,12 @@ test.describe('Signal page channel filter pills', () => {
     await page.goto('http://localhost:3001/signals');
 
     // Wait for Alpine.js to initialize
-    await page.waitForFunction(() => window.Alpine && Alpine.data, { timeout: 5000 });
+    await page.waitForFunction(() => (window as any).Alpine && (window as any).Alpine.data, { timeout: 5000 });
 
-    // "All Channels" pill active (blue bg); channel pills present
+    // "All Channels" pill active (brand bg); channel pills present
     const allPill = page.getByRole('button', { name: 'All Channels' });
     await expect(allPill).toBeVisible();
-    expect(await allPill.getAttribute('class')).toContain('bg-blue-600');
+    expect(await allPill.getAttribute('class')).toContain('bg-brand-500');
 
     expect(page.getByRole('button', { name: 'Alpha Channel' })).toBeVisible();
     expect(page.getByRole('button', { name: 'Beta Channel' })).toBeVisible();
@@ -88,9 +88,9 @@ test.describe('Signal page channel filter pills', () => {
 
     await expect(page.getByText('Alpha Video')).toBeVisible();
 
-    // Alpha pill now blue, All pill gray
-    expect(await page.getByRole('button', { name: 'Alpha Channel' }).getAttribute('class')).toContain('bg-blue-600');
-    expect(await page.getByRole('button', { name: 'All Channels' }).getAttribute('class')).toContain('bg-gray-200');
+    // Alpha pill now active (brand), All pill inactive (muted)
+    expect(await page.getByRole('button', { name: 'Alpha Channel' }).getAttribute('class')).toContain('bg-brand-500');
+    expect(await page.getByRole('button', { name: 'All Channels' }).getAttribute('class')).toContain('text-muted-600');
 
     // Click "All Channels" pill → resets filter, both signals back
     await page.getByRole('button', { name: 'All Channels' }).click();
@@ -98,6 +98,6 @@ test.describe('Signal page channel filter pills', () => {
     await expect(page.getByText('Beta Video')).toBeVisible({ timeout: 5000 });
 
     await expect(page.getByText('Alpha Video')).toBeVisible();
-    expect(await allPill.getAttribute('class')).toContain('bg-blue-600');
+    expect(await allPill.getAttribute('class')).toContain('bg-brand-500');
   });
 });

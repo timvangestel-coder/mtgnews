@@ -47,7 +47,7 @@ beforeAll(() => {
 
 afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
-    httpServer.close((err: Error | null) => (err ? reject(err) : resolve()));
+    httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()));
   });
   db.close();
 });
@@ -130,7 +130,7 @@ describe('Signals Router', () => {
       expect(resp.text).toContain('hello router');
     });
 
-    it('places Summarize button inside toggle bar when signal not processed', async () => {
+    it('places Summarize button inside kebab menu when signal not processed', async () => {
       const t = Date.now();
       addChannel(db, `UCsumBtn${t}`, 'Sum Button Ch');
       db.prepare(
@@ -141,29 +141,19 @@ describe('Signals Router', () => {
       const resp = await request(httpServer).get(`/signals/vsumBtn-${t}`);
       expect(resp.status).toBe(200);
 
-      // The toggle bar uses "flex gap-2 mb-4" class
-      const toggleBarStart = resp.text.indexOf('flex gap-2 mb-4');
-      expect(toggleBarStart).toBeGreaterThan(-1);
+      // The kebab menu contains the summarize action URL
+      const actionPos = resp.text.indexOf(`/signals/vsumBtn-${t}/summarize`);
+      expect(actionPos).toBeGreaterThan(-1);
 
-      // Find the closing </div> of the toggle bar (after Split button text)
-      const splitPos = resp.text.indexOf('Split', toggleBarStart);
-      expect(splitPos).toBeGreaterThan(-1);
-      const toggleBarEnd = resp.text.indexOf('</div>', splitPos);
+      // "Summarize" button text must be present
+      const sumButtonPos = resp.text.indexOf('Summarize');
+      expect(sumButtonPos).toBeGreaterThan(-1);
 
-      // The ms-auto class must appear within the toggle bar (pushes Summarize right)
-      const msAutoPos = resp.text.indexOf('ms-auto', toggleBarStart);
-      expect(msAutoPos).toBeGreaterThan(toggleBarStart);
-      expect(msAutoPos).toBeLessThan(toggleBarEnd);
-
-      // The summarize action URL must appear within the toggle bar
-      const actionPos = resp.text.indexOf(`/signals/vsumBtn-${t}/summarize`, toggleBarStart);
-      expect(actionPos).toBeGreaterThan(toggleBarStart);
-      expect(actionPos).toBeLessThan(toggleBarEnd);
-
-      // "Summarize" button text must be present within the toggle bar
-      const sumButtonPos = resp.text.indexOf('Summarize', toggleBarStart);
-      expect(sumButtonPos).toBeGreaterThan(toggleBarStart);
-      expect(sumButtonPos).toBeLessThan(toggleBarEnd);
+      // Summarize should be inside the kebab menu (after the three-dot icon)
+      const kebabMenuStart = resp.text.indexOf('Actions menu');
+      expect(kebabMenuStart).toBeGreaterThan(-1);
+      expect(actionPos).toBeGreaterThan(kebabMenuStart);
+      expect(sumButtonPos).toBeGreaterThan(kebabMenuStart);
     });
 
     it('shows error message when error query param present', async () => {
@@ -198,7 +188,7 @@ describe('Signals Router', () => {
       expect(resp.text).toContain('irrelevant-toggle');
       expect(resp.text).toContain('Irrelevant');
 
-      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`virrRT-${t}`);
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`virrRT-${t}`) as {processing_state: string};
       expect(row.processing_state).toBe('irrelevant');
     });
 
@@ -217,7 +207,7 @@ describe('Signals Router', () => {
       expect(resp.status).toBe(200);
       expect(resp.text).toContain('irrelevant-toggle');
 
-      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`vrelRT-${t}`);
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`vrelRT-${t}`) as {processing_state: string};
       expect(row.processing_state).toBe('summarized');
     });
   });

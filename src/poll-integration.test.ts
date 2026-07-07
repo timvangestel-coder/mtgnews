@@ -93,7 +93,7 @@ describe('poll integration: full multi-channel cycle via PollRunManager', () => 
     expect(state).not.toBeNull();
     expect(state!.status).toBe('complete');
     // newSignalCount is on the DB row, not in RunState (removed in issue #79)
-    const runRow = db.prepare('SELECT new_signal_count FROM poll_runs WHERE id = ?').get(runId);
+    const runRow = db.prepare('SELECT new_signal_count FROM poll_runs WHERE id = ?').get(runId) as { new_signal_count: number };
     expect(runRow.new_signal_count).toBe(3); // 1 from A + 2 from B
 
     // verify progress rows
@@ -143,7 +143,7 @@ describe('poll integration: full multi-channel cycle via PollRunManager', () => 
     const state = manager.runState(runId);
     expect(state).not.toBeNull();
     expect(state!.status).toBe('complete');
-    const runRow2 = db.prepare('SELECT new_signal_count FROM poll_runs WHERE id = ?').get(runId);
+    const runRow2 = db.prepare('SELECT new_signal_count FROM poll_runs WHERE id = ?').get(runId) as { new_signal_count: number };
     expect(runRow2.new_signal_count).toBe(2); // only UC_B
 
     const progress = db.prepare(

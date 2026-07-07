@@ -41,7 +41,7 @@ describe('admin-tab-fragments', () => {
   });
 
   describe('createFragmentRouter', () => {
-    let deps: jest.Mocked<AdminDeps>;
+    let deps: any;
     let rendered: { partial: string; locals: Record<string, unknown> }[];
 
     beforeEach(() => {

@@ -18,8 +18,8 @@ describe('preRegisterChannelProgress', () => {
   it('inserts pending rows for all active channels with topic_id', () => {
     // Create a topic and two active channels
     createTopic(db, 'mtg', 'MTG', 'magic the gathering');
-    addChannel(db, 'UC1', 'Channel One', null, 1);
-    addChannel(db, 'UC2', 'Channel Two', null, 1);
+    addChannel(db, 'UC1', 'Channel One', undefined, 1);
+    addChannel(db, 'UC2', 'Channel Two', undefined, 1);
 
     // Create a poll run
     const runId = db.prepare(
@@ -42,8 +42,8 @@ describe('preRegisterChannelProgress', () => {
 
   it('skips inactive channels', () => {
     createTopic(db, 'mtg', 'MTG', 'magic the gathering');
-    addChannel(db, 'UC1', 'Active Channel', null, 1);
-    addChannel(db, 'UC2', 'Inactive Channel', null, 1);
+    addChannel(db, 'UC1', 'Active Channel', undefined, 1);
+    addChannel(db, 'UC2', 'Inactive Channel', undefined, 1);
 
     // Deactivate UC2
     db.prepare('UPDATE channels SET active = 0 WHERE channel_id = ?').run('UC2');
@@ -65,9 +65,9 @@ describe('preRegisterChannelProgress', () => {
 
   it('skips channels with NULL topic_id', () => {
     // Active channel with no topic
-    addChannel(db, 'UC1', 'No Topic Channel', null, null);
+    addChannel(db, 'UC1', 'No Topic Channel');
     createTopic(db, 'mtg', 'MTG', 'magic the gathering');
-    addChannel(db, 'UC2', 'With Topic Channel', null, 1);
+    addChannel(db, 'UC2', 'With Topic Channel', undefined, 1);
 
     const runId = db.prepare(
       "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, 'running', 0, 2)"
@@ -101,7 +101,7 @@ describe('preRegisterChannelProgress', () => {
 
   it('sets signals_found to 0 for pending rows', () => {
     createTopic(db, 'mtg', 'MTG', 'magic the gathering');
-    addChannel(db, 'UC1', 'Channel One', null, 1);
+    addChannel(db, 'UC1', 'Channel One', undefined, 1);
 
     const runId = db.prepare(
       "INSERT INTO poll_runs (triggered_at, status, new_signal_count, lookback_days) VALUES (?, 'running', 0, 2)"

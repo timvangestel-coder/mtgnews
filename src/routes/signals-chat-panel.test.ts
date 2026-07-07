@@ -41,7 +41,7 @@ beforeAll(() => {
 
 afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
-    httpServer.close((err: Error | null) => (err ? reject(err) : resolve()));
+    httpServer.close((err: Error | undefined) => (err ? reject(err) : resolve()));
   });
   db.close();
 });
@@ -251,6 +251,7 @@ describe('Signals Page Chat Panel (Issue #131)', () => {
 // Consolidated from chat-panel-timestamp-close.test.ts
 // =============================================================================
 
+// @ts-ignore
 import { JSDOM } from 'jsdom';
 
 function loadChatPanel() {

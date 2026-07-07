@@ -138,7 +138,7 @@ describe('admin-polling-router', () => {
       expect(res.text).toContain('progress-widget');
       expect(res.text).toContain('aborted');
 
-      const run = db.prepare('SELECT status FROM poll_runs WHERE id = ?').get(runId);
+      const run = db.prepare('SELECT status FROM poll_runs WHERE id = ?').get(runId) as {status: string};
       expect(run.status).toBe('done-forced');
     });
 

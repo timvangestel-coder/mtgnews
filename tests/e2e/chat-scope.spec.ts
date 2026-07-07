@@ -1,3 +1,6 @@
+import { expect } from '@playwright/test';
+import { test } from './fixtures/server-fixture';
+
 /**
  * Chat scope E2E tests — architecture improvement (Candidate 2).
  *
@@ -11,14 +14,13 @@
  * environment. They use page.goto with explicit query params to test
  * scope reading, rather than relying on Alpine filter pill interactions.
  */
-import { test, expect } from './fixtures/server-fixture';
 
 test.describe('ScopeSource E2E — browser behavior', () => {
   test('ScopeSource module is loaded and available on window', async ({ page, baseUrl }) => {
     await page.goto(`${baseUrl}/signals`);
     await page.waitForSelector('#signals-table');
 
-    const hasScopeSource = await page.evaluate(() => 
+    const hasScopeSource = await page.evaluate(() =>
       typeof (window as any).ScopeSource === 'object' &&
       typeof (window as any).ScopeSource.fromCurrentURL === 'function' &&
       typeof (window as any).ScopeSource.buildHistoryURL === 'function' &&
@@ -31,7 +33,7 @@ test.describe('ScopeSource E2E — browser behavior', () => {
     await page.goto(`${baseUrl}/signals`);
     await page.waitForSelector('#signals-table');
 
-    const scope = await page.evaluate(() => 
+    const scope = await page.evaluate(() =>
       (window as any).ScopeSource.fromCurrentURL()
     );
     expect(scope.topicKey).toBeUndefined();
@@ -44,7 +46,7 @@ test.describe('ScopeSource E2E — browser behavior', () => {
     await page.goto(`${baseUrl}/signals?topicKey=mtg`);
     await page.waitForSelector('#signals-table');
 
-    const scope = await page.evaluate(() => 
+    const scope = await page.evaluate(() =>
       (window as any).ScopeSource.fromCurrentURL()
     );
     expect(scope.topicKey).toBe('mtg');
@@ -54,7 +56,7 @@ test.describe('ScopeSource E2E — browser behavior', () => {
     await page.goto(`${baseUrl}/signals?topicKey=mtg&channelId=UC_test_channel_1`);
     await page.waitForSelector('#signals-table');
 
-    const scope = await page.evaluate(() => 
+    const scope = await page.evaluate(() =>
       (window as any).ScopeSource.fromCurrentURL()
     );
     expect(scope.topicKey).toBe('mtg');
@@ -65,7 +67,7 @@ test.describe('ScopeSource E2E — browser behavior', () => {
     await page.goto(`${baseUrl}/signals?topicKey=`);
     await page.waitForSelector('#signals-table');
 
-    const scope = await page.evaluate(() => 
+    const scope = await page.evaluate(() =>
       (window as any).ScopeSource.fromCurrentURL()
     );
     // Empty string topicKey is a valid list-scope indicator meaning "all signals"
@@ -76,7 +78,7 @@ test.describe('ScopeSource E2E — browser behavior', () => {
     await page.goto(`${baseUrl}/signals`);
     await page.waitForSelector('#signals-table');
 
-    const scope = await page.evaluate(() => 
+    const scope = await page.evaluate(() =>
       (window as any).ScopeSource.fromCurrentURL()
     );
     // No topicKey param at all → undefined (not a list-scope filter)

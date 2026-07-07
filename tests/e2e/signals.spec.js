@@ -1,11 +1,15 @@
 const { test, expect } = require('./fixtures/server-fixture');
 
+// Card selector: each signal is a div with cursor-pointer and onclick navigating to /signals/:id
+const cardSelector = 'div.cursor-pointer[onclick*="/signals/"]';
+
 test.describe('Signal Viewer', () => {
 
   test('signal list renders with signal titles from seeded fixture data', async ({ page, baseUrl }) => {
     await page.goto(`${baseUrl}/signals`);
-    await expect(page.locator('tbody tr')).toHaveCount(3);
-    // View renders generated_title || title (not summary) in the Title column
+    // Cards replace table rows
+    await expect(page.locator(cardSelector)).toHaveCount(3);
+    // View renders generated_title || title (not summary) in the card
     await expect(page.getByText('Signal One')).toBeVisible();
     await expect(page.getByText('Signal Two')).toBeVisible();
     await expect(page.getByText('Signal Three')).toBeVisible();
@@ -22,30 +26,32 @@ test.describe('Signal Viewer', () => {
     await page.evaluate(() => {
       htmx.ajax('GET', '/signals?channelId=UC_test_channel_1&htmx=true', { target: '#signals-table' });
     });
-    // wait for HTMX swap: row count must change from 3
+    // wait for HTMX swap: card count must change from 3
     await expect(async () => {
-      await expect(page.locator('tbody tr')).not.toHaveCount(3);
+      await expect(page.locator(cardSelector)).not.toHaveCount(3);
     }).toPass({ timeout: 10000 });
     // should show only 2 signals from channel 1
-    await expect(page.locator('tbody tr')).toHaveCount(2);
+    await expect(page.locator(cardSelector)).toHaveCount(2);
     // Signal Three is from UC_test_channel_2, so it should be filtered out
     await expect(page.getByText('Signal Three')).toBeHidden();
   });
 
   test('sentiment badges display correct colors', async ({ page, baseUrl }) => {
     await page.goto(`${baseUrl}/signals`);
-    // score 1 -> bg-red-600
-    await expect(page.locator('span.bg-red-600')).toBeVisible();
-    // score 5 -> bg-green-600
-    await expect(page.locator('span.bg-green-600')).toBeVisible();
+    // Sentiment badge is a div (not span) with rounded-full and token colors
+    // Score 1 -> bg-danger-100 (token color)
+    await expect(page.locator('div.rounded-full.bg-danger-100')).toBeVisible();
+    // Score 5 -> bg-success-100 (token color)
+    await expect(page.locator('div.rounded-full.bg-success-100')).toBeVisible();
   });
 
-  test('signal table rows are clickable and navigate to /signals/:id', async ({ page, baseUrl }) => {
+  test('signal cards are clickable and navigate to /signals/:id', async ({ page, baseUrl }) => {
     await page.goto(`${baseUrl}/signals`);
-    // click first signal row (tr with onclick)
-    await page.locator('tbody tr[onclick]').first().click();
+    // Click first signal card (div with cursor-pointer and onclick)
+    await page.locator(cardSelector).first().click();
     await expect(page).toHaveURL(/\/signals\/vid_/);
-    await expect(page.locator('h1')).toBeVisible();
+    // Signal detail page uses h2 for the title
+    await expect(page.locator('h2')).toBeVisible();
   });
 
   test('pagination links load correct page via HTMX', async ({ page, baseUrl, db }) => {
@@ -59,13 +65,13 @@ test.describe('Signal Viewer', () => {
     }
 
     await page.goto(`${baseUrl}/signals`);
-    // page 1 shows 25 signals
-    await expect(page.locator('tbody tr')).toHaveCount(25);
+    // page 1 shows 25 cards
+    await expect(page.locator(cardSelector)).toHaveCount(25);
 
     // click Next button
     await page.click('button:has-text("Next")');
     await page.waitForTimeout(500);
     // page 2 shows remaining 4
-    await expect(page.locator('tbody tr')).toHaveCount(4);
+    await expect(page.locator(cardSelector)).toHaveCount(4);
   });
 });

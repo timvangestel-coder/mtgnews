@@ -45,7 +45,7 @@ describe('scheduler', () => {
     const runs = db.prepare('SELECT * FROM poll_runs').all();
     expect(runs).toHaveLength(1);
     // With no channels, worker completes instantly so status may be 'done'
-    expect(runs[0].status).toBeOneOf(['running', 'done']);
+    expect((runs[0] as any).status).toBeOneOf(['running', 'done']);
   });
 
   it('calls cron.schedule on start', () => {

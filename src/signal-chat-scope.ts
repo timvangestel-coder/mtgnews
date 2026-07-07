@@ -30,7 +30,7 @@ export interface ChatSignalContext {
   videoId: string;
   title: string;
   channelDisplayName: string;
-  summary: string;
+  summary?: string;
   compactText?: string;
 }
 

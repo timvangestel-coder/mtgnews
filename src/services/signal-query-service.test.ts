@@ -183,7 +183,7 @@ describe('SignalQueryService', () => {
 
       service.setIrrelevant(`virs-${t}`, true);
 
-      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`virs-${t}`);
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`virs-${t}`) as { processing_state: string };
       expect(row.processing_state).toBe('irrelevant');
     });
 
@@ -197,7 +197,7 @@ describe('SignalQueryService', () => {
 
       service.setIrrelevant(`vrs-${t}`, false);
 
-      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`vrs-${t}`);
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`vrs-${t}`) as { processing_state: string };
       expect(row.processing_state).toBe('summarized');
     });
 
@@ -211,7 +211,7 @@ describe('SignalQueryService', () => {
 
       service.setIrrelevant(`vrs2-${t}`, false);
 
-      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`vrs2-${t}`);
+      const row = db.prepare('SELECT processing_state FROM signals WHERE video_id = ?').get(`vrs2-${t}`) as { processing_state: string };
       expect(row.processing_state).toBe('pending');
     });
   });

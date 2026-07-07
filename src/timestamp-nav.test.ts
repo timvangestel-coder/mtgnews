@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Simulate browser DOM for testing
+// @ts-ignore
 import { JSDOM } from 'jsdom';
 
 function setupDOM(html: string) {

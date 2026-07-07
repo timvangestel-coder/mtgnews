@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { addChannel } from './db/watchlist';
+import type { SignalRow } from './query';
 
 // -- getSignalById --
 import { getSignalById } from './signal-detail';

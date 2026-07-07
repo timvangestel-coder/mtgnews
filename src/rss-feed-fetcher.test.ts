@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { RssError, RssFeedFetcher, RssFetchResult, fetchUrlWithStatus } from './rss-feed-fetcher';
+import { RssError, RssFeedFetcher } from './rss-feed-fetcher';
 import { initDb } from './db/init-db';
 
 function makeDb(): Database.Database {
@@ -97,7 +97,7 @@ describe('RssFeedFetcher', () => {
 
   describe('fetch', () => {
     it('returns xml and status on successful fetch', async () => {
-      const mockFetch = () => Promise.resolve({ xml: '<feed/>', status: 200 } as RssFetchResult);
+      const mockFetch = () => Promise.resolve({ xml: '<feed/>', status: 200 });
       const fetcher = new RssFeedFetcher(db, { fetchWithStatus: mockFetch });
 
       const result = await fetcher.fetch('UC123');
@@ -117,7 +117,7 @@ describe('RssFeedFetcher', () => {
       let calls = 0;
       const mockFetch = () => {
         if (++calls === 1) return Promise.reject(new RssError('Unavailable', 'UC123', 503));
-        return Promise.resolve({ xml: '<feed/>', status: 200 } as RssFetchResult);
+        return Promise.resolve({ xml: '<feed/>', status: 200 });
       };
       const fetcher = new RssFeedFetcher(db, { fetchWithStatus: mockFetch, maxRetries: 2 });
 
@@ -145,7 +145,7 @@ describe('RssFeedFetcher', () => {
         'INSERT INTO rss_backoff (channel_id, backoff_until_ms, consecutive_failures, last_status_code) VALUES (?, ?, ?, ?)'
       ).run('UC123', Date.now() - 1000, 5, 503);
 
-      const mockFetch = () => Promise.resolve({ xml: '<feed/>', status: 200 } as RssFetchResult);
+      const mockFetch = () => Promise.resolve({ xml: '<feed/>', status: 200 });
       const fetcher = new RssFeedFetcher(db, { fetchWithStatus: mockFetch });
 
       await fetcher.fetch('UC123');

@@ -40,8 +40,8 @@ describe('query', () => {
     createTopic(db, 'esports', 'Esports', 'esports');
     createTopic(db, 'politics', 'Politics', 'politics');
     const topics = listTopics(db);
-    addChannel(db, 'UC1', 'Channel 1', null, topics[0].id);
-    addChannel(db, 'UC2', 'Channel 2', null, topics[1].id);
+    addChannel(db, 'UC1', 'Channel 1', undefined, topics[0].id);
+    addChannel(db, 'UC2', 'Channel 2', undefined, topics[1].id);
 
     // seed 5 signals across 2 channels, varying sentiment + dates
     insertSignal(db, 'v1', 'UC1', '2026-01-01T00:00:00Z', 3, [{ name: 'Koma', type: 'Player', sentiment: 'positive' }]);

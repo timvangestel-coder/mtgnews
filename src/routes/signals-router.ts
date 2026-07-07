@@ -57,6 +57,7 @@ export function createSignalsRouter(service: SignalQueryService) {
         showIrrelevant,
         showUnreviewed,
         dateFilter,
+        channelsMap,
         layout: false,
       });
     } else {
@@ -86,13 +87,13 @@ export function createSignalsRouter(service: SignalQueryService) {
     const setReviewed = req.body.reviewed === 'true';
     service.setReviewed(videoId, setReviewed);
 
-    // Return the full button HTML for HTMX outerHTML swap
+    // Return kebab menu item HTML for HTMX outerHTML swap
     const buttonHtml = setReviewed
-      ? `<button hx-post="/signals/${videoId}/reviewed" hx-vals='{"reviewed": "false"}' hx-swap="outerHTML" class="rounded px-4 py-2 font-medium text-sm bg-gray-200 text-gray-700 hover:bg-gray-300 transition">Reviewed &#x2713;</button>`
-      : `<button hx-post="/signals/${videoId}/reviewed" hx-vals='{"reviewed": "true"}' hx-swap="outerHTML" class="rounded px-4 py-2 font-medium text-sm bg-purple-600 text-white hover:bg-purple-700 transition">Mark as Reviewed</button>`;
+      ? `<button hx-post="/signals/${videoId}/reviewed" hx-vals='{"reviewed": "false"}' hx-swap="outerHTML" class="w-full text-left px-4 py-2 text-sm text-muted-700 dark:text-muted-200 hover:bg-surface-100 dark:hover:bg-slate-600 transition">Remove Reviewed <span class="text-success-500">&#x2713;</span></button>`
+      : `<button hx-post="/signals/${videoId}/reviewed" hx-vals='{"reviewed": "true"}' hx-swap="outerHTML" class="w-full text-left px-4 py-2 text-sm text-brand-600 dark:text-brand-400 hover:bg-surface-100 dark:hover:bg-slate-600 transition">Mark as Reviewed</button>`;
 
     res.type('html');
-    res.send(`<span id="reviewed-status">${buttonHtml}</span>`);
+    res.send(`<div id="reviewed-status">${buttonHtml}</div>`);
   });
 
   // POST /signals/:id/irrelevant — toggle irrelevant flag (Issue #184)
@@ -101,13 +102,13 @@ export function createSignalsRouter(service: SignalQueryService) {
     const setIrrelevant = req.body.irrelevant === 'true';
     service.setIrrelevant(videoId, setIrrelevant);
 
-    // Return pill button HTML for HTMX outerHTML swap
+    // Return kebab menu item HTML for HTMX outerHTML swap
     const buttonHtml = setIrrelevant
-      ? `<button hx-post="/signals/${videoId}/irrelevant" hx-vals='{"irrelevant": "false"}' hx-swap="outerHTML" class="rounded px-4 py-2 font-medium text-sm bg-gray-200 text-gray-700 hover:bg-gray-300 transition">Irrelevant &#x2717;</button>`
-      : `<button hx-post="/signals/${videoId}/irrelevant" hx-vals='{"irrelevant": "true"}' hx-swap="outerHTML" class="rounded px-4 py-2 font-medium text-sm bg-orange-600 text-white hover:bg-orange-700 transition">Mark as Irrelevant</button>`;
+      ? `<button hx-post="/signals/${videoId}/irrelevant" hx-vals='{"irrelevant": "false"}' hx-swap="outerHTML" class="w-full text-left px-4 py-2 text-sm text-muted-700 dark:text-muted-200 hover:bg-surface-100 dark:hover:bg-slate-600 transition">Remove Irrelevant <span class="text-danger-500">&times;</span></button>`
+      : `<button hx-post="/signals/${videoId}/irrelevant" hx-vals='{"irrelevant": "true"}' hx-swap="outerHTML" class="w-full text-left px-4 py-2 text-sm text-warning-700 dark:text-warning-300 hover:bg-surface-100 dark:hover:bg-slate-600 transition">Mark as Irrelevant</button>`;
 
     res.type('html');
-    res.send(`<span id="irrelevant-toggle">${buttonHtml}</span>`);
+    res.send(`<div id="irrelevant-toggle">${buttonHtml}</div>`);
   });
 
   // GET /signals/:id — signal detail

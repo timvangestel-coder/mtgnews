@@ -36,7 +36,7 @@ test.describe('Run History', () => {
     await expect(page.locator('tbody tr')).toHaveCount(1);
 
     // Status badge "done" visible
-    await expect(page.locator('span.bg-green-600').filter({ hasText: 'done' })).toBeVisible();
+    await expect(page.locator('span.bg-success-600').filter({ hasText: 'done' })).toBeVisible();
 
     // New signal count = 2
     await expect(page.locator('td').filter({ hasText: '2' }).first()).toBeVisible();
@@ -72,7 +72,7 @@ test.describe('Run History', () => {
     await expect(heading).toBeVisible();
 
     // Status badge (use first to avoid strict mode violation with multiple done badges)
-    await expect(page.locator('span.bg-green-600').filter({ hasText: 'done' }).first()).toBeVisible();
+    await expect(page.locator('span.bg-success-600').filter({ hasText: 'done' }).first()).toBeVisible();
 
     // New signals count label
     await expect(page.getByText('New Signals')).toBeVisible();

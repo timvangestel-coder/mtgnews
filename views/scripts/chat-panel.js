@@ -19,7 +19,9 @@
       isMulti = !!scope.topicKey || !!scope.channelId;
     }
     return {
-      chatOpen: false, chatInput: '', historyLoaded: false,
+       chatOpen: false, chatInput: '', historyLoaded: false,
+       /** Reference to the toggle button for focus restoration */
+       _toggleButton: null,
       showIrrelevant: scope.showIrrelevant || false,
       signalCount: scope.signalCount || 0,
       channelsMap: scope.channelsMap || {}, videoId: scope.videoId || '',
@@ -90,27 +92,65 @@
        },
 
         toggleChat() {
-          if (!this.chatOpen) {
-            // Always refresh signal count from DOM when opening chat — ensures fresh count after filter changes.
-            var countEl = document.querySelector('[data-signal-count]');
-            if (countEl) this.signalCount = parseInt(countEl.textContent, 10) || 0;
+           if (!this.chatOpen) {
+             // Always refresh signal count from DOM when opening chat — ensures fresh count after filter changes.
+             var countEl = document.querySelector('[data-signal-count]');
+             if (countEl) this.signalCount = parseInt(countEl.textContent, 10) || 0;
 
-            this.chatOpen = true;
-            if (!this.historyLoaded) {
-              this.loadHistory();
-            } else {
-              // Reload history if scope changed since last load (user closed chat, changed pills, re-opened).
-              var currentScope = window.ScopeSource.fromCurrentURL();
-              if (!this._scopeEqual(currentScope, this._lastHistoryScope)) {
-                this.loadHistory();
-              }
-            }
+             // Store toggle button reference for focus restoration
+             this._toggleButton = document.querySelector('[data-chat-toggle], [data-signals-chat-toggle]');
+
+             this.chatOpen = true;
+             if (!this.historyLoaded) {
+               this.loadHistory();
+             } else {
+               // Reload history if scope changed since last load (user closed chat, changed pills, re-opened).
+               var currentScope = window.ScopeSource.fromCurrentURL();
+               if (!this._scopeEqual(currentScope, this._lastHistoryScope)) {
+                 this.loadHistory();
+               }
+             }
+
+             // Focus input field after panel opens (Alpine transition needs nextTick)
+             var self = this;
+             if (this.$nextTick) {
+               this.$nextTick(function() {
+                 var input = document.querySelector('[data-chat-input], [data-signals-chat-input]');
+                 if (input) setTimeout(function() { input.focus(); }, 350);
+               });
+             } else {
+               setTimeout(function() {
+                 var input = document.querySelector('[data-chat-input], [data-signals-chat-input]');
+                 if (input) input.focus();
+               }, 350);
+             }
+           } else {
+             this.closeChat();
+           }
+        },
+
+        /**
+         * Close chat panel with cleanup and focus restoration.
+         */
+        closeChat: function() {
+          // Stop status polling when closing chat to prevent background timers.
+          this._stopStatusPolling();
+          this.chatOpen = false;
+
+          // Restore focus to toggle button after panel closes
+          var self = this;
+          if (this.$nextTick) {
+            this.$nextTick(function() {
+              setTimeout(function() {
+                if (self._toggleButton) self._toggleButton.focus();
+              }, 250);
+            });
           } else {
-           // Stop status polling when closing chat to prevent background timers.
-           this._stopStatusPolling();
-           this.chatOpen = false;
-         }
-       },
+            setTimeout(function() {
+              if (self._toggleButton) self._toggleButton.focus();
+            }, 250);
+          }
+        },
 
        /** Start manual JS-based polling for pending questions (replaces HTMX hx-trigger). */
        _startStatusPolling: function() {
@@ -146,38 +186,38 @@
                       clearInterval(self._statusPollTimer);
                       self._statusPollTimer = null;
                     }
-                   } else if (data.status === 'pending' && data.phase) {
-                     // Update phase text while still processing
-                     var phaseSpan = el.querySelector('.chat-phase-text');
-                     if (phaseSpan) {
-                       var newLabel = self._getPhaseLabel(data.phase, data.tokenCount);
-                       // Trigger fade animation: fade out, change text, fade in
-                       var currentPhase = el.getAttribute('data-chat-phase');
-                       if (currentPhase && currentPhase !== data.phase) {
-                         phaseSpan.classList.add('phase-fading');
-                         setTimeout(function() {
-                           phaseSpan.textContent = newLabel;
-                           phaseSpan.classList.remove('phase-fading');
-                         }, 150);
-                       } else {
-                         phaseSpan.textContent = newLabel;
-                       }
-                     }
-                     el.setAttribute('data-chat-phase', data.phase || '');
-                     el.setAttribute('data-chat-token-count', data.tokenCount || 0);
-                     // Update round indicator when available
-                     if (typeof data.round === 'number' && data.round > 1) {
-                       var existingRound = el.querySelector('.chat-round-indicator');
-                       if (!existingRound) {
-                         var roundSpan = document.createElement('span');
-                         roundSpan.className = 'text-xs text-gray-400 ml-1 chat-round-indicator';
-                         roundSpan.textContent = '(Round ' + data.round + ')';
-                         phaseSpan.parentNode.appendChild(roundSpan);
-                       } else {
-                         existingRound.textContent = '(Round ' + data.round + ')';
-                       }
-                     }
-                   }
+                    } else if (data.status === 'pending' && data.phase) {
+                      // Update phase micro-label while still processing
+                      var microLabel = el.querySelector('.phase-micro-label');
+                      if (microLabel) {
+                        var newLabel = self._getPhaseLabel(data.phase, data.tokenCount);
+                        // Trigger fade animation: fade out, change text, fade in
+                        var currentPhase = el.getAttribute('data-chat-phase');
+                        if (currentPhase && currentPhase !== data.phase) {
+                          microLabel.classList.add('phase-fading');
+                          setTimeout(function() {
+                            microLabel.textContent = newLabel;
+                            microLabel.classList.remove('phase-fading');
+                          }, 150);
+                        } else {
+                          microLabel.textContent = newLabel;
+                        }
+                      }
+                      el.setAttribute('data-chat-phase', data.phase || '');
+                      el.setAttribute('data-chat-token-count', data.tokenCount || 0);
+                      // Update round indicator when available
+                      if (typeof data.round === 'number' && data.round > 1) {
+                        var existingRound = el.querySelector('.chat-round-indicator');
+                        if (!existingRound) {
+                          var roundSpan = document.createElement('span');
+                          roundSpan.className = 'text-xs text-muted-300 dark:text-muted-600 ml-1 chat-round-indicator';
+                          roundSpan.textContent = '(Round ' + data.round + ')';
+                          microLabel.parentNode.appendChild(roundSpan);
+                        } else {
+                          existingRound.textContent = '(Round ' + data.round + ')';
+                        }
+                      }
+                    }
                 })
                .catch(function() { /* ignore */ });
            }

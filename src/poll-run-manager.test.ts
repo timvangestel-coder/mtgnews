@@ -38,7 +38,7 @@ describe('PollRunManager', () => {
       seedTopic(); seedChannel('UC_test', 'Test Channel');
       const runId = seedRun();
       preRegisterChannelProgress(db, runId);
-      expect(db.prepare('SELECT status FROM poll_run_progress WHERE poll_run_id = ?').get(runId).status).toBe('fetching');
+      expect((db.prepare('SELECT status FROM poll_run_progress WHERE poll_run_id = ?').get(runId) as { status: string }).status).toBe('fetching');
     });
 
     it('runState maps "fetching" DB status to "fetching" step status', () => {
@@ -78,17 +78,17 @@ describe('PollRunManager', () => {
     it('enqueues a poll run and returns runId', async () => {
       const runId = await manager.startRun();
       expect(runId).toBeGreaterThan(0);
-      expect(db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId).status).toBeOneOf(['running', 'done']);
+      expect((db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId) as { status: string }).status).toBeOneOf(['running', 'done']);
     });
 
     it('defaults lookback_days to 2', async () => {
       const runId = await manager.startRun();
-      expect(db.prepare('SELECT lookback_days FROM poll_runs WHERE id = ?').get(runId).lookback_days).toBe(2);
+      expect((db.prepare('SELECT lookback_days FROM poll_runs WHERE id = ?').get(runId) as { lookback_days: number }).lookback_days).toBe(2);
     });
 
     it('stores custom lookback_days when provided', async () => {
       const runId = await manager.startRun(7);
-      expect(db.prepare('SELECT lookback_days FROM poll_runs WHERE id = ?').get(runId).lookback_days).toBe(7);
+      expect((db.prepare('SELECT lookback_days FROM poll_runs WHERE id = ?').get(runId) as { lookback_days: number }).lookback_days).toBe(7);
     });
 
     it('pre-registers channel progress rows', async () => {
@@ -146,7 +146,7 @@ describe('PollRunManager', () => {
     it('aborts a running poll and sets status to done-forced', async () => {
       const runId = seedRun();
       await manager.abortRun(runId);
-      const run = db.prepare('SELECT status, abort_time FROM poll_runs WHERE id = ?').get(runId);
+      const run = db.prepare('SELECT status, abort_time FROM poll_runs WHERE id = ?').get(runId) as { status: string; abort_time: number | null };
       expect(run.status).toBe('done-forced');
       expect(run.abort_time).toBeDefined();
     });
@@ -206,7 +206,7 @@ describe('PollRunManager', () => {
     it('marks run as done after worker completes with no channels', async () => {
       const runId = await manager.startRun();
       await new Promise((r) => setTimeout(r, 300));
-      expect(db.prepare('SELECT status FROM poll_runs WHERE id = ?').get(runId).status).toBe('done');
+      expect((db.prepare('SELECT status FROM poll_runs WHERE id = ?').get(runId) as { status: string }).status).toBe('done');
     });
 
     it('RunState has no phase or summary after simplification', async () => {
@@ -228,13 +228,13 @@ describe('PollRunManager', () => {
     it('does not use global signals_analyzed counter', async () => {
       const runId = await manager.startRun();
       await new Promise((r) => setTimeout(r, 300));
-      expect(db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId).signals_analyzed).toBe(0);
+      expect((db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId) as { signals_analyzed: number }).signals_analyzed).toBe(0);
     });
 
     it('does not use signals_to_analyze counter', async () => {
       const runId = await manager.startRun();
       await new Promise((r) => setTimeout(r, 300));
-      expect(db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId).signals_to_analyze).toBe(0);
+      expect((db.prepare('SELECT * FROM poll_runs WHERE id = ?').get(runId) as { signals_to_analyze: number }).signals_to_analyze).toBe(0);
     });
 
     it('run with channel that has no signals shows done with total=0', async () => {
@@ -269,8 +269,8 @@ describe('PollRunManager', () => {
       seedSignal('abort_vid1', 'UC_abort_test', runId, 'pending');
       seedSignal('abort_vid2', 'UC_abort_test', runId, 'summarized');
       await manager.abortRun(runId);
-      expect(db.prepare("SELECT COUNT(*) as cnt FROM signals WHERE video_id = ?").get('abort_vid1').cnt).toBe(0);
-      expect(db.prepare("SELECT COUNT(*) as cnt FROM signals WHERE video_id = ?").get('abort_vid2').cnt).toBe(1);
+      expect((db.prepare("SELECT COUNT(*) as cnt FROM signals WHERE video_id = ?").get('abort_vid1') as { cnt: number }).cnt).toBe(0);
+      expect((db.prepare("SELECT COUNT(*) as cnt FROM signals WHERE video_id = ?").get('abort_vid2') as { cnt: number }).cnt).toBe(1);
     });
 
     it('signals_done stays 0 when abort deletes signals before in-flight analysis completes', async () => {
@@ -319,7 +319,7 @@ describe('PollRunManager', () => {
     it('poll_run_progress has signals_done column defaulting to 0', () => {
       const runId = seedRun('running', 3);
       seedProgress(runId, 'UC_test', 'done', 3);
-      expect(db.prepare("SELECT signals_done FROM poll_run_progress WHERE poll_run_id = ?").get(runId).signals_done).toBe(0);
+      expect((db.prepare("SELECT signals_done FROM poll_run_progress WHERE poll_run_id = ?").get(runId) as { signals_done: number }).signals_done).toBe(0);
     });
 
     it('signals_done can be incremented independently of status', () => {
@@ -410,7 +410,7 @@ describe('PollRunManager', () => {
 
       const signalsForCurrentRun = db.prepare("SELECT video_id FROM signals WHERE channel_id = ? AND poll_run_id = ? AND processing_state = 'pending'").all('UC_test', newRunIdNum) as { video_id: string }[];
       expect(signalsForCurrentRun.length).toBe(0);
-      expect(db.prepare("SELECT COUNT(*) as cnt FROM signals WHERE processing_state = 'pending'").get().cnt).toBe(1);
+      expect((db.prepare("SELECT COUNT(*) as cnt FROM signals WHERE processing_state = 'pending'").get() as { cnt: number }).cnt).toBe(1);
     });
 
     it('only analyzes signals belonging to the current run', () => {
@@ -432,7 +432,7 @@ describe('PollRunManager', () => {
       db.prepare("INSERT INTO poll_runs (id, triggered_at, status, new_signal_count, lookback_days) VALUES (?, ?, ?, 0, ?)").run(500, Date.now() - 3600000, 'running', 2);
       seedSignal('abort_1', 'UC_test3', 500, 'pending');
       db.prepare("DELETE FROM signals WHERE poll_run_id = ? AND processing_state = 'pending'").run(500);
-      expect(db.prepare("SELECT COUNT(*) as cnt FROM signals WHERE poll_run_id = ? AND processing_state = 'pending'").get(500).cnt).toBe(0);
+      expect((db.prepare("SELECT COUNT(*) as cnt FROM signals WHERE poll_run_id = ? AND processing_state = 'pending'").get(500) as { cnt: number }).cnt).toBe(0);
     });
   });
 
@@ -495,7 +495,7 @@ describe('PollRunManager', () => {
     });
 
     it('uses external pool instead of creating its own', async () => {
-      seedTopic(); seedChannel('UC_test');
+      seedTopic(); seedChannel('UC_test', 'Test Channel');
       const pool = new ConcurrencyPool(2);
       const mgr = new PollRunManager(db, pool);
 
@@ -509,7 +509,7 @@ describe('PollRunManager', () => {
     });
 
     it('works with default pool when none provided', async () => {
-      seedTopic(); seedChannel('UC_test');
+      seedTopic(); seedChannel('UC_test', 'Test Channel');
 
       // No pool passed — should use internal default
       const runId = await manager.startRun();

@@ -142,11 +142,9 @@ describe('resolveIndexScope — issue #181 date filtering', () => {
 // ─── ChatScope / ChatSignalContext types ──────────────────────
 
 describe('ChatScope and ChatSignalContext types — issue #127', () => {
-  it('ChatScope interface is exported from signal-chat-scope', async () => {
+  it('resolveScope function is exported from signal-chat-scope', async () => {
     const mod = await import('./signal-chat-scope');
-    // Just verify the module exports exist — structural typing in TS
-    expect(typeof mod.ChatScope).toBe('undefined'); // interfaces don't exist at runtime
-    expect(typeof mod.ChatSignalContext).toBe('undefined');
+    // ChatScope and ChatSignalContext are TypeScript interfaces — they don't exist at runtime
     expect(typeof mod.resolveScope).toBe('function');
   });
 });
@@ -381,7 +379,7 @@ describe('getHistory with filter criteria — issue #127', () => {
     seedSignal(db, 'v2', 'UC_mtg');
 
     const { ChatManager } = await import('./services/chat-manager');
-    const llmConfig = { model: 'test', apiKey: 'test', baseUrl: 'https://test' };
+    const llmConfig = { model: 'test', endpoint: 'https://test' };
     const cm = new ChatManager(db, llmConfig);
 
     // Insert a row scoped by topic
@@ -401,7 +399,7 @@ describe('getHistory with filter criteria — issue #127', () => {
     seedSignal(db, 'v1', 'UC_mtg');
 
     const { ChatManager } = await import('./services/chat-manager');
-    const llmConfig = { model: 'test', apiKey: 'test', baseUrl: 'https://test' };
+    const llmConfig = { model: 'test', endpoint: 'https://test' };
     const cm = new ChatManager(db, llmConfig);
 
     db.prepare(
@@ -421,7 +419,7 @@ describe('getHistory with filter criteria — issue #127', () => {
     seedSignal(db, 'v_b', 'UC_b');
 
     const { ChatManager } = await import('./services/chat-manager');
-    const llmConfig = { model: 'test', apiKey: 'test', baseUrl: 'https://test' };
+    const llmConfig = { model: 'test', endpoint: 'https://test' };
     const cm = new ChatManager(db, llmConfig);
 
     db.prepare(
@@ -502,7 +500,7 @@ describe('regression — per-signal chat behavior unchanged', () => {
     seedSignal(db, 'v1', 'UC_mtg');
 
     const { ChatManager } = await import('./services/chat-manager');
-    const llmConfig = { model: 'test', apiKey: 'test', baseUrl: 'https://test' };
+    const llmConfig = { model: 'test', endpoint: 'https://test' };
     const cm = new ChatManager(db, llmConfig);
 
     db.prepare(
