@@ -30,6 +30,27 @@
        --color-brand-400: #818cf8;
      }
      .signal-detail-main { height: var(--main-content-height); min-height: 400px; }
+     /* Timestamp navigation pills — used in summary, transcript, and chat answers.
+        Defined here (not via Tailwind dark: variants) because the class strings are
+        built in TypeScript and are not visible to the Tailwind CDN JIT scanner. */
+     .ts-pill {
+       display: inline-flex;
+       align-items: center;
+       background-color: #e0e7ff; /* indigo-100 */
+       color: #4338ca;            /* indigo-700 */
+       padding: 2px 8px;
+       border-radius: 4px;
+       font-size: 0.875rem;
+       font-weight: 500;
+       transition: background-color 0.15s;
+       text-decoration: none;
+     }
+     .ts-pill:hover { background-color: #c7d2fe; /* indigo-200 */ }
+     html.dark .ts-pill {
+       background-color: rgb(51 65 85);  /* slate-700 */
+       color: rgb(165 180 252);          /* indigo-300 */
+     }
+     html.dark .ts-pill:hover { background-color: rgb(71 85 105); /* slate-600 */ }
   </style>
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Design token config — must load AFTER Tailwind CDN -->
@@ -153,49 +174,6 @@
   <!-- UI State module — must load before Alpine so window.UiState is defined -->
   <% if (activePage === 'signals' || activePage === 'signal-detail' || activePage === 'admin') { %>
   <script src="/scripts/ui-state.js"></script>
-  <% } %>
-
-  <!-- Admin topic actions — must load before Alpine so onclick handlers can find it -->
-  <% if (activePage === 'admin') { %>
-  <script>
-    window.__topicSubmit = function(topicId, actionUrl) {
-      var tbody = document.querySelector('tbody[x-data]');
-      if (!tbody) return;
-      var alpineData = Alpine.$data(tbody);
-      var row = document.querySelector("tr[data-topic-id='" + topicId + "']");
-      if (!row) return;
-
-      var values = { id: String(topicId) };
-      ['key', 'short_name', 'filter_text'].forEach(function(name) {
-        var inp = row.querySelector('[name=' + name + ']');
-        if (inp) values[name] = inp.value;
-      });
-
-      fetch(actionUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
-        body: new URLSearchParams(values).toString()
-      }).then(function() {
-        if (actionUrl === '/admin/topics/update') {
-          var s1 = row.querySelector('td:nth-child(1) span');
-          if (s1) s1.textContent = values.key;
-          var s2 = row.querySelector('td:nth-child(2) span');
-          if (s2) s2.textContent = values.short_name;
-          var ft = values.filter_text || '';
-          var s3 = row.querySelector('td:nth-child(3) span');
-          if (s3) {
-            s3.textContent = ft.substring(0, 80) + (ft.length > 80 ? '\u2026' : '');
-            s3.setAttribute('title', ft);
-          }
-        } else {
-          if (row && row.parentNode) row.parentNode.removeChild(row);
-        }
-        alpineData.editId = null;
-      }).catch(function(err) {
-        console.error('Topic action failed:', err);
-      });
-    };
-  </script>
   <% } %>
 
   <!-- ScopeSource — pure scope utility, loaded before chat-panel.js -->

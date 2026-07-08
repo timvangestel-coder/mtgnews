@@ -4,10 +4,16 @@ import { ChatQueue } from '../chat-queue';
 import { ChatResponseFormatter } from '../chat-response-formatter';
 import { ChatScope } from '../signal-chat-scope';
 
+// Old class string baked into pre-formatted answers before the ts-pill migration.
+const LEGACY_PILL_CLASSES = 'inline-flex items-center bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-sm font-medium hover:bg-indigo-200 transition-colors';
+
 function formatAnswer(answer: string | null | undefined, isFormatted: number = 0): string {
   if (!answer) return '';
   // Skip re-formatting when answer was already formatted during storage (issue #135)
-  if (isFormatted) return answer;
+  if (isFormatted) {
+    // Migrate legacy pill class strings stored in DB to the new ts-pill CSS class
+    return answer.replaceAll(LEGACY_PILL_CLASSES, 'ts-pill');
+  }
   // Use empty signalMap — raw answers without citation context get fragment-only links
   return ChatResponseFormatter.format(answer, {});
 }

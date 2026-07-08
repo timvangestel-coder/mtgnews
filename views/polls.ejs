@@ -41,12 +41,7 @@
         <!-- Title + metadata chips -->
         <div class="flex-1 min-w-0">
           <!-- Run title row -->
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-muted-800 dark:text-muted-200">Run #<%= run.id %> &mdash; <%= dateStr %></span>
-            <div class="flex-shrink-0">
-              <%= badgeHtml %>
-            </div>
-          </div>
+          <span class="text-sm font-medium text-muted-800 dark:text-muted-200">Run #<%= run.id %> &mdash; <%= dateStr %></span>
 
           <!-- Metadata chips row -->
           <div class="text-xs mt-1 flex items-center gap-2 flex-wrap">
@@ -67,15 +62,17 @@
           </div>
         </div>
 
-        <!-- Action button (running only) -->
-        <% if (run.status === 'running') { %>
-          <div class="flex-shrink-0" onclick="event.stopPropagation()">
-            <form action="/admin/poll/abort/<%= run.id %>?return_to=/polls" method="post">
-              <!-- Caption level: action button -->
-              <button type="submit" class="px-2 py-1 text-xs tracking-caption font-semibold text-white bg-danger-600 rounded hover:bg-danger-700">Abort</button>
-            </form>
-          </div>
-        <% } %>
+        <!-- Status badge + optional abort button — right column, always aligned together -->
+        <div class="flex-shrink-0 flex items-center gap-2">
+          <%- badgeHtml %>
+          <% if (run.status === 'running') { %>
+            <div onclick="event.stopPropagation()">
+              <form action="/admin/poll/abort/<%= run.id %>?return_to=/polls" method="post">
+                <button type="submit" class="px-2 py-0.5 text-xs tracking-caption font-semibold text-white bg-danger-600 rounded hover:bg-danger-700">Abort</button>
+              </form>
+            </div>
+          <% } %>
+        </div>
       </div>
     </div>
   <% }); %>

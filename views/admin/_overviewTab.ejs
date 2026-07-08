@@ -1,0 +1,94 @@
+<!-- Status Count Chips -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+  <!-- Channels chip -->
+  <div class="p-3 bg-surface-50 dark:bg-muted-800 border border-surface-200 dark:border-muted-700 rounded-card">
+    <p class="text-xs uppercase tracking-caption font-medium text-muted-500 dark:text-muted-400 mb-1">Channels</p>
+    <p class="text-2xl font-bold font-mono text-muted-900 dark:text-muted-100"><%= counts.channels %></p>
+  </div>
+  <!-- Topics chip -->
+  <div class="p-3 bg-surface-50 dark:bg-muted-800 border border-surface-200 dark:border-muted-700 rounded-card">
+    <p class="text-xs uppercase tracking-caption font-medium text-muted-500 dark:text-muted-400 mb-1">Topics</p>
+    <p class="text-2xl font-bold font-mono text-muted-900 dark:text-muted-100"><%= counts.topics %></p>
+  </div>
+  <!-- Signals chip -->
+  <div class="p-3 bg-surface-50 dark:bg-muted-800 border border-surface-200 dark:border-muted-700 rounded-card">
+    <p class="text-xs uppercase tracking-caption font-medium text-muted-500 dark:text-muted-400 mb-1">Signals</p>
+    <p class="text-2xl font-bold font-mono text-muted-900 dark:text-muted-100"><%= counts.summarized %></p>
+  </div>
+  <!-- Pending chip — warning colour when non-zero -->
+  <div class="p-3 bg-surface-50 dark:bg-muted-800 border border-surface-200 dark:border-muted-700 rounded-card">
+    <p class="text-xs uppercase tracking-caption font-medium text-muted-500 dark:text-muted-400 mb-1">Pending</p>
+    <p class="text-2xl font-bold font-mono <%= counts.pending > 0 ? 'text-warning-700 dark:text-warning-400' : 'text-muted-900 dark:text-muted-100' %>"><%= counts.pending %></p>
+  </div>
+</div>
+
+<!-- Run Poll Now -->
+<div class="mb-6">
+  <h3 class="text-lg font-semibold tracking-heading mb-3 text-muted-900 dark:text-muted-100">Run Poll Now</h3>
+  <form hx-post="/admin/poll/trigger" hx-target="#progress-widget" hx-swap="outerHTML" class="flex gap-2 items-center flex-wrap">
+    <label for="lookback_days" class="text-sm text-muted-600 dark:text-muted-400">Lookback (days):</label>
+    <input id="lookback_days" name="lookback_days" type="number" min="0" max="365" value="2"
+      class="w-20 px-2 py-1 border border-surface-200 dark:border-muted-600 rounded-input text-sm bg-white dark:bg-muted-800 text-muted-800 dark:text-muted-100 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+    <button type="submit" class="px-4 py-2 bg-brand-600 text-white rounded-card hover:bg-brand-700 font-medium text-sm">
+      Run Poll Now
+    </button>
+  </form>
+</div>
+
+<!-- Live Progress Widget — only when a run is active -->
+<%- include('_pollProgress', { state: currentRunState }) %>
+
+<!-- Recent Runs -->
+<div class="mb-6">
+  <h3 class="text-lg font-semibold tracking-heading mb-3 text-muted-900 dark:text-muted-100">Recent Runs</h3>
+  <% if (recentRuns && recentRuns.length > 0) { %>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <tbody>
+          <% recentRuns.forEach(function(run) { %>
+            <%
+              var statusIcon, statusColor;
+              if (run.status === 'done') {
+                statusIcon = '✓';
+                statusColor = 'text-success-600 dark:text-success-400';
+              } else if (run.status === 'failed') {
+                statusIcon = '✗';
+                statusColor = 'text-danger-600 dark:text-danger-400';
+              } else if (run.status === 'done-forced' || run.status === 'aborted') {
+                statusIcon = '⏸';
+                statusColor = 'text-warning-600 dark:text-warning-400';
+              } else {
+                statusIcon = '…';
+                statusColor = 'text-brand-600 dark:text-brand-400';
+              }
+              var runDate = run.triggered_at ? new Date(run.triggered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+            %>
+            <tr class="border-b border-surface-100 dark:border-muted-800">
+              <td class="py-2 pr-3 w-6">
+                <span class="font-mono <%= statusColor %>"><%= statusIcon %></span>
+              </td>
+              <td class="py-2 pr-3 text-muted-700 dark:text-muted-300 whitespace-nowrap">
+                <a href="/polls/<%= run.id %>" class="hover:text-brand-600 dark:hover:text-brand-400 transition-colors"><%= runDate %></a>
+              </td>
+              <td class="py-2 pr-3 text-muted-500 dark:text-muted-400">
+                <% if (run.status === 'done' || run.status === 'done-forced') { %>
+                  <%= run.channels_total %> ch &middot; <%= run.new_signal_count %> signals
+                <% } else { %>
+                  <%= run.status %>
+                <% } %>
+              </td>
+              <td class="py-2 text-right">
+                <a href="/polls/<%= run.id %>" class="text-xs text-brand-600 dark:text-brand-400 hover:underline"><%= run.status %></a>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } else { %>
+    <p class="text-sm text-muted-500 dark:text-muted-400">No poll runs yet.</p>
+  <% } %>
+  <div class="mt-3">
+    <a href="/polls" class="text-sm text-brand-600 dark:text-brand-400 hover:underline">View all runs &rarr;</a>
+  </div>
+</div>

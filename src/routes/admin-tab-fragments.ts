@@ -5,6 +5,7 @@ import { TopicManager } from '../services/topic-manager';
 import { PollRunManager } from '../poll-run-manager';
 import { getAppSetting } from '../db/app-settings';
 import { getDbWideSoftDeleteCounts } from '../db/cascade-delete';
+import { queryPollRuns } from '../db/poll-runs';
 
 export interface AdminDeps {
   channelManager: ChannelManager;
@@ -21,6 +22,36 @@ export interface TabFragment {
 
 export const TABS: TabFragment[] = [
   {
+    key: 'overview',
+    partial: 'admin/_overviewTab',
+    dataFn: ({ channelManager, topicManager, pollRunManager, db }) => {
+      const allChannels = channelManager.listAll();
+      const activeChannels = allChannels.filter((c) => c.active && c.topic_id != null).length;
+      const topics = topicManager.listWithCounts();
+      const signalCounts = db
+        .prepare(
+          `SELECT
+            COUNT(*) FILTER (WHERE processing_state = 'summarized') AS summarized,
+            COUNT(*) FILTER (WHERE processing_state = 'pending') AS pending
+           FROM signals WHERE deleted_at IS NULL`
+        )
+        .get() as { summarized: number; pending: number };
+      const { items: recentRuns } = queryPollRuns(db, { limit: 5 });
+      const prog = pollRunManager.progress();
+      const currentRunState = prog?.state.status === 'running' ? prog.state : null;
+      return {
+        counts: {
+          channels: activeChannels,
+          topics: topics.length,
+          summarized: signalCounts?.summarized ?? 0,
+          pending: signalCounts?.pending ?? 0,
+        },
+        recentRuns,
+        currentRunState,
+      };
+    },
+  },
+  {
     key: 'channels',
     partial: 'admin/_channelsTab',
     dataFn: ({ channelManager, topicManager }) => ({
@@ -31,25 +62,15 @@ export const TABS: TabFragment[] = [
   {
     key: 'topics',
     partial: 'admin/_topicsTab',
-    dataFn: ({ topicManager, db }) => ({
+    dataFn: ({ topicManager }) => ({
       topics: topicManager.listWithCounts(),
-      defaultPrompt: getAppSetting(db, 'default_summary_prompt'),
     }),
   },
   {
-    key: 'polling',
-    partial: 'admin/_pollingTab',
-    dataFn: ({ pollRunManager }) => {
-      const prog = pollRunManager.progress();
-      return {
-        state: prog?.state.status === 'running' ? prog.state : null,
-      };
-    },
-  },
-  {
-    key: 'data',
-    partial: 'admin/_dataTab',
+    key: 'settings',
+    partial: 'admin/_settingsTab',
     dataFn: ({ db }) => {
+      const defaultPrompt = getAppSetting(db, 'default_summary_prompt');
       const counts = getDbWideSoftDeleteCounts(db);
       const softDeleteTotal =
         counts.channels +
@@ -57,7 +78,7 @@ export const TABS: TabFragment[] = [
         counts.mentions +
         counts.chats +
         counts.progress;
-      return { softDeleteCounts: counts, softDeleteTotal };
+      return { defaultPrompt, softDeleteCounts: counts, softDeleteTotal };
     },
   },
 ];

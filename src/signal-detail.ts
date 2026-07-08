@@ -16,7 +16,7 @@ export function getSignalById(db: Database.Database, videoId: string): SignalRow
   return row ?? null;
 }
 
-const PILL_CLASSES = 'inline-flex items-center bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-sm font-medium hover:bg-indigo-200 transition-colors';
+const PILL_CLASSES = 'ts-pill';
 
 export function escapeHtml(text: string): string {
   const map: Record<string, string> = {

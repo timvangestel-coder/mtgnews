@@ -16,7 +16,7 @@ test.describe('Admin Panel', () => {
     await expect(watchlistHeader).toBeVisible();
 
     // 2 seeded channels rendered as rows
-    const channelRows = page.locator('.bg-gray-50.rounded');
+    const channelRows = page.locator('[data-channel-id]');
     await expect(async () => {
       expect(await channelRows.count()).toBeGreaterThanOrEqual(2);
     }).toPass();
@@ -237,7 +237,7 @@ test.describe('Admin Panel', () => {
       await page.click('button:has-text("Channels")');
 
       // Toggle first channel's checkbox (use force:true to bypass sr-only + overlay div pointer intercept)
-      const firstToggle = page.locator('.bg-gray-50.rounded').first().locator('input[type="checkbox"]');
+      const firstToggle = page.locator('[data-channel-id]').first().locator('input[type="checkbox"]');
       if (await firstToggle.isChecked()) {
         await firstToggle.click({ force: true });
       }

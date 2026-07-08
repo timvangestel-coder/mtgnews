@@ -8,7 +8,7 @@
     </div>
   <% } %>
   <% if (state && state.status === 'running') { %>
-    <h3 class="font-semibold mb-2 flex items-center justify-between">
+    <h3 class="font-semibold mb-2 flex items-center justify-between text-muted-900 dark:text-muted-100">
       <span>
         Run #<%= state.id %> —
         <span class="text-warning-600 dark:text-warning-400">running...</span>
@@ -53,7 +53,7 @@
            }
         %>
         <div class="text-sm flex justify-between">
-          <span><%= step.displayName %></span>
+          <span class="text-muted-700 dark:text-muted-300"><%= step.displayName %></span>
           <span class="<%= stepColor %>"><%= stepLabel %></span>
         </div>
       <% }); %>
@@ -91,7 +91,7 @@
     <% } %>
 
   <% } else if (state && state.status === 'aborted') { %>
-    <h3 class="font-semibold mb-2">
+    <h3 class="font-semibold mb-2 text-muted-900 dark:text-muted-100">
       Run #<%= state.id %> —
       <span class="text-warning-600 dark:text-warning-400">aborted</span>
     </h3>
@@ -126,13 +126,13 @@
           }
         %>
         <div class="text-sm flex justify-between">
-          <span><%= step.displayName %></span>
+          <span class="text-muted-700 dark:text-muted-300"><%= step.displayName %></span>
           <span class="<%= stepColor %>"><%= stepLabel %></span>
         </div>
       <% }); %>
     </div>
   <% } else if (state) { %>
-    <h3 class="font-semibold mb-2">
+    <h3 class="font-semibold mb-2 text-muted-900 dark:text-muted-100">
       Run #<%= state.id %> —
       <span class="<%= state.status === 'complete' ? 'text-success-600 dark:text-success-400' : 'text-danger-600 dark:text-danger-400' %>"><%= state.status %></span>
     </h3>
@@ -160,7 +160,7 @@
           }
         %>
         <div class="text-sm flex justify-between">
-          <span><%= step.displayName %></span>
+          <span class="text-muted-700 dark:text-muted-300"><%= step.displayName %></span>
           <span class="<%= stepColor %>"><%= stepLabel %></span>
         </div>
       <% }); %>

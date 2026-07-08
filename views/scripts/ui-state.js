@@ -436,23 +436,23 @@ window.UiState = (() => {
    */
   function adminTabs() {
     var TAB_ENDPOINTS = {
+      overview: '/admin/overview-fragment',
       channels: '/admin/channels-fragment',
       topics: '/admin/topics-fragment',
-      polling: '/admin/polling-fragment',
-      data: '/admin/data-fragment'
+      settings: '/admin/settings-fragment'
     };
 
     /** Ordered tab IDs for keyboard roving focus */
-    var TAB_ORDER = ['channels', 'topics', 'polling', 'data'];
+    var TAB_ORDER = ['overview', 'channels', 'topics', 'settings'];
 
     return {
       activeTab: document.querySelector('[data-admin-default-tab]')
         ? document.querySelector('[data-admin-default-tab]').getAttribute('data-admin-default-tab')
-        : 'channels',
+        : 'overview',
 
       init: function () {
         var self = this;
-        ['refreshChannels', 'refreshTopics', 'refreshPolling', 'refreshData'].forEach(function (name) {
+        ['refreshOverview', 'refreshChannels', 'refreshTopics', 'refreshSettings'].forEach(function (name) {
           document.body.addEventListener(name, function () {
             var tabKey = name.replace('refresh', '').toLowerCase();
             if (tabKey === self.activeTab) {
@@ -474,8 +474,9 @@ window.UiState = (() => {
       },
 
       /**
-       * Keyboard handler — move roving focus to previous/next tab.
-       * Matches detailTabs().moveTabFocus() pattern.
+       * Keyboard handler — move roving focus to previous/next tab button.
+       * Does NOT activate the tab (manual activation pattern).
+       * Activation happens on Enter/Space keydown on the focused tab button.
        */
       moveTabFocus: function (direction) {
         var currentIndex = TAB_ORDER.indexOf(this.activeTab);
@@ -487,11 +488,7 @@ window.UiState = (() => {
         }
         var nextTabId = 'admin-tab-' + TAB_ORDER[nextIndex];
         var tabEl = document.getElementById(nextTabId);
-        if (tabEl) {
-          tabEl.focus();
-          // Activate the tab on focus (roving tabindex pattern)
-          this.switchTab(TAB_ORDER[nextIndex]);
-        }
+        if (tabEl) tabEl.focus();
       },
 
       fetchTab: function (tabKey) {
@@ -508,6 +505,52 @@ window.UiState = (() => {
               htmx.process(el);
             }
           });
+      }
+    };
+  }
+
+  /**
+   * Topic Modal — centred Add/Edit modal for topic management.
+   * Opened via `open-topic-modal` event from topic rows or Add Topic button.
+   */
+  function topicModal() {
+    return {
+      open: false,
+      mode: 'add',
+      topic: {},
+      _triggerEl: null,
+
+      init: function () {
+        var self = this;
+        window.addEventListener('open-topic-modal', function (evt) {
+          self.mode = evt.detail.mode || 'add';
+          self.topic = evt.detail.topic || {};
+          self.open = true;
+          self._triggerEl = document.activeElement;
+        });
+      },
+
+      openAdd: function () {
+        this.mode = 'add';
+        this.topic = {};
+        this.open = true;
+        this._triggerEl = document.activeElement;
+      },
+
+      openEdit: function (topic) {
+        this.mode = 'edit';
+        this.topic = topic || {};
+        this.open = true;
+        this._triggerEl = document.activeElement;
+      },
+
+      close: function () {
+        this.open = false;
+        var trigger = this._triggerEl;
+        this._triggerEl = null;
+        if (trigger && trigger.focus) {
+          trigger.focus();
+        }
       }
     };
   }
@@ -669,5 +712,111 @@ window.UiState = (() => {
     };
   }
 
-  return { filterBar, signalListView, detailTabs, adminTabs, deleteModal };
+  /**
+   * TopicActions — Alpine component for the Topics tab tbody.
+   * Replaces the global window.__topicSubmit() adapter with a clean, testable seam.
+   * Mounted via x-data="UiState.topicActions()" on the <tbody> element.
+   */
+  function topicActions() {
+    return {
+      editId: null,
+
+      /**
+       * Save changes for the topic row identified by topicId.
+       * Collects form field values from the row, POSTs to /admin/topics/update,
+       * and swaps the row with the server-rendered HTML response.
+       */
+      save: function (topicId) {
+        var self = this;
+        var row = document.querySelector("tr[data-topic-id='" + topicId + "']");
+        if (!row) return;
+
+        var values = { id: String(topicId) };
+        ['key', 'short_name', 'filter_text', 'summary_prompt', 'multi_signal_summary_prompt'].forEach(function (name) {
+          var inp = row.querySelector('[name="' + name + '"]');
+          if (inp) values[name] = inp.value;
+        });
+
+        fetch('/admin/topics/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
+          body: new URLSearchParams(values).toString()
+        })
+          .then(function (res) { return res.text(); })
+          .then(function (html) {
+            if (html && html.trim() && row.parentNode) {
+              var tmp = document.createElement('tbody');
+              tmp.innerHTML = html;
+              var newRow = tmp.firstElementChild;
+              if (newRow) {
+                row.parentNode.replaceChild(newRow, row);
+                if (typeof Alpine !== 'undefined') Alpine.initTree(newRow);
+                if (typeof htmx !== 'undefined') htmx.process(newRow);
+              }
+            }
+            self.editId = null;
+          })
+          .catch(function (err) { console.error('Topic save failed:', err); });
+      },
+
+      /**
+       * Confirm and delete the topic row identified by topicId.
+       * channelCount is used to build a descriptive confirm message.
+       * Removes the row from the DOM on success.
+       */
+      deleteAndRemove: function (topicId, channelCount) {
+        var msg = 'Delete this topic?';
+        if (channelCount > 0) msg += ' ' + channelCount + ' channel(s) will be unassigned.';
+        if (!confirm(msg)) return;
+
+        var self = this;
+        var row = document.querySelector("tr[data-topic-id='" + topicId + "']");
+        fetch('/admin/topics/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
+          body: new URLSearchParams({ id: String(topicId) }).toString()
+        })
+          .then(function () {
+            if (row && row.parentNode) row.parentNode.removeChild(row);
+            self.editId = null;
+          })
+          .catch(function (err) { console.error('Topic delete failed:', err); });
+      }
+    };
+  }
+
+  /**
+   * ChannelActions — Alpine component for each channel card in the Channels tab.
+   * Replaces the pair of tiny HTMX forms (toggle + topic update) with a unified adapter.
+   * Mounted via x-data="UiState.channelActions()" on each channel card element.
+   */
+  function channelActions() {
+    return {
+      /**
+       * Toggle the active state of a channel.
+       * newActive is the desired state after the toggle (true = active).
+       */
+      toggleActive: function (channelId, newActive) {
+        fetch('/admin/channels/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
+          body: new URLSearchParams({ channel_id: channelId, active: String(newActive) }).toString()
+        }).catch(function (err) { console.error('Channel toggle failed:', err); });
+      },
+
+      /**
+       * Assign a topic to a channel.
+       * topicId is the selected topic's id (empty string clears the assignment).
+       */
+      updateTopic: function (channelId, topicId) {
+        fetch('/admin/channels/update-topic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
+          body: new URLSearchParams({ channel_id: channelId, topic_id: topicId }).toString()
+        }).catch(function (err) { console.error('Channel topic update failed:', err); });
+      }
+    };
+  }
+
+  return { filterBar, signalListView, detailTabs, adminTabs, topicModal, deleteModal, topicActions, channelActions };
 })();

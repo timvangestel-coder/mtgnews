@@ -2,16 +2,34 @@
 <h2 class="text-2xl font-bold tracking-display text-muted-900 dark:text-muted-100 mb-4">Admin Panel</h2>
 
 <!-- Tab Navigation — UiState.adminTabs() is loaded from /scripts/ui-state.js via layout.ejs -->
-<div class="mb-6" x-data="UiState.adminTabs()" data-admin-default-tab="<%= tab || 'channels' %>">
+<div class="mb-6" x-data="UiState.adminTabs()" data-admin-default-tab="<%= tab || 'overview' %>">
   <!-- Underline tab navigation matching Group A signal-detail pattern -->
   <div class="border-b border-surface-200 dark:border-muted-700 mb-4">
     <div role="tablist" aria-label="Admin panel sections" class="flex flex-wrap gap-0 md:gap-0 -mb-px">
+      <button id="admin-tab-overview"
+              role="tab"
+              :aria-selected="activeTab === 'overview' ? 'true' : 'false'"
+              aria-controls="overview-tab-content"
+              :tabindex="activeTab === 'overview' ? '0' : '-1'"
+              @click="switchTab('overview')"
+              @keydown.enter.prevent="switchTab('overview')"
+              @keydown.space.prevent="switchTab('overview')"
+              @keydown.left.prevent="moveTabFocus('left')"
+              @keydown.right.prevent="moveTabFocus('right')"
+              :class="activeTab === 'overview'
+                ? 'text-brand-600 dark:text-brand-400 border-b-2 border-brand-500 font-semibold'
+                : 'text-muted-500 dark:text-muted-400 hover:text-slate-700 dark:hover:text-slate-200 border-b-2 border-transparent'"
+              class="pb-3 px-4 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 rounded-t">
+        Overview
+      </button>
       <button id="admin-tab-channels"
               role="tab"
               :aria-selected="activeTab === 'channels' ? 'true' : 'false'"
               aria-controls="channels-tab-content"
-              tabindex="0"
+              :tabindex="activeTab === 'channels' ? '0' : '-1'"
               @click="switchTab('channels')"
+              @keydown.enter.prevent="switchTab('channels')"
+              @keydown.space.prevent="switchTab('channels')"
               @keydown.left.prevent="moveTabFocus('left')"
               @keydown.right.prevent="moveTabFocus('right')"
               :class="activeTab === 'channels'
@@ -24,8 +42,10 @@
               role="tab"
               :aria-selected="activeTab === 'topics' ? 'true' : 'false'"
               aria-controls="topics-tab-content"
-              tabindex="-1"
+              :tabindex="activeTab === 'topics' ? '0' : '-1'"
               @click="switchTab('topics')"
+              @keydown.enter.prevent="switchTab('topics')"
+              @keydown.space.prevent="switchTab('topics')"
               @keydown.left.prevent="moveTabFocus('left')"
               @keydown.right.prevent="moveTabFocus('right')"
               :class="activeTab === 'topics'
@@ -34,36 +54,31 @@
               class="pb-3 px-4 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 rounded-t">
         Topics
       </button>
-      <button id="admin-tab-polling"
+      <button id="admin-tab-settings"
               role="tab"
-              :aria-selected="activeTab === 'polling' ? 'true' : 'false'"
-              aria-controls="polling-tab-content"
-              tabindex="-1"
-              @click="switchTab('polling')"
+              :aria-selected="activeTab === 'settings' ? 'true' : 'false'"
+              aria-controls="settings-tab-content"
+              :tabindex="activeTab === 'settings' ? '0' : '-1'"
+              @click="switchTab('settings')"
+              @keydown.enter.prevent="switchTab('settings')"
+              @keydown.space.prevent="switchTab('settings')"
               @keydown.left.prevent="moveTabFocus('left')"
               @keydown.right.prevent="moveTabFocus('right')"
-              :class="activeTab === 'polling'
+              :class="activeTab === 'settings'
                 ? 'text-brand-600 dark:text-brand-400 border-b-2 border-brand-500 font-semibold'
                 : 'text-muted-500 dark:text-muted-400 hover:text-slate-700 dark:hover:text-slate-200 border-b-2 border-transparent'"
               class="pb-3 px-4 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 rounded-t">
-        Polling
-      </button>
-      <button id="admin-tab-data"
-              role="tab"
-              :aria-selected="activeTab === 'data' ? 'true' : 'false'"
-              aria-controls="data-tab-content"
-              tabindex="-1"
-              @click="switchTab('data')"
-              @keydown.left.prevent="moveTabFocus('left')"
-              @keydown.right.prevent="moveTabFocus('right')"
-              :class="activeTab === 'data'
-                ? 'text-brand-600 dark:text-brand-400 border-b-2 border-brand-500 font-semibold'
-                : 'text-muted-500 dark:text-muted-400 hover:text-slate-700 dark:hover:text-slate-200 border-b-2 border-transparent'"
-              class="pb-3 px-4 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 rounded-t">
-        Data
+        Settings
       </button>
     </div>
   </div>
+
+  <!-- Overview Tab -->
+  <template x-if="activeTab === 'overview'">
+    <div id="overview-tab-content" role="tabpanel" aria-labelledby="admin-tab-overview" x-init="htmx.process($el)">
+      <%- include('admin/_overviewTab', { counts: overviewCounts, recentRuns, currentRunState }) %>
+    </div>
+  </template>
 
   <!-- Channels Tab -->
   <template x-if="activeTab === 'channels'">
@@ -75,21 +90,14 @@
   <!-- Topics Tab -->
   <template x-if="activeTab === 'topics'">
     <div id="topics-tab-content" role="tabpanel" aria-labelledby="admin-tab-topics" x-init="htmx.process($el)">
-      <%- include('admin/_topicsTab', { topics, defaultPrompt }) %>
+      <%- include('admin/_topicsTab', { topics }) %>
     </div>
   </template>
 
-  <!-- Polling Tab -->
-  <template x-if="activeTab === 'polling'">
-    <div id="polling-tab-content" role="tabpanel" aria-labelledby="admin-tab-polling" x-init="htmx.process($el)">
-      <%- include('admin/_pollingTab', { state: currentRunState }) %>
-    </div>
-  </template>
-
-  <!-- Data Tab -->
-  <template x-if="activeTab === 'data'">
-    <div id="data-tab-content" role="tabpanel" aria-labelledby="admin-tab-data">
-      <%- include('admin/_dataTab', { softDeleteCounts, softDeleteTotal }) %>
+  <!-- Settings Tab -->
+  <template x-if="activeTab === 'settings'">
+    <div id="settings-tab-content" role="tabpanel" aria-labelledby="admin-tab-settings" x-init="htmx.process($el)">
+      <%- include('admin/_settingsTab', { defaultPrompt, softDeleteCounts, softDeleteTotal }) %>
     </div>
   </template>
 </div>

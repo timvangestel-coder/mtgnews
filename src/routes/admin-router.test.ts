@@ -66,7 +66,7 @@ describe('admin-router', () => {
   });
 
   describe('POST /admin/undo-all', () => {
-    it('sends HX-Trigger header with refreshData and refreshChannels', async () => {
+    it('sends HX-Trigger header with refreshSettings and refreshChannels', async () => {
       const { app } = createTestApp();
 
       const response = await supertest(app)
@@ -78,13 +78,13 @@ describe('admin-router', () => {
       expect(triggerHeader).toBeDefined();
 
       const triggers = JSON.parse(triggerHeader!);
-      expect(triggers.refreshData).toBeDefined();
+      expect(triggers.refreshSettings).toBeDefined();
       expect(triggers.refreshChannels).toBeDefined();
     });
   });
 
   describe('POST /admin/purge-all', () => {
-    it('sends HX-Trigger header with refreshData and refreshChannels', async () => {
+    it('sends HX-Trigger header with refreshSettings and refreshChannels', async () => {
       const { app } = createTestApp();
 
       const response = await supertest(app)
@@ -96,7 +96,7 @@ describe('admin-router', () => {
       expect(triggerHeader).toBeDefined();
 
       const triggers = JSON.parse(triggerHeader!);
-      expect(triggers.refreshData).toBeDefined();
+      expect(triggers.refreshSettings).toBeDefined();
       expect(triggers.refreshChannels).toBeDefined();
     });
   });

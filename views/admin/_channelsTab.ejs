@@ -1,41 +1,56 @@
-<!-- Add Channel -->
-<div class="mb-6">
-  <h3 class="text-xl font-semibold mb-2">Add Channel</h3>
-  <form hx-post="/admin/channels/add" hx-swap="none" class="flex flex-col gap-2">
-    <div class="flex flex-col md:flex-row gap-2 md:gap-3">
-      <input type="text" name="channel_id" placeholder="YouTube Channel ID (e.g. UCxxxx)"
-         class="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-brand-500" required />
-      <select name="topic_id" class="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-brand-500 md:w-auto">
-        <option value="">Select Topic</option>
-        <% topics.forEach(function(topic) { %>
-          <option value="<%= topic.id %>"><%= topic.short_name %></option>
-        <% }); %>
-      </select>
-      <button type="submit" class="px-4 py-2 bg-success-600 text-white rounded hover:bg-success-700">Add</button>
-    </div>
-  </form>
+<!-- Add Channel — collapsible section -->
+<div class="mb-6" x-data="{ open: <%= (channels && channels.length === 0) ? 'true' : 'false' %> }">
+  <div class="flex items-center gap-3 mb-2">
+    <h3 class="text-xl font-semibold tracking-heading text-muted-900 dark:text-muted-100">Channels</h3>
+    <button type="button"
+      @click="open = !open"
+      :aria-expanded="open ? 'true' : 'false'"
+      class="flex items-center gap-1 text-sm px-3 py-1.5 rounded-card border border-surface-200 dark:border-muted-600 text-brand-600 dark:text-brand-400 hover:bg-surface-100 dark:hover:bg-muted-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+      <span x-text="open ? '− Add Channel' : '+ Add Channel'"></span>
+    </button>
+  </div>
+
+  <!-- Empty-state nudge when no channels -->
+  <% if (!channels || channels.length === 0) { %>
+    <p class="text-sm leading-relaxed text-muted-500 dark:text-muted-400 mb-3">No channels in WatchList. Add one below to get started.</p>
+  <% } %>
+
+  <!-- Collapsible form -->
+  <div x-show="open" x-transition class="mb-4">
+    <form hx-post="/admin/channels/add" hx-swap="none" class="flex flex-col gap-2">
+      <div class="flex flex-col md:flex-row gap-2 md:gap-3">
+        <input type="text" name="channel_id" placeholder="YouTube Channel ID (e.g. UCxxxx)"
+           class="flex-1 px-3 py-2 border border-surface-200 dark:border-muted-600 rounded-input bg-white dark:bg-muted-800 text-muted-800 dark:text-muted-100 focus:outline-none focus:ring-2 focus:ring-brand-500" required />
+        <select name="topic_id" class="px-3 py-2 border border-surface-200 dark:border-muted-600 rounded-input bg-white dark:bg-muted-800 text-muted-800 dark:text-muted-100 focus:outline-none focus:ring-2 focus:ring-brand-500 md:w-auto">
+          <option value="">Select Topic</option>
+          <% topics.forEach(function(topic) { %>
+            <option value="<%= topic.id %>"><%= topic.short_name %></option>
+          <% }); %>
+        </select>
+        <button type="submit" class="px-4 py-2 bg-success-600 text-white rounded-card hover:bg-success-700 text-sm font-medium">Add</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <!-- WatchList -->
 <div>
-  <h3 class="text-xl font-semibold mb-2">WatchList</h3>
-
   <% if (channels && channels.length > 0) { %>
     <div class="space-y-3 md:space-y-4">
       <% channels.forEach(function(ch) { %>
-        <div class="flex items-center gap-4 p-3 bg-white dark:bg-slate-800 rounded-xl border border-surface-200 dark:border-muted-700">
+        <div data-channel-id="<%= ch.channel_id %>" x-data="UiState.channelActions()" class="flex items-center gap-4 p-3 bg-surface-50 dark:bg-muted-800 rounded-card border border-surface-200 dark:border-muted-700">
           <!-- Avatar -->
           <% if (ch.avatar_url) { %>
-            <img src="<%= ch.avatar_url %>" alt="" class="w-10 h-10 rounded-lg object-cover" />
+            <img src="<%= ch.avatar_url %>" alt="" class="w-10 h-10 rounded-card object-cover" />
           <% } else { %>
-            <div class="w-10 h-10 rounded-lg bg-brand-100 dark:bg-brand-900 text-brand-600 dark:text-brand-300 flex items-center justify-center font-semibold text-sm">
+            <div class="w-10 h-10 rounded-card bg-brand-100 dark:bg-brand-900 text-brand-600 dark:text-brand-300 flex items-center justify-center font-semibold text-sm">
               <%= (ch.display_name || ch.channel_id).charAt(0) %>
             </div>
           <% } %>
 
           <!-- Info -->
-          <div class="flex-1">
-            <p class="font-medium"><%= ch.display_name || ch.channel_id %></p>
+          <div class="flex-1 min-w-0">
+            <p class="font-medium text-muted-900 dark:text-muted-100"><%= ch.display_name || ch.channel_id %></p>
             <p class="text-xs text-muted-500 dark:text-muted-400">
               ID: <%= ch.channel_id %>
               <% if (ch.last_poll_date) { %>
@@ -46,52 +61,39 @@
             </p>
           </div>
 
-          <!-- Active Toggle -->
-          <form hx-post="/admin/channels/toggle" hx-swap="none" hx-trigger="change from:input" class="flex items-center gap-2">
-            <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
-            <input type="hidden" name="active" value="<%= !ch.active %>" />
+          <!-- Active Toggle — unified action adapter (no HTMX form) -->
+          <div class="flex items-center gap-2">
             <label class="inline-flex items-center cursor-pointer">
-              <input type="checkbox" <%= ch.active ? 'checked' : '' %> class="sr-only peer" />
-              <div class="w-9 h-5 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
+              <input type="checkbox" <%= ch.active ? 'checked' : '' %> class="sr-only peer"
+                @change="toggleActive('<%= ch.channel_id %>', $event.target.checked)" />
+              <div class="relative w-9 h-5 bg-surface-300 dark:bg-muted-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-surface-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
             </label>
             <span class="text-xs text-muted-500 dark:text-muted-400"><%= ch.active ? 'Active' : 'Inactive' %></span>
-          </form>
+          </div>
 
-            <!-- Topic Badge -->
-            <% var chTopic = topics.find(function(t) { return t.id === ch.topic_id; }); %>
-            <% if (chTopic) { %>
-              <span class="px-2 py-0.5 bg-brand-100 dark:bg-brand-900 text-brand-700 dark:text-brand-300 rounded-full text-xs font-medium" title="Topic: <%= chTopic.short_name %>"><%= chTopic.short_name %></span>
-            <% } else { %>
-              <span class="px-2 py-0.5 bg-warning-100 dark:bg-warning-900 text-warning-700 dark:text-warning-300 rounded-full text-xs font-medium" title="No topic assigned">No topic</span>
-            <% } %>
+          <!-- Change Topic — unified action adapter (no HTMX form) -->
+          <select class="text-xs px-2 py-1 border border-surface-200 dark:border-muted-600 rounded-input bg-white dark:bg-muted-800 text-muted-700 dark:text-muted-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            @change="updateTopic('<%= ch.channel_id %>', $event.target.value)">
+            <% var noTopic = !ch.topic_id; %>
+            <option value="<%= noTopic ? '' : 'x' %>"<%= noTopic ? ' selected' : '' %>></option>
+            <% topics.forEach(function(topic) { %>
+              <% var sel = ch.topic_id === topic.id; %>
+              <option value="<%= topic.id %>"<%= sel ? ' selected' : '' %>><%= topic.short_name %></option>
+            <% }); %>
+          </select>
 
-            <!-- Change Topic -->
-            <form hx-post="/admin/channels/update-topic" hx-swap="none" hx-trigger="change from:select" class="flex items-center gap-1">
-              <input type="hidden" name="channel_id" value="<%= ch.channel_id %>" />
-              <select name="topic_id" class="text-xs px-1 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-brand-500">
-               <% var noTopic = !ch.topic_id; %>
-               <option value="<%= noTopic ? '' : 'x' %>"<%= noTopic ? ' selected' : '' %>></option>
-               <% topics.forEach(function(topic) { %>
-                 <% var sel = ch.topic_id === topic.id; %>
-                 <option value="<%= topic.id %>"<%= sel ? ' selected' : '' %>><%= topic.short_name %></option>
-               <% }); %>
-             </select>
-           </form>
-
-           <!-- Remove -->
-            <button type="button" class="text-sm text-danger-600 dark:text-danger-400 hover:text-danger-800"
-              @click="$dispatch('open-delete-modal', {
-                title: 'Remove Channel',
-                message: `Are you sure you want to remove '${<%= JSON.stringify(ch.display_name || ch.channel_id) %>}'?`,
-                countsUrl: '/admin/channels/delete-counts?channel_id=<%= ch.channel_id %>',
-                actionUrl: '/admin/channels/remove',
-                actionPayload: { channel_id: '<%= ch.channel_id %>' }
-              })">Remove</button>
+          <!-- Remove -->
+          <button type="button" class="text-sm text-danger-600 dark:text-danger-400 hover:text-danger-800 dark:hover:text-danger-200 transition-colors"
+            @click="$dispatch('open-delete-modal', {
+              title: 'Remove Channel',
+              message: `Are you sure you want to remove '${<%= JSON.stringify(ch.display_name || ch.channel_id) %>}'?`,
+              countsUrl: '/admin/channels/delete-counts?channel_id=<%= ch.channel_id %>',
+              actionUrl: '/admin/channels/remove',
+              actionPayload: { channel_id: '<%= ch.channel_id %>' }
+            })">Remove</button>
 
         </div>
       <% }); %>
     </div>
-  <% } else { %>
-    <p class="text-muted-500 dark:text-muted-400">No channels in WatchList. Add one above.</p>
   <% } %>
 </div>

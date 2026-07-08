@@ -12,24 +12,28 @@ vi.mock('../db/cascade-delete', () => ({
   })),
 }));
 
+vi.mock('../db/poll-runs', () => ({
+  queryPollRuns: vi.fn(() => ({ items: [], total: 0 })),
+}));
+
 describe('admin-tab-fragments', () => {
   describe('TABS config', () => {
     it('should have exactly 4 tab fragments', () => {
       expect(TABS).toHaveLength(4);
     });
 
-    it('should have channels, topics, polling, and data tabs', () => {
+    it('should have overview, channels, topics, and settings tabs', () => {
       const keys = TABS.map((t) => t.key);
-      expect(keys).toEqual(['channels', 'topics', 'polling', 'data']);
+      expect(keys).toEqual(['overview', 'channels', 'topics', 'settings']);
     });
 
     it('should map each tab to the correct partial', () => {
       const tabMap = Object.fromEntries(TABS.map((t) => [t.key, t.partial]));
       expect(tabMap).toEqual({
+        overview: 'admin/_overviewTab',
         channels: 'admin/_channelsTab',
         topics: 'admin/_topicsTab',
-        polling: 'admin/_pollingTab',
-        data: 'admin/_dataTab',
+        settings: 'admin/_settingsTab',
       });
     });
 
@@ -61,7 +65,12 @@ describe('admin-tab-fragments', () => {
           state: { status: 'idle' as const },
         })),
       };
-      const mockDb = {} as Database.Database;
+      const mockDb = {
+        prepare: vi.fn(() => ({
+          get: vi.fn(() => ({ summarized: 0, pending: 0 })),
+          all: vi.fn(() => []),
+        })),
+      } as unknown as Database.Database;
 
       deps = {
         channelManager: mockChannelManager as any,
@@ -85,10 +94,30 @@ describe('admin-tab-fragments', () => {
       const routes = (router as any).stack.map((s: any) => s.route);
       const definedPaths = routes.filter((r: any) => r !== undefined).map((r: any) => r.path);
       
+      expect(definedPaths).toContain('/admin/overview-fragment');
       expect(definedPaths).toContain('/admin/channels-fragment');
       expect(definedPaths).toContain('/admin/topics-fragment');
-      expect(definedPaths).toContain('/admin/polling-fragment');
-      expect(definedPaths).toContain('/admin/data-fragment');
+      expect(definedPaths).toContain('/admin/settings-fragment');
+    });
+
+    it('should render overview partial with layout:false on GET /admin/overview-fragment', async () => {
+      const router = createFragmentRouter(deps);
+      
+      // Create a mock request/response pair
+      const mockRes = {
+        render: vi.fn(),
+      };
+      
+      const stackItem = (router as any).stack.find(
+        (s: any) => s.route?.path === '/admin/overview-fragment'
+      );
+      expect(stackItem).toBeDefined();
+
+      const handler = stackItem.route.stack[0].handle;
+      handler({}, mockRes);
+
+      expect(mockRes.render).toHaveBeenCalledWith('admin/_overviewTab', 
+        expect.objectContaining({ layout: false }));
     });
 
     it('should render channels partial with layout:false on GET /admin/channels-fragment', async () => {
@@ -131,7 +160,7 @@ describe('admin-tab-fragments', () => {
         expect.objectContaining({ layout: false }));
     });
 
-    it('should render polling partial with layout:false on GET /admin/polling-fragment', async () => {
+    it('should render settings partial with layout:false on GET /admin/settings-fragment', async () => {
       const router = createFragmentRouter(deps);
       
       const mockRes = {
@@ -139,33 +168,14 @@ describe('admin-tab-fragments', () => {
       };
       
       const stackItem = (router as any).stack.find(
-        (s: any) => s.route?.path === '/admin/polling-fragment'
+        (s: any) => s.route?.path === '/admin/settings-fragment'
       );
       expect(stackItem).toBeDefined();
 
       const handler = stackItem.route.stack[0].handle;
       handler({}, mockRes);
 
-      expect(mockRes.render).toHaveBeenCalledWith('admin/_pollingTab', 
-        expect.objectContaining({ layout: false }));
-    });
-
-    it('should render data partial with layout:false on GET /admin/data-fragment', async () => {
-      const router = createFragmentRouter(deps);
-      
-      const mockRes = {
-        render: vi.fn(),
-      };
-      
-      const stackItem = (router as any).stack.find(
-        (s: any) => s.route?.path === '/admin/data-fragment'
-      );
-      expect(stackItem).toBeDefined();
-
-      const handler = stackItem.route.stack[0].handle;
-      handler({}, mockRes);
-
-      expect(mockRes.render).toHaveBeenCalledWith('admin/_dataTab', 
+      expect(mockRes.render).toHaveBeenCalledWith('admin/_settingsTab', 
         expect.objectContaining({ layout: false }));
     });
 
@@ -222,42 +232,71 @@ describe('admin-tab-fragments', () => {
       expect(data.topics).toEqual([{ id: 1 }]);
     });
 
-    it('polling dataFn should return state only when running', () => {
-      const pollingTab = TABS.find((t) => t.key === 'polling')!;
+    it('overview dataFn should return counts, recentRuns, and currentRunState', () => {
+      const overviewTab = TABS.find((t) => t.key === 'overview')!;
 
       const deps: AdminDeps = {
-        channelManager: {} as any,
-        topicManager: {} as any,
-        pollRunManager: {
-          progress: vi.fn(() => ({
-            runId: 1,
-            state: { status: 'running' as const, currentStep: 'downloading' },
-          })),
-        } as any,
-        db: {} as any,
-      };
-
-      const data = pollingTab.dataFn(deps);
-      expect(data.state).toEqual({ status: 'running', currentStep: 'downloading' });
-    });
-
-    it('polling dataFn should return null state when not running', () => {
-      const pollingTab = TABS.find((t) => t.key === 'polling')!;
-
-      const deps: AdminDeps = {
-        channelManager: {} as any,
-        topicManager: {} as any,
+        channelManager: { listAll: vi.fn(() => [{ id: 1, active: 1, topic_id: 1 }, { id: 2, active: 1, topic_id: null }]) } as any,
+        topicManager: { listWithCounts: vi.fn(() => [{ id: 1 }, { id: 2 }]) } as any,
         pollRunManager: {
           progress: vi.fn(() => ({
             runId: 1,
             state: { status: 'idle' as const },
           })),
         } as any,
+        db: {
+          prepare: vi.fn(() => ({
+            all: vi.fn(() => []),
+            get: vi.fn(() => ({ summarized: 5, pending: 2 })),
+          })),
+        } as any,
+      };
+
+      const data = overviewTab.dataFn(deps);
+      expect(data).toHaveProperty('recentRuns');
+      expect(data).toHaveProperty('currentRunState');
+      expect(data).toHaveProperty('counts');
+    });
+
+    it('settings dataFn should return defaultPrompt and softDeleteCounts', () => {
+      const settingsTab = TABS.find((t) => t.key === 'settings')!;
+
+      const deps: AdminDeps = {
+        channelManager: {} as any,
+        topicManager: {} as any,
+        pollRunManager: {} as any,
         db: {} as any,
       };
 
-      const data = pollingTab.dataFn(deps);
-      expect(data.state).toBeNull();
+      const data = settingsTab.dataFn(deps);
+      expect(data).toHaveProperty('defaultPrompt');
+      expect(data).toHaveProperty('softDeleteCounts');
+      expect(data).toHaveProperty('softDeleteTotal');
+    });
+
+    it('polling dataFn should return state only when running', () => {
+      // polling tab no longer exists — verify overview returns null state when not running
+      const overviewTab = TABS.find((t) => t.key === 'overview')!;
+
+      const deps: AdminDeps = {
+        channelManager: { listAll: vi.fn(() => []) } as any,
+        topicManager: { listWithCounts: vi.fn(() => []) } as any,
+        pollRunManager: {
+          progress: vi.fn(() => ({
+            runId: 1,
+            state: { status: 'idle' as const },
+          })),
+        } as any,
+        db: {
+          prepare: vi.fn(() => ({
+            all: vi.fn(() => []),
+            get: vi.fn(() => ({ summarized: 0, pending: 0 })),
+          })),
+        } as any,
+      };
+
+      const data = overviewTab.dataFn(deps);
+      expect(data.currentRunState).toBeNull();
     });
   });
 });

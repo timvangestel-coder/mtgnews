@@ -1,5 +1,33 @@
-<div class="mb-6">
-  <h3 class="text-xl font-semibold tracking-heading mb-1 text-muted-900 dark:text-muted-100">Soft-Deleted Entities</h3>
+<!-- LLM Settings -->
+<div class="mb-8">
+  <h3 class="text-xl font-semibold tracking-heading mb-4 text-muted-900 dark:text-muted-100">LLM Settings</h3>
+
+  <!-- Global Default Summary Prompt -->
+  <div class="mb-6">
+    <h4 class="text-lg font-medium tracking-heading mb-2 text-muted-800 dark:text-muted-200">Global Default Summary Prompt</h4>
+    <p class="text-sm leading-relaxed text-muted-500 dark:text-muted-400 mb-2">
+      Sets the default prompt template for all topics that do not have a custom prompt configured.
+      <% if (defaultPrompt === null || defaultPrompt === undefined) { %>
+        <span class="text-muted-400 dark:text-muted-500">Currently using compiled default (no DB override set).</span>
+      <% } else { %>
+        <span class="text-success-600 dark:text-success-400">Custom global prompt is active.</span>
+      <% } %>
+    </p>
+    <form hx-post="/admin/settings/default-prompt" hx-swap="none" class="flex flex-col gap-2 max-w-3xl">
+      <textarea name="prompt" rows="8"
+          class="px-3 py-2 border border-surface-200 dark:border-muted-600 rounded-input text-sm font-mono bg-white dark:bg-muted-800 text-muted-800 dark:text-muted-100 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          placeholder="Leave empty to use compiled default template"><%= defaultPrompt || '' %></textarea>
+      <div class="flex gap-2 items-center">
+        <button type="submit" class="px-4 py-2 bg-success-600 text-white rounded-card hover:bg-success-700 text-sm font-medium">Save</button>
+        <span class="text-xs text-muted-400 dark:text-muted-500">Setting empty clears the override and falls back to compiled default.</span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Danger Zone -->
+<div class="border-t border-surface-200 dark:border-muted-700 pt-6">
+  <h3 class="text-xl font-semibold tracking-heading mb-1 text-warning-700 dark:text-warning-400">Danger Zone</h3>
   <p class="text-sm leading-relaxed text-muted-500 dark:text-muted-400 mb-5">
     Rows marked as deleted (<code class="text-xs font-mono bg-surface-100 dark:bg-muted-700 px-1 rounded">deleted_at</code> set).
     Use <strong>Undo All</strong> to restore them, or <strong>Purge All</strong> to permanently remove them.
@@ -33,7 +61,7 @@
     </div>
   </div>
 
-  <!-- Grouped restore / purge actions -->
+  <!-- Bulk actions -->
   <div class="flex flex-wrap gap-4 items-start p-4 bg-surface-50 dark:bg-muted-800 border border-surface-200 dark:border-muted-700 rounded-card">
     <div class="flex-1 min-w-0">
       <p class="text-sm font-medium text-muted-800 dark:text-muted-200 mb-0.5">Bulk actions</p>

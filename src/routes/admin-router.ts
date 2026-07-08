@@ -5,6 +5,7 @@ import { getDbWideSoftDeleteCounts, undoAllSoftDeletes, purgeAllSoftDeleted } fr
 import { ChannelManager } from '../services/channel-manager';
 import { TopicManager } from '../services/topic-manager';
 import { PollRunManager } from '../poll-run-manager';
+import { queryPollRuns } from '../db/poll-runs';
 
 export function createAdminRouter(
   channelManager: ChannelManager,
@@ -30,7 +31,7 @@ export function createAdminRouter(
 
     const defaultPrompt = getAppSetting(db, 'default_summary_prompt');
 
-    // Soft delete counts for Data tab (server-rendered, zero extra HTTP requests)
+    // Soft delete counts for Settings tab (server-rendered, zero extra HTTP requests)
     const softDeleteCounts = getDbWideSoftDeleteCounts(db);
     const softDeleteTotal =
       softDeleteCounts.channels +
@@ -38,6 +39,24 @@ export function createAdminRouter(
       softDeleteCounts.mentions +
       softDeleteCounts.chats +
       softDeleteCounts.progress;
+
+    // Overview counts for the Overview tab initial render
+    const activeChannelCount = channels.filter((c) => c.active && c.topic_id != null).length;
+    const signalCounts = db
+      .prepare(
+        `SELECT
+          COUNT(*) FILTER (WHERE processing_state = 'summarized') AS summarized,
+          COUNT(*) FILTER (WHERE processing_state = 'pending') AS pending
+         FROM signals WHERE deleted_at IS NULL`
+      )
+      .get() as { summarized: number; pending: number };
+    const overviewCounts = {
+      channels: activeChannelCount,
+      topics: topics.length,
+      summarized: signalCounts?.summarized ?? 0,
+      pending: signalCounts?.pending ?? 0,
+    };
+    const { items: recentRuns } = queryPollRuns(db, { limit: 5 });
 
     res.render('admin', {
       activePage: 'admin',
@@ -49,18 +68,8 @@ export function createAdminRouter(
       defaultPrompt,
       softDeleteCounts,
       softDeleteTotal,
-    });
-  });
-
-  // GET /admin/data-fragment — renders _dataTab.ejs partial for HTMX swap
-  router.get('/admin/data-fragment', (_req, res) => {
-    const counts = getDbWideSoftDeleteCounts(db);
-    const total = counts.channels + counts.signals + counts.mentions + counts.chats + counts.progress;
-    // layout: false prevents express-ejs-layouts from wrapping in layout.ejs (which requires activePage)
-    res.render('admin/_dataTab', {
-      layout: false,
-      softDeleteCounts: counts,
-      softDeleteTotal: total,
+      overviewCounts,
+      recentRuns,
     });
   });
 
@@ -78,12 +87,13 @@ export function createAdminRouter(
       freshCounts.chats +
       freshCounts.progress;
 
-    // Signal both Data and Channels tab wrappers to re-fetch their fragments
-    res.set('HX-Trigger', JSON.stringify({ refreshData: {}, refreshChannels: {} }));
+    // Signal both Settings and Channels tab wrappers to re-fetch their fragments
+    res.set('HX-Trigger', JSON.stringify({ refreshSettings: {}, refreshChannels: {} }));
 
     // layout: false prevents express-ejs-layouts from wrapping in layout.ejs (which requires activePage)
-    res.render('admin/_dataTab', {
+    res.render('admin/_settingsTab', {
       layout: false,
+      defaultPrompt: getAppSetting(db, 'default_summary_prompt'),
       softDeleteCounts: freshCounts,
       softDeleteTotal: freshTotal,
     });
@@ -103,12 +113,13 @@ export function createAdminRouter(
       freshCounts.chats +
       freshCounts.progress;
 
-    // Signal both Data and Channels tab wrappers to re-fetch their fragments
-    res.set('HX-Trigger', JSON.stringify({ refreshData: {}, refreshChannels: {} }));
+    // Signal both Settings and Channels tab wrappers to re-fetch their fragments
+    res.set('HX-Trigger', JSON.stringify({ refreshSettings: {}, refreshChannels: {} }));
 
     // layout: false prevents express-ejs-layouts from wrapping in layout.ejs (which requires activePage)
-    res.render('admin/_dataTab', {
+    res.render('admin/_settingsTab', {
       layout: false,
+      defaultPrompt: getAppSetting(db, 'default_summary_prompt'),
       softDeleteCounts: freshCounts,
       softDeleteTotal: freshTotal,
     });
