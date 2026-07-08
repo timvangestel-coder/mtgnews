@@ -201,9 +201,9 @@ describe('admin-polling-router', () => {
 
       const res = await request(app).get('/admin/poll/progress');
       expect(res.status).toBe(200);
-      // Template should show per-channel progress: "1/3" in blue
+      // Template should show per-channel progress: "1/3" in brand blue
       expect(res.text).toContain('1/3');
-      expect(res.text).toContain('text-blue-600');
+      expect(res.text).toContain('text-brand-600');
     });
 
     it('renders done counter as X/X format when all signals processed', async () => {
@@ -220,9 +220,9 @@ describe('admin-polling-router', () => {
 
       const res = await request(app).get('/admin/poll/progress');
       expect(res.status).toBe(200);
-      // Should show "5/5" in green
+      // Should show "5/5" in success green
       expect(res.text).toContain('5/5');
-      expect(res.text).toContain('text-green-600');
+      expect(res.text).toContain('text-success-600');
     });
 
     it('shows zero-signal channels as "none" with gray color instead of "done" with green', async () => {
@@ -247,8 +247,8 @@ describe('admin-polling-router', () => {
       // Zero-signal channel should render "none" not "done"
       expect(res.text).toContain('none');
       // Template uses displayName from channels table; if no channel row, displayName is null
-      // The step will show empty displayName but still have the correct color class
-      expect(res.text).toContain('text-gray-400');
+      // The step will show empty displayName but still have the correct color class (tokenized: muted-400)
+      expect(res.text).toContain('text-muted-400');
     });
 
     it('passes signalPhases to template when run is running and phases exist', async () => {

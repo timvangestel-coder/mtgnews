@@ -150,14 +150,9 @@
   <!-- Extracted page scripts — must load before Alpine so global functions are available -->
   <% if (typeof scripts !== 'undefined') { %><%- scripts %><% } %>
 
-  <!-- Admin tabs component — must load before Alpine so adminTabs() is registered -->
-  <% if (activePage === 'admin') { %>
-  <script src="/scripts/admin-tabs.js"></script>
-  <% } %>
-
-  <!-- Admin delete modal — must load before Alpine so deleteModal() is registered -->
-  <% if (activePage === 'admin') { %>
-  <script src="/scripts/admin-delete-modal.js"></script>
+  <!-- UI State module — must load before Alpine so window.UiState is defined -->
+  <% if (activePage === 'signals' || activePage === 'signal-detail' || activePage === 'admin') { %>
+  <script src="/scripts/ui-state.js"></script>
   <% } %>
 
   <!-- Admin topic actions — must load before Alpine so onclick handlers can find it -->
@@ -211,11 +206,6 @@
   <script defer src="/scripts/chat-panel.js"></script>
   <!-- Dark Mode module — must load before Alpine so window.DarkMode is defined -->
   <script src="/scripts/dark-mode.js"></script>
-
-  <!-- UI State module — must load before Alpine so window.UiState is defined -->
-  <% if (activePage === 'signals' || activePage === 'signal-detail') { %>
-  <script src="/scripts/ui-state.js"></script>
-  <% } %>
 
   <!-- Alpine.js — pinned version for consistent behavior across environments -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>

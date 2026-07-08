@@ -1,59 +1,84 @@
 <!-- Display level: page title -->
 <h2 class="text-2xl font-bold tracking-display text-muted-900 dark:text-muted-100 mb-4">Run History</h2>
 
-<div class="overflow-x-auto">
-  <table class="min-w-full divide-y divide-surface-200 dark:divide-muted-700">
-    <thead class="bg-surface-50 dark:bg-muted-800">
-      <tr>
-        <!-- Caption level: table headers -->
-        <th class="px-4 py-2 text-left text-xs tracking-caption font-medium text-muted-500 dark:text-muted-400 uppercase">Date / Time</th>
-        <th class="px-4 py-2 text-left text-xs tracking-caption font-medium text-muted-500 dark:text-muted-400 uppercase">Status</th>
-        <th class="px-4 py-2 text-left text-xs tracking-caption font-medium text-muted-500 dark:text-muted-400 uppercase">Lookback</th>
-        <th class="px-4 py-2 text-left text-xs tracking-caption font-medium text-muted-500 dark:text-muted-400 uppercase">New Signals</th>
-        <th class="px-4 py-2 text-left text-xs tracking-caption font-medium text-muted-500 dark:text-muted-400 uppercase">Channels</th>
-        <th class="px-4 py-2 text-left text-xs tracking-caption font-medium text-muted-500 dark:text-muted-400 uppercase">Actions</th>
-      </tr>
-    </thead>
-    <tbody class="bg-white dark:bg-slate-800 divide-y divide-surface-200 dark:divide-muted-700">
-      <% runs.forEach(function(run) { %>
-        <tr class="hover:bg-surface-50 dark:hover:bg-slate-700 cursor-pointer" onclick="window.location.href='/polls/<%= run.id %>-detail'">
-          <!-- Body level: table cells -->
-          <td class="px-4 py-2 whitespace-nowrap text-sm leading-relaxed text-muted-800 dark:text-muted-200">
-            <%= new Date(run.triggered_at).toLocaleString() %>
-          </td>
-          <td class="px-4 py-2 whitespace-nowrap text-sm">
-            <% if (run.status === 'done') { %>
-              <!-- Caption level: status badges -->
-              <span class="px-2 py-1 text-xs tracking-caption font-semibold text-white bg-success-600 rounded">done</span>
-            <% } else if (run.status === 'done-forced') { %>
-              <span class="px-2 py-1 text-xs tracking-caption font-semibold text-warning-800 bg-warning-100 dark:bg-warning-900 dark:text-warning-200 rounded">done-forced</span>
-            <% } else if (run.status === 'failed') { %>
-              <span class="px-2 py-1 text-xs tracking-caption font-semibold text-white bg-danger-600 rounded">failed</span>
-            <% } else { %>
-              <span class="px-2 py-1 text-xs tracking-caption font-semibold text-white bg-warning-500 rounded">running</span>
+<div class="space-y-2">
+  <% runs.forEach(function(run) { %>
+    <%
+      // Status avatar + badge color
+      var avatarSymbol, avatarBg, badgeHtml;
+      if (run.status === 'done') {
+        avatarSymbol = '\u2713';
+        avatarBg = 'bg-success-100 dark:bg-success-900 text-success-600 dark:text-success-300';
+        badgeHtml = '<span class="px-2 py-0.5 text-xs tracking-caption font-semibold text-white bg-success-600 rounded">done</span>';
+      } else if (run.status === 'failed') {
+        avatarSymbol = '\u2717';
+        avatarBg = 'bg-danger-100 dark:bg-danger-900 text-danger-600 dark:text-danger-300';
+        badgeHtml = '<span class="px-2 py-0.5 text-xs tracking-caption font-semibold text-white bg-danger-600 rounded">failed</span>';
+      } else if (run.status === 'done-forced') {
+        avatarSymbol = '\u23F8';
+        avatarBg = 'bg-warning-100 dark:bg-warning-900 text-warning-600 dark:text-warning-300';
+        badgeHtml = '<span class="px-2 py-0.5 text-xs tracking-caption font-semibold text-warning-800 bg-warning-100 dark:bg-warning-900 dark:text-warning-200 rounded">done-forced</span>';
+      } else {
+        avatarSymbol = '\u23F8';
+        avatarBg = 'bg-warning-100 dark:bg-warning-900 text-warning-600 dark:text-warning-300';
+        badgeHtml = '<span class="px-2 py-0.5 text-xs tracking-caption font-semibold text-white bg-warning-500 rounded">running</span>';
+      }
+
+      // Date formatting
+      var dateObj = new Date(run.triggered_at);
+      var dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    %>
+    <!-- Card: clickable wrapper with status avatar, metadata chips, hover shadow -->
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-surface-200 dark:border-muted-700 p-3 cursor-pointer hover:shadow-card-md transition-shadow duration-default"
+         onclick="window.location.href='/polls/<%= run.id %>-detail'">
+      <div class="flex items-center gap-3">
+
+        <!-- Status avatar -->
+        <div class="flex-shrink-0 w-10 h-10 rounded-lg <%= avatarBg %> flex items-center justify-center text-xl font-bold leading-none">
+          <%= avatarSymbol %>
+        </div>
+
+        <!-- Title + metadata chips -->
+        <div class="flex-1 min-w-0">
+          <!-- Run title row -->
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-muted-800 dark:text-muted-200">Run #<%= run.id %> &mdash; <%= dateStr %></span>
+            <div class="flex-shrink-0">
+              <%= badgeHtml %>
+            </div>
+          </div>
+
+          <!-- Metadata chips row -->
+          <div class="text-xs mt-1 flex items-center gap-2 flex-wrap">
+            <span class="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 text-muted-600 dark:text-muted-300 font-medium">
+              <%= run.channels_done %>/<%= run.channels_total %> channels
+            </span>
+            <span class="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 text-muted-600 dark:text-muted-300 font-medium">
+              <%= run.lookback_days %>d lookback
+            </span>
+            <span class="inline-flex items-center rounded-md bg-brand-50 dark:bg-brand-900 px-1.5 py-0.5 text-brand-600 dark:text-brand-300 font-medium">
+              <%= run.new_signal_count %> signals
+            </span>
+            <% if (run.channels_failed > 0) { %>
+              <span class="inline-flex items-center rounded-md bg-danger-50 dark:bg-danger-900 px-1.5 py-0.5 text-danger-600 dark:text-danger-300 font-medium">
+                <%= run.channels_failed %> failed
+              </span>
             <% } %>
-          </td>
-          <td class="px-4 py-2 whitespace-nowrap text-sm leading-relaxed text-muted-800 dark:text-muted-200">
-            <%= run.lookback_days %>d
-          </td>
-          <td class="px-4 py-2 whitespace-nowrap text-sm leading-relaxed text-muted-800 dark:text-muted-200">
-            <%= run.new_signal_count %>
-          </td>
-          <td class="px-4 py-2 whitespace-nowrap text-sm leading-relaxed text-muted-800 dark:text-muted-200">
-            <%= run.channels_done %>/<%= run.channels_total %> done<% if (run.channels_failed > 0) { %>, <%= run.channels_failed %> failed<% } %>
-          </td>
-          <td class="px-4 py-2 whitespace-nowrap text-sm" onclick="event.stopPropagation()">
-            <% if (run.status === 'running') { %>
-              <form action="/admin/poll/abort/<%= run.id %>?return_to=/polls" method="post" class="inline">
-                <!-- Caption level: action button -->
-                <button type="submit" class="px-2 py-1 text-xs tracking-caption font-semibold text-white bg-danger-600 rounded hover:bg-danger-700">Abort</button>
-              </form>
-            <% } %>
-          </td>
-        </tr>
-      <% }); %>
-    </tbody>
-  </table>
+          </div>
+        </div>
+
+        <!-- Action button (running only) -->
+        <% if (run.status === 'running') { %>
+          <div class="flex-shrink-0" onclick="event.stopPropagation()">
+            <form action="/admin/poll/abort/<%= run.id %>?return_to=/polls" method="post">
+              <!-- Caption level: action button -->
+              <button type="submit" class="px-2 py-1 text-xs tracking-caption font-semibold text-white bg-danger-600 rounded hover:bg-danger-700">Abort</button>
+            </form>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  <% }); %>
 </div>
 
 <% if (totalPages > 1) { %>

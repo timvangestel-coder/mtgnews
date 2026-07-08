@@ -430,5 +430,244 @@ window.UiState = (() => {
     };
   }
 
-  return { filterBar, signalListView, detailTabs };
+  /**
+   * Admin Tabs — tab navigation for the admin panel.
+   * Manages activeTab state, keyboard roving focus, and fragment fetching.
+   */
+  function adminTabs() {
+    var TAB_ENDPOINTS = {
+      channels: '/admin/channels-fragment',
+      topics: '/admin/topics-fragment',
+      polling: '/admin/polling-fragment',
+      data: '/admin/data-fragment'
+    };
+
+    /** Ordered tab IDs for keyboard roving focus */
+    var TAB_ORDER = ['channels', 'topics', 'polling', 'data'];
+
+    return {
+      activeTab: document.querySelector('[data-admin-default-tab]')
+        ? document.querySelector('[data-admin-default-tab]').getAttribute('data-admin-default-tab')
+        : 'channels',
+
+      init: function () {
+        var self = this;
+        ['refreshChannels', 'refreshTopics', 'refreshPolling', 'refreshData'].forEach(function (name) {
+          document.body.addEventListener(name, function () {
+            var tabKey = name.replace('refresh', '').toLowerCase();
+            if (tabKey === self.activeTab) {
+              self.fetchTab(tabKey);
+            }
+          });
+        });
+      },
+
+      switchTab: function (tabName) {
+        if (tabName === this.activeTab) return;
+        history.replaceState(null, '', '/admin?tab=' + tabName);
+        var self = this;
+        this.activeTab = tabName;
+        // Use requestAnimationFrame to let Alpine render the new tab div before fetching
+        requestAnimationFrame(function () {
+          self.fetchTab(tabName);
+        });
+      },
+
+      /**
+       * Keyboard handler — move roving focus to previous/next tab.
+       * Matches detailTabs().moveTabFocus() pattern.
+       */
+      moveTabFocus: function (direction) {
+        var currentIndex = TAB_ORDER.indexOf(this.activeTab);
+        var nextIndex;
+        if (direction === 'left') {
+          nextIndex = currentIndex <= 0 ? TAB_ORDER.length - 1 : currentIndex - 1;
+        } else {
+          nextIndex = currentIndex >= TAB_ORDER.length - 1 ? 0 : currentIndex + 1;
+        }
+        var nextTabId = 'admin-tab-' + TAB_ORDER[nextIndex];
+        var tabEl = document.getElementById(nextTabId);
+        if (tabEl) {
+          tabEl.focus();
+          // Activate the tab on focus (roving tabindex pattern)
+          this.switchTab(TAB_ORDER[nextIndex]);
+        }
+      },
+
+      fetchTab: function (tabKey) {
+        var el = document.getElementById(tabKey + '-tab-content');
+        if (!el) return;
+        var url = TAB_ENDPOINTS[tabKey];
+        if (!url) return;
+
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(function (res) { return res.text(); })
+          .then(function (html) {
+            el.innerHTML = html;
+            if (typeof htmx !== 'undefined') {
+              htmx.process(el);
+            }
+          });
+      }
+    };
+  }
+
+  /**
+   * DeleteModal — reusable confirmation modal with entity counts.
+   *
+   * Dual-mode payload for `open-delete-modal.window` event:
+   *   { title, message, actionUrl, actionPayload?, countsUrl?, counts? }
+   *
+   * - If `counts` provided: use directly, no fetch (undo/purge mode)
+   * - If `countsUrl` provided (no `counts`): fetch from URL before showing (channel delete mode)
+   */
+  function deleteModal() {
+    return {
+      open: false,
+      busy: false,
+      error: null,
+
+      // Payload fields
+      title: '',
+      message: '',
+      actionUrl: '',
+      actionPayload: null,
+      countsUrl: null,
+      counts: null,
+
+      init: function () {
+        var self = this;
+        window.addEventListener('open-delete-modal', function (evt) {
+          self.open = true;
+          self.busy = false;
+          self.error = null;
+          self.title = evt.detail.title || 'Confirm';
+          self.message = evt.detail.message || '';
+          self.actionUrl = evt.detail.actionUrl || '';
+          self.actionPayload = evt.detail.actionPayload || null;
+          self.countsUrl = evt.detail.countsUrl || null;
+          self.counts = evt.detail.counts || null;
+
+          // If countsUrl provided but no inline counts, fetch first
+          if (self.countsUrl && !self.counts) {
+            self.fetchCounts();
+          }
+        });
+      },
+
+      fetchCounts: function () {
+        var self = this;
+        self.busy = true;
+        fetch(self.countsUrl)
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            self.counts = data;
+            self.busy = false;
+          })
+          .catch(function (err) {
+            self.error = 'Failed to load counts. Please try again.';
+            self.busy = false;
+            console.error('DeleteModal counts fetch failed:', err);
+          });
+      },
+
+      cancel: function () {
+        this.open = false;
+      },
+
+      close: function () {
+        this.open = false;
+      },
+
+      confirm: function () {
+        var self = this;
+        if (this.busy) return;
+        this.busy = true;
+        this.error = null;
+
+        var body = new URLSearchParams();
+        if (this.actionPayload) {
+          Object.keys(this.actionPayload).forEach(function (key) {
+            body.append(key, self.actionPayload[key]);
+          });
+        }
+
+        fetch(this.actionUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'HX-Request': 'true',
+          },
+          body: body.toString(),
+        })
+          .then(function (response) {
+            if (response.ok) {
+              // Consume the fragment response body
+              return response.text().then(function () {
+                // Read HX-Trigger header and dispatch events on document.body
+                var triggerHeader = response.headers.get('HX-Trigger');
+                if (triggerHeader) {
+                  try {
+                    var triggers = JSON.parse(triggerHeader);
+                    Object.keys(triggers).forEach(function (eventName) {
+                      document.body.dispatchEvent(
+                        new CustomEvent(eventName, { detail: triggers[eventName] })
+                      );
+                    });
+                    // Events dispatched — tab wrappers handle their own refresh via HTMX
+                    self.open = false;
+                    self.busy = false;
+                    return;
+                  } catch (e) {
+                    // If HX-Trigger is not valid JSON, fall through to reload
+                  }
+                }
+
+                // Fallback: full page reload for non-fragment actions
+                location.reload();
+              });
+            } else {
+              self.error = 'Action failed. Please try again.';
+              self.busy = false;
+            }
+          })
+          .catch(function (err) {
+            self.error = 'Network error. Please try again.';
+            self.busy = false;
+            console.error('DeleteModal confirm failed:', err);
+          });
+      },
+
+      /** Build display lines from counts object */
+      get countLines() {
+        if (!this.counts) return [];
+        // Support both formats:
+        // - Channel delete mode: signalsDeleted, mentionsDeleted, chatsDeleted, progressDeleted
+        // - Undo/Purge mode: channels, signals, mentions, chats, progress
+        var labels = {
+          channels: 'Channels',
+          signalsDeleted: 'Signals affected',
+          signals: 'Signals',
+          mentionsDeleted: 'Entity mentions',
+          mentions: 'Entity mentions',
+          chatsDeleted: 'Chat conversations',
+          chats: 'Chat rows',
+          progressDeleted: 'Poll progress rows',
+          progress: 'Poll run progress',
+        };
+        var self = this;
+        return Object.entries(labels)
+          .filter(function (entry) { return self.counts[entry[0]] != null; })
+          .map(function (entry) {
+            return {
+              key: entry[0],
+              label: entry[1],
+              value: self.counts[entry[0]],
+            };
+          });
+      },
+    };
+  }
+
+  return { filterBar, signalListView, detailTabs, adminTabs, deleteModal };
 })();

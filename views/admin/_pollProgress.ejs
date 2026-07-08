@@ -1,9 +1,9 @@
 <% var progressUrl = typeof progressUrl !== 'undefined' ? progressUrl : '/admin/poll/progress'; %>
-<div id="progress-widget" class="mb-6 p-4 bg-gray-50 rounded"
+<div id="progress-widget" class="mb-6 p-4 bg-surface-50 dark:bg-muted-900 rounded"
   <% if (state && state.status === 'running') { %>hx-get="<%= progressUrl %>" hx-trigger="every 3s"<% } else { %>hx-get="<%= progressUrl %>"<% } %>
   hx-swap="outerHTML">
   <% if (typeof error !== 'undefined' && error) { %>
-    <div class="mb-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm" role="alert">
+    <div class="mb-3 p-3 bg-danger-50 dark:bg-danger-950 border border-danger-200 dark:border-danger-800 rounded text-danger-700 dark:text-danger-300 text-sm" role="alert">
       <span class="font-semibold">Error:</span> <%= error %>
     </div>
   <% } %>
@@ -11,13 +11,13 @@
     <h3 class="font-semibold mb-2 flex items-center justify-between">
       <span>
         Run #<%= state.id %> —
-        <span class="text-amber-600">running...</span>
+        <span class="text-warning-600 dark:text-warning-400">running...</span>
       </span>
       <form hx-post="/admin/poll/abort/<%= state.id %>"
             hx-target="#progress-widget"
             hx-swap="outerHTML"
             hx-confirm="Abort this run? Unsummarized signals will be deleted.">
-        <button type="submit" class="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded">
+        <button type="submit" class="text-xs bg-danger-600 hover:bg-danger-700 text-white px-2 py-1 rounded">
           Abort Run
         </button>
       </form>
@@ -27,29 +27,29 @@
       <% state.steps.forEach(function(step) { %>
         <%
            // 5-branch step display logic for running state:
-           // 1. fetching -> "fetching" (blue)
-           // 2. failed -> "failed" (red)
-           // 3. total = 0 -> "none" (grey)
-           // 4. processing or done < total, total > 0 -> "X/Y" (blue)
-           // 5. done >= total, total > 0 -> "Y/Y" (green)
+           // 1. fetching -> "fetching" (blue/brand)
+           // 2. failed -> "failed" (red/danger)
+           // 3. total = 0 -> "none" (grey/muted)
+           // 4. processing or done < total, total > 0 -> "X/Y" (blue/brand)
+           // 5. done >= total, total > 0 -> "Y/Y" (green/success)
            var stepLabel, stepColor;
            if (step.status === 'fetching') {
              stepLabel = 'fetching';
-             stepColor = 'text-blue-600';
+             stepColor = 'text-brand-600 dark:text-brand-400';
            } else if (step.status === 'failed') {
              stepLabel = 'failed';
-             stepColor = 'text-red-600';
+             stepColor = 'text-danger-600 dark:text-danger-400';
            } else if (step.total === 0) {
              stepLabel = 'none';
-             stepColor = 'text-gray-400';
+             stepColor = 'text-muted-400 dark:text-muted-500';
            } else if (step.status === 'processing' || step.done < step.total) {
-             // Processing: show progress "X/Y" in blue
+             // Processing: show progress "X/Y" in brand
              stepLabel = step.done + '/' + step.total;
-             stepColor = 'text-blue-600';
+             stepColor = 'text-brand-600 dark:text-brand-400';
            } else {
-             // Done with signals > 0: show "Y/Y" in green
+             // Done with signals > 0: show "Y/Y" in success
              stepLabel = step.total + '/' + step.total;
-             stepColor = 'text-green-600';
+             stepColor = 'text-success-600 dark:text-success-400';
            }
         %>
         <div class="text-sm flex justify-between">
@@ -60,30 +60,30 @@
     </div>
 
     <% if (typeof signalPhases !== 'undefined' && signalPhases && signalPhases.length > 0) { %>
-      <div class="mt-3 pt-2 border-t border-gray-200">
-        <h4 class="text-xs font-semibold text-gray-500 uppercase mb-1">Signal phases</h4>
+      <div class="mt-3 pt-2 border-t border-gray-200 dark:border-muted-700">
+        <h4 class="text-xs font-semibold text-muted-500 dark:text-muted-400 uppercase mb-1">Signal phases</h4>
         <% signalPhases.forEach(function(sp) { %>
           <%
             var phaseLabel, phaseColor;
             if (sp.phase === 'intake') {
               phaseLabel = 'Intake';
-              phaseColor = 'text-gray-500';
+              phaseColor = 'text-muted-500 dark:text-muted-400';
             } else if (sp.phase === 'reasoning') {
               phaseLabel = 'Reasoning...';
-              phaseColor = 'text-blue-600';
+              phaseColor = 'text-brand-600 dark:text-brand-400';
             } else if (sp.phase === 'answering') {
               phaseLabel = 'Answering...';
-              phaseColor = 'text-purple-600';
+              phaseColor = 'text-purple-600 dark:text-purple-400';
             } else if (sp.phase === 'done') {
               phaseLabel = 'Done';
-              phaseColor = 'text-green-600';
+              phaseColor = 'text-success-600 dark:text-success-400';
             } else {
               phaseLabel = sp.phase;
-              phaseColor = 'text-gray-500';
+              phaseColor = 'text-muted-500 dark:text-muted-400';
             }
           %>
           <div class="text-xs flex justify-between mt-1">
-            <span class="truncate flex-1 mr-4 text-gray-600" title="<%= sp.displayLabel %><%= sp.videoId !== sp.displayLabel ? ' (' + sp.videoId + ')' : '' %>"><%= sp.displayLabel %></span>
+            <span class="truncate flex-1 mr-4 text-muted-600 dark:text-muted-300" title="<%= sp.displayLabel %><%= sp.videoId !== sp.displayLabel ? ' (' + sp.videoId + ')' : '' %>"><%= sp.displayLabel %></span>
             <span class="<%= phaseColor %> whitespace-nowrap"><%= phaseLabel %> (<%= sp.tokenCount %> tok)</span>
           </div>
         <% }); %>
@@ -93,36 +93,36 @@
   <% } else if (state && state.status === 'aborted') { %>
     <h3 class="font-semibold mb-2">
       Run #<%= state.id %> —
-      <span class="text-amber-600">aborted</span>
+      <span class="text-warning-600 dark:text-warning-400">aborted</span>
     </h3>
     <div class="space-y-1">
       <% state.steps.forEach(function(step) { %>
         <%
           // 5-branch step display logic for aborted state:
-          // 1. failed -> "failed" (red)
-          // 2. done === 0 (signals deleted by abort) -> "skipped" (grey)
-          // 3. 0 < done < total (partial work) -> "X/N" (amber)
-          // 4. done >= total, total > 0 (all summaries completed) -> "N/N" (green)
-          // 5. total === 0 (no signals found) -> "none" (grey)
+          // 1. failed -> "failed" (red/danger)
+          // 2. done === 0 (signals deleted by abort) -> "skipped" (grey/muted)
+          // 3. 0 < done < total (partial work) -> "X/N" (amber/warning)
+          // 4. done >= total, total > 0 (all summaries completed) -> "N/N" (green/success)
+          // 5. total === 0 (no signals found) -> "none" (grey/muted)
           var stepLabel, stepColor;
           if (step.status === 'failed') {
             stepLabel = 'failed';
-            stepColor = 'text-red-600';
+            stepColor = 'text-danger-600 dark:text-danger-400';
           } else if (step.total === 0) {
             stepLabel = 'none';
-            stepColor = 'text-gray-400';
+            stepColor = 'text-muted-400 dark:text-muted-500';
           } else if (step.done === 0) {
             // All signals were deleted by abort
             stepLabel = 'skipped';
-            stepColor = 'text-gray-400';
+            stepColor = 'text-muted-400 dark:text-muted-500';
           } else if (step.done < step.total) {
             // Partial work at abort time
             stepLabel = step.done + '/' + step.total;
-            stepColor = 'text-amber-600';
+            stepColor = 'text-warning-600 dark:text-warning-400';
           } else {
             // All summaries completed before abort
             stepLabel = step.total + '/' + step.total;
-            stepColor = 'text-green-600';
+            stepColor = 'text-success-600 dark:text-success-400';
           }
         %>
         <div class="text-sm flex justify-between">
@@ -134,29 +134,29 @@
   <% } else if (state) { %>
     <h3 class="font-semibold mb-2">
       Run #<%= state.id %> —
-      <span class="<%= state.status === 'complete' ? 'text-green-600' : 'text-red-600' %>"><%= state.status %></span>
+      <span class="<%= state.status === 'complete' ? 'text-success-600 dark:text-success-400' : 'text-danger-600 dark:text-danger-400' %>"><%= state.status %></span>
     </h3>
     <div class="space-y-1">
       <% state.steps.forEach(function(step) { %>
         <%
           // 5-branch step display logic for complete/failed state:
-          // 1. failed -> "failed" (red)
-          // 2. total = 0 -> "none" (grey)
-          // 3. processing or done < total, total > 0 -> "X/Y" (blue)
-          // 4. done >= total, total > 0 -> "Y/Y" (green)
+          // 1. failed -> "failed" (red/danger)
+          // 2. total = 0 -> "none" (grey/muted)
+          // 3. processing or done < total, total > 0 -> "X/Y" (blue/brand)
+          // 4. done >= total, total > 0 -> "Y/Y" (green/success)
           var stepLabel, stepColor;
           if (step.status === 'failed') {
             stepLabel = 'failed';
-            stepColor = 'text-red-600';
+            stepColor = 'text-danger-600 dark:text-danger-400';
           } else if (step.total === 0) {
             stepLabel = 'none';
-            stepColor = 'text-gray-400';
+            stepColor = 'text-muted-400 dark:text-muted-500';
           } else if (step.status === 'processing' || step.done < step.total) {
             stepLabel = step.done + '/' + step.total;
-            stepColor = 'text-blue-600';
+            stepColor = 'text-brand-600 dark:text-brand-400';
           } else {
             stepLabel = step.total + '/' + step.total;
-            stepColor = 'text-green-600';
+            stepColor = 'text-success-600 dark:text-success-400';
           }
         %>
         <div class="text-sm flex justify-between">
@@ -166,6 +166,6 @@
       <% }); %>
     </div>
   <% } else { %>
-    <p class="text-gray-500">No poll runs yet.</p>
+    <p class="text-muted-500 dark:text-muted-400">No poll runs yet.</p>
   <% } %>
 </div>
