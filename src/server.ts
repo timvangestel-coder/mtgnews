@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import { db } from './index';
 import { recoverStaleRuns, startScheduledPolling } from './scheduler';
 import { SignalQueryService } from './services/signal-query-service';
+import { SpeechService } from './services/speech-service';
 import { createSignalsRouter } from './routes/signals-router';
 import { ChannelManager } from './services/channel-manager';
 import { createAdminChannelsRouter } from './routes/admin-channels-router';
@@ -79,7 +80,8 @@ export function createServer(options: ServerOptions | number = {}): ServerApp {
 
   // signals — mounted via router (Issue #67)
   const signalService = new SignalQueryService(useDb);
-  app.use('/', createSignalsRouter(signalService));
+  const speechService = new SpeechService(useDb);
+  app.use('/', createSignalsRouter(signalService, speechService));
 
   // admin channels — mounted via router (Issue #68)
   const channelManager = new ChannelManager(useDb);

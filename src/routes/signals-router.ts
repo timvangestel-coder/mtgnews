@@ -1,6 +1,7 @@
-import { Router, Request } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { displayTitleForSignal } from '../signal-detail';
 import { SignalQueryService } from '../services/signal-query-service';
+import { SpeechService } from '../services/speech-service';
 import { listTopics, getChannelsWithTopics } from '../db/watchlist';
 import { computeDateRange } from '../scope-source';
 
@@ -8,7 +9,14 @@ interface RenderRequest extends Request {
   query: Record<string, string | string[] | undefined>;
 }
 
-export function createSignalsRouter(service: SignalQueryService) {
+/** Express 5–ready async error wrapper */
+function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
+
+export function createSignalsRouter(service: SignalQueryService, speechService?: SpeechService) {
   const router = Router();
 
   // GET /signals — list signals (Signal Viewer)
@@ -141,6 +149,19 @@ export function createSignalsRouter(service: SignalQueryService) {
       res.redirect(`/signals/${videoId}`);
     }
   });
+
+  // GET /signals/:id/audio — serve TTS audio for signal summary (Issue #TTS)
+  router.get('/signals/:id/audio', asyncHandler(async (req, res) => {
+    if (!speechService) {
+      return res.status(500).send('Speech service not available');
+    }
+    const videoId = req.params.id as string;
+    const filePath = await speechService.generate(videoId);
+    if (!filePath) {
+      return res.status(404).send('No summary available');
+    }
+    res.type('audio/mpeg').sendFile(filePath);
+  }));
 
   return router;
 }

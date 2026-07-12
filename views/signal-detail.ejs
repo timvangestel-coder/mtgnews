@@ -173,12 +173,32 @@
       >
         <% if (summaryHtml) { %>
           <div class="p-4" :class="viewState === 'split' ? 'bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-600' : ''">
-            <!-- Heading level: section header -->
-            <h3 class="text-lg font-semibold tracking-heading mb-3 text-muted-900 dark:text-muted-100"
+            <!-- Heading level: section header with TTS speaker button -->
+            <div class="flex items-center justify-between mb-3"
               :class="viewState === 'split' ? 'sticky top-0 bg-white dark:bg-slate-800 z-10 pb-2' : ''"
+              x-data="SpeakerButton('<%= signal.video_id %>')"
             >
-              Key Takeaways
-            </h3>
+              <h3 class="text-lg font-semibold tracking-heading text-muted-900 dark:text-muted-100">
+                Key Takeaways
+              </h3>
+              <button @click="click"
+                     :disabled="loading"
+                     :class="iconClass"
+                     class="p-1.5 rounded-lg transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                     :title="playing ? 'Stop' : 'Listen to summary'"
+                     aria-label="Listen to summary">
+                <!-- Speaker / stop icon based on state -->
+                <svg x-show="idle" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                </svg>
+                <svg x-show="loading" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 animate-pulse">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                </svg>
+                <svg x-show="playing" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75a.75.75 0 01.75-.75h9a.75.75 0 01.75.75v10.5a.75.75 0 01-.75.75h-9a.75.75 0 01-.75-.75V6.75z" />
+                </svg>
+              </button>
+            </div>
             <!-- Body level: summary content -->
             <div class="prose prose-sm max-w-none text-sm leading-relaxed text-muted-800 dark:text-muted-200">
               <!-- Brand-colored bullet markers via CSS -->
